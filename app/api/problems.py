@@ -39,10 +39,25 @@ class Problem(BaseModel):
     errors: list[FieldProblem] | None = None
 
 
-# Shared by every /api/v1 route in the OpenAPI document.
+# Shared by every /api/v1 route in the OpenAPI document; problem_media_type
+# then declares them with the media type the handlers send.
 PROBLEM_RESPONSES: dict[int | str, dict[str, Any]] = {
     "4XX": {"model": Problem, "description": "Problem details (RFC 9457)"},
 }
+
+
+def problem_media_type(document: dict[str, Any]) -> dict[str, Any]:
+    """Move the 4XX answers of an OpenAPI document to application/problem+json.
+
+    FastAPI files a response model under application/json; the handlers below
+    send application/problem+json, and the frontend types follow the document.
+    """
+    for operations in document.get("paths", {}).values():
+        for operation in operations.values():
+            content = operation.get("responses", {}).get("4XX", {}).get("content")
+            if content and "application/json" in content:
+                content[PROBLEM_MEDIA_TYPE] = content.pop("application/json")
+    return document
 
 
 class ProblemError(Exception):

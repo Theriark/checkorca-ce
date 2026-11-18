@@ -54,7 +54,14 @@ class Repository:
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         for name, member in vars(cls).items():
-            if name.startswith("_") or not inspect.isfunction(member):
+            if name.startswith("_"):
+                continue
+            # A static or class method has no Principal to check: not allowed.
+            if isinstance(member, staticmethod | classmethod):
+                raise TypeError(
+                    f"{cls.__name__}.{name} is public and must be a @guarded method"
+                )
+            if not inspect.isfunction(member):
                 continue
             if not hasattr(member, GUARD_ATTRIBUTE):
                 raise TypeError(

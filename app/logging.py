@@ -23,10 +23,12 @@ REDACTED = "[redacted]"
 # Shorter values are not worth redacting and would mangle ordinary words.
 MIN_REDACTED_LENGTH = 8
 # Attributes every LogRecord has; anything else arrived through extra=.
+# uvicorn adds color_message, a second copy of the message with ANSI colours.
 _STANDARD_ATTRIBUTES = frozenset(vars(logging.makeLogRecord({}))) | {
     "message",
     "asctime",
     "request_id",
+    "color_message",
 }
 # Uvicorn's own handlers are replaced: its records go through the root handler.
 _UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")

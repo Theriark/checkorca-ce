@@ -46,8 +46,9 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 def sign_in_failed() -> ProblemError:
-    """The same answer for an unknown address, a disabled account and a wrong
-    password, so sign-in does not reveal which addresses exist."""
+    """The same answer, after the same Argon2 work, for an unknown address, a
+    disabled account and a wrong password. The lockout of the plan still tells
+    them apart: only an existing account answers 423 after five failures."""
     return ProblemError(
         401, "Sign-in failed", "The e-mail address or the password is wrong."
     )

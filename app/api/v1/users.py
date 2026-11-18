@@ -8,6 +8,7 @@ or disabling an account ends the user's other sessions.
 import uuid
 
 from fastapi import APIRouter, Request
+from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import AdminDep, DbDep, ServicesDep, SessionContext, record_audit
 from app.api.pagination import (
@@ -28,6 +29,10 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 def user_not_found() -> ProblemError:
     return ProblemError(404, "User not found")
+
+
+def address_taken() -> ProblemError:
+    return ProblemError(409, "E-mail address taken")
 
 
 def last_admin() -> ProblemError:
@@ -69,14 +74,20 @@ async def create_user(
     """Create an account; 409 when the address is taken."""
     users = UserRepository(db, services.policy)
     if await users.find_by_email(context.principal, body.email) is not None:
-        raise ProblemError(409, "E-mail address taken")
-    user = await users.create(
-        context.principal,
-        email=body.email,
-        password_hash=await services.passwords.hash(body.password),
-        role=body.role,
-        now=services.clock.now(),
-    )
+        raise address_taken()
+    password_hash = await services.passwords.hash(body.password)
+    try:
+        user = await users.create(
+            context.principal,
+            email=body.email,
+            password_hash=password_hash,
+            role=body.role,
+            now=services.clock.now(),
+        )
+    except IntegrityError:
+        # A concurrent request created the same address after the check.
+        await db.rollback()
+        raise address_taken() from None
     await record_audit(
         services,
         db,

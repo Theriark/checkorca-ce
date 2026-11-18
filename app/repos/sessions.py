@@ -8,7 +8,7 @@ from sqlalchemy import delete, select
 from app.access import Principal
 from app.db.models import AppSession, AppUser
 from app.repos.base import Repository, guarded
-from app.security.sessions import SESSION_TTL
+from app.security.sessions import SESSION_MAX_AGE, SESSION_TTL
 
 
 class SessionRepository(Repository):
@@ -42,13 +42,17 @@ class SessionRepository(Repository):
     async def resolve(
         self, principal: Principal, id_hash: str, now: datetime
     ) -> tuple[AppSession, AppUser] | None:
-        """The live session and its enabled user, or None."""
+        """The live session and its enabled user, or None.
+
+        Live: used within the last 12 hours and signed in less than 7 days ago.
+        """
         query = (
             select(AppSession, AppUser)
             .join(AppUser, AppUser.id == AppSession.user_id)
             .where(
                 AppSession.id_hash == id_hash,
                 AppSession.expires_at > now,
+                AppSession.created_at > now - SESSION_MAX_AGE,
                 AppUser.disabled.is_(False),
             )
         )

@@ -3,6 +3,7 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
@@ -15,7 +16,7 @@ from app.access import AccessPolicy, AllowAllPolicy
 from app.api import v1
 from app.api.deps import Services
 from app.api.middleware import RequestContextMiddleware
-from app.api.problems import EXCEPTION_HANDLERS
+from app.api.problems import EXCEPTION_HANDLERS, problem_media_type
 from app.clock import Clock, SystemClock
 from app.db.engine import check_database, make_engine
 from app.ext.audit import AuditSink, DatabaseAuditSink
@@ -69,16 +70,26 @@ def create_app(
         finally:
             await engine.dispose()
 
+    # HSTS only for an https site, so a localhost install never pins HTTPS.
+    context = Middleware(
+        RequestContextMiddleware, hsts=config.base_url.startswith("https://")
+    )
     app = FastAPI(
         title=PRODUCT_NAME,
         version=__version__,
         lifespan=lifespan,
         docs_url=None,
         redoc_url=None,
-        middleware=[Middleware(RequestContextMiddleware)],
+        middleware=[context],
         exception_handlers=EXCEPTION_HANDLERS,
     )
     app.state.services = services
+    build_openapi = app.openapi
+
+    def openapi() -> dict[str, Any]:
+        return problem_media_type(build_openapi())
+
+    app.openapi = openapi  # type: ignore[method-assign]
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str | None]:

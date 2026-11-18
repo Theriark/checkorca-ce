@@ -125,6 +125,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         logger.error("seed refused: %s", error)
         print(f"checkorca: {error}", file=sys.stderr)
         return 2
+    except Exception as error:
+        # Through the JSON log: class and frames, never the exception text, which
+        # can hold SQL parameters or addresses (D-6). No default traceback.
+        logger.error("%s failed", name, exc_info=error)
+        print(f"checkorca: {name} failed ({type(error).__name__})", file=sys.stderr)
+        return 1
     return 0
 
 

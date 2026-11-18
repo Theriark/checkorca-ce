@@ -5,6 +5,7 @@ change) for the SPA and the admin routes; an API token in the Authorization
 header (Bearer) for scripts, with the scope ingest or read.
 """
 
+import ipaddress
 import math
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
@@ -71,9 +72,19 @@ DbDep = Annotated[AsyncSession, Depends(get_db)]
 
 
 def client_ip(request: Request) -> str | None:
-    """The client address; behind a proxy, uvicorn sets it from X-Forwarded-For
-    when FORWARDED_ALLOW_IPS names the proxy."""
-    return request.client.host if request.client else None
+    """The client address, or None when it is not an IP address.
+
+    Behind a proxy, uvicorn takes it from X-Forwarded-For only when
+    FORWARDED_ALLOW_IPS names the proxy network (never *: the left-most entry is
+    the client's to choose). The check keeps any other value out of the rate
+    limit keys and the 45-character address columns.
+    """
+    if request.client is None:
+        return None
+    try:
+        return str(ipaddress.ip_address(request.client.host))
+    except ValueError:
+        return None
 
 
 def enforce_rate_limit(limiter: RateLimiter, key: str) -> None:
