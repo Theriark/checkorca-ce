@@ -58,7 +58,9 @@ body {
   gap: 16px;
   padding: 16px 32px;
   border-bottom: 1px solid var(--border);
-  background: var(--surface);
+  /* The logo PNGs have an opaque tile in the page colour (off-white light,
+     ink dark), so the header uses the same colour and shows no box. */
+  background: var(--bg);
 }
 
 .shell-logo {

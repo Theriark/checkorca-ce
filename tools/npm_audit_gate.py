@@ -2,10 +2,13 @@
 
 Reads the JSON report of npm audit (npm 7 or later) and package-lock.json and
 fails on every advisory of moderate severity or higher, except those listed in
-.npm-audit-exceptions (one line each: the GHSA id, then the reason). An
-exception only applies while every vulnerable copy of the package is a
-development package (dev or devOptional in package-lock.json): an advisory that
-reaches the built web app always fails.
+.npm-audit-exceptions (one line each: the GHSA id, the review date YYYY-MM-DD,
+then the reason). An exception only applies while every vulnerable copy of the
+package is a development package ("dev": true in package-lock.json;
+"devOptional" can be in the production tree, so it does not count): an
+advisory that reaches the built web app always fails. An exception reviewed
+more than 90 days ago fails until it is reviewed again, so a fixed release is
+not missed.
 
 Usage (in frontend/):
   npm audit --json > audit.json || true
@@ -18,6 +21,7 @@ import re
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +29,15 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_EXCEPTIONS = ROOT / ".npm-audit-exceptions"
 LEVELS = {"info": 0, "low": 1, "moderate": 2, "high": 3, "critical": 4}
 ADVISORY = re.compile(r"GHSA(?:-[23456789cfghjmpqrvwx]{4}){3}")
+MAX_AGE_DAYS = 90
+
+
+@dataclass(frozen=True)
+class AuditException:
+    """One reviewed line of .npm-audit-exceptions."""
+
+    reviewed: date
+    reason: str
 
 
 @dataclass(frozen=True)
@@ -38,19 +51,35 @@ class Advisory:
     nodes: tuple[str, ...]
 
 
-def load_exceptions(path: Path) -> dict[str, str]:
-    """Read .npm-audit-exceptions: advisory id and reason per line."""
+def load_exceptions(
+    path: Path, today: date | None = None, max_age_days: int = MAX_AGE_DAYS
+) -> dict[str, AuditException]:
+    """Read .npm-audit-exceptions: advisory id, review date and reason per line."""
     if not path.is_file():
         return {}
-    exceptions: dict[str, str] = {}
+    current = today or date.today()
+    exceptions: dict[str, AuditException] = {}
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         text = line.strip()
         if not text or text.startswith("#"):
             continue
-        advisory, _, reason = text.partition(" ")
-        if not ADVISORY.fullmatch(advisory) or not reason.strip():
-            raise ValueError(f"{path}:{number}: expected 'GHSA-xxxx-xxxx-xxxx reason'")
-        exceptions[advisory] = reason.strip()
+        where = f"{path}:{number}"
+        parts = text.split(maxsplit=2)
+        try:
+            advisory, reviewed_text, reason = parts
+            reviewed = date.fromisoformat(reviewed_text)
+        except ValueError:
+            raise ValueError(f"{where}: expected 'GHSA-id YYYY-MM-DD reason'") from None
+        if not ADVISORY.fullmatch(advisory):
+            raise ValueError(f"{where}: expected 'GHSA-id YYYY-MM-DD reason'")
+        if reviewed > current:
+            raise ValueError(f"{where}: {advisory} has a review date in the future")
+        if (current - reviewed).days > max_age_days:
+            raise ValueError(
+                f"{where}: {advisory} was reviewed on {reviewed}; review it again"
+                f" (at most {max_age_days} days)"
+            )
+        exceptions[advisory] = AuditException(reviewed, reason)
     return exceptions
 
 
@@ -87,9 +116,7 @@ def is_development_only(nodes: Sequence[str], lock: Mapping[str, Any]) -> bool:
         return False
     for node in nodes:
         entry = packages.get(node)
-        if not isinstance(entry, dict):
-            return False
-        if not (entry.get("dev") or entry.get("devOptional")):
+        if not isinstance(entry, dict) or entry.get("dev") is not True:
             return False
     return True
 
@@ -97,7 +124,7 @@ def is_development_only(nodes: Sequence[str], lock: Mapping[str, Any]) -> bool:
 def gate(
     report: Mapping[str, Any],
     lock: Mapping[str, Any],
-    exceptions: Mapping[str, str],
+    exceptions: Mapping[str, AuditException],
     level: str = "moderate",
 ) -> tuple[list[Advisory], list[Advisory]]:
     """Return (failing, excepted) advisories at or above the level."""
@@ -132,7 +159,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     for advisory in excepted:
         print(
             f"EXCEPTION {advisory.id} {advisory.package} ({advisory.severity}, "
-            f"development only): {exceptions[advisory.id]}"
+            f"development only, reviewed {exceptions[advisory.id].reviewed}): "
+            f"{exceptions[advisory.id].reason}"
         )
     for advisory in failing:
         print(

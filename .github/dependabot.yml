@@ -7,3 +7,29 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+  # The base images are pinned by digest (Dockerfile: node:22-slim and
+  # python:3.12-slim). Dependabot proposes newer digests as reviewed pull
+  # requests, so the image does not age with known vulnerabilities.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  # postgres:16 by digest in docker-compose.yml.
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  # requirements.in compiled with pip-compile into the hashed requirements.txt
+  # and requirements-dev.txt.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

@@ -1,0 +1,12 @@
+# Reviewed exceptions for the grype scan of the image (ci.yml, sbom job).
+# The scan fails on a high or critical vulnerability that has a fix. Add an
+# ignore rule only for a reviewed finding, with the reason, the reviewer and a
+# review date in a comment above it, for example:
+#
+#   # CVE-2026-0000: not reachable because ...; reviewed by ..., 2026-11-18.
+#   - vulnerability: CVE-2026-0000
+#     package:
+#       name: example
+#
+# Prefer bumping the pinned base image digest (Dependabot proposes it).
+ignore: []
