@@ -9,6 +9,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.db.models import AppSession, AppUser
+from app.repos.users import UserRepository
 from helpers import (
     ADMIN_EMAIL,
     ADMIN_PASSWORD,
@@ -71,6 +72,26 @@ async def test_a_taken_address_answers_409(
         headers={CSRF_HEADER: csrf},
     )
     assert response.status_code == 409
+
+
+async def test_a_concurrent_duplicate_answers_409_not_500(
+    client: httpx.AsyncClient,
+    csrf: str,
+    technician: AppUser,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Another request created the address after this one checked it.
+    async def not_found_yet(*args: object, **kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(UserRepository, "find_by_email", not_found_yet)
+    response = await client.post(
+        "/api/v1/users",
+        json={"email": TECHNICIAN_EMAIL, "password": NEW_PASSWORD, "role": "admin"},
+        headers={CSRF_HEADER: csrf},
+    )
+    assert response.status_code == 409
+    assert response.json()["title"] == "E-mail address taken"
 
 
 @pytest.mark.parametrize(

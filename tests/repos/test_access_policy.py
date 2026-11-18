@@ -6,6 +6,7 @@ from typing import Any
 
 import httpx
 import pytest
+from sqlalchemy import false
 
 import app.repos.sessions
 import app.repos.settings
@@ -122,6 +123,45 @@ def test_an_unguarded_public_method_fails_at_import_time() -> None:
 
     with pytest.raises(TypeError, match="must use @guarded"):
         type("Leaky", (Repository,), {"resource": "leaky", "everything": everything})
+
+
+@pytest.mark.parametrize("wrap", [staticmethod, classmethod])
+def test_a_public_static_or_class_method_fails_at_import_time(wrap: Any) -> None:
+    async def make(*args: object) -> None:
+        return None
+
+    with pytest.raises(TypeError, match="must be a @guarded method"):
+        type("Leaky", (Repository,), {"resource": "leaky", "make": wrap(make)})
+
+
+class EmptyScopePolicy(AllowAllPolicy):
+    """Allows every action but scopes every list query to nothing."""
+
+    def scope(self, principal: Principal, resource: str, query: Any) -> Any:
+        return query.where(false())
+
+
+async def test_list_and_get_queries_go_through_the_policy_scope(
+    db_engine: Any, admin: AppUser
+) -> None:
+    policy = EmptyScopePolicy()
+    application = create_app(load_settings(), static_dir=None, policy=policy)
+    async with running(application) as client:
+        csrf = await sign_in(client, ADMIN_EMAIL, ADMIN_PASSWORD)
+        created = await client.post(
+            "/api/v1/tokens",
+            json={"label": "scoped away", "scope": "read"},
+            headers={"X-CSRF-Token": csrf},
+        )
+        assert created.status_code == 201
+        assert (await client.get("/api/v1/users")).json()["items"] == []
+        assert (await client.get("/api/v1/tokens")).json()["items"] == []
+        user = await client.get(f"/api/v1/users/{admin.id}")
+        assert user.status_code == 404
+        revoke = await client.delete(
+            f"/api/v1/tokens/{created.json()['id']}", headers={"X-CSRF-Token": csrf}
+        )
+        assert revoke.status_code == 404
 
 
 def test_private_helpers_need_no_guard() -> None:

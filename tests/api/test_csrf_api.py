@@ -4,11 +4,14 @@ The routes are read from the app, so a route added later is covered without a
 change here. Only sign-in and first run are exempt: no session exists yet.
 """
 
+import json
 import re
 import uuid
 
 import httpx
 import pytest
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.db.models import AppUser
 from app.main import create_app
@@ -28,6 +31,12 @@ CSRF_EXEMPT = {
     ("POST", "/api/v1/auth/login"),
     ("POST", "/api/v1/auth/first-run"),
 }
+# What a cross-site HTML form can send: url-encoded fields, or JSON-shaped text.
+FORM_BODY = f"email={ADMIN_EMAIL}&password={ADMIN_PASSWORD}"
+JSON_BODY = json.dumps({"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+USERS_AND_SESSIONS = text(
+    "SELECT (SELECT count(*) FROM app_user), (SELECT count(*) FROM app_session)"
+)
 
 
 def unsafe_routes() -> list[tuple[str, str]]:
@@ -107,6 +116,34 @@ async def test_a_token_of_another_session_is_refused(
     await sign_in(client, ADMIN_EMAIL, ADMIN_PASSWORD)
     response = await client.post("/api/v1/auth/logout", headers={CSRF_HEADER: other})
     assert response.status_code == 403
+
+
+@pytest.mark.parametrize(("method", "path"), sorted(CSRF_EXEMPT))
+@pytest.mark.parametrize(
+    ("content_type", "body"),
+    [
+        ("application/x-www-form-urlencoded", FORM_BODY),
+        ("text/plain", JSON_BODY),
+        (None, JSON_BODY),
+    ],
+)
+async def test_the_exempt_routes_accept_only_json(
+    client: httpx.AsyncClient,
+    db_engine: AsyncEngine,
+    method: str,
+    path: str,
+    content_type: str | None,
+    body: str,
+) -> None:
+    """The exemption rests on this: a cross-site form can send only these kinds
+    of body, and none of them may sign in or create the first admin."""
+    headers = {} if content_type is None else {"Content-Type": content_type}
+    response = await client.request(method, path, content=body, headers=headers)
+    assert response.status_code == 422
+    assert "set-cookie" not in response.headers
+    async with db_engine.connect() as connection:
+        counts = (await connection.execute(USERS_AND_SESSIONS)).one()
+    assert tuple(counts) == (0, 0)
 
 
 @pytest.mark.parametrize(("method", "path"), sorted(CSRF_EXEMPT))

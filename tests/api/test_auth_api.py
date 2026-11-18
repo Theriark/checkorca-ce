@@ -1,5 +1,6 @@
 """auth: setup-state, first run, sign-in, lockout, sessions, logout, me."""
 
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
@@ -128,7 +129,11 @@ async def test_wrong_password_and_unknown_address_answer_alike(
 
 
 async def test_five_failures_lock_the_account_for_five_minutes(
-    client: httpx.AsyncClient, admin: AppUser, clock: FakeClock
+    client: httpx.AsyncClient,
+    admin: AppUser,
+    technician: AppUser,
+    clock: FakeClock,
+    db_engine: AsyncEngine,
 ) -> None:
     wrong = {"email": ADMIN_EMAIL, "password": WRONG_PASSWORD}
     right = {"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}
@@ -138,9 +143,22 @@ async def test_five_failures_lock_the_account_for_five_minutes(
     fifth = await client.post(LOGIN, json=wrong)
     assert fifth.status_code == 423
     assert fifth.headers["retry-after"] == "300"
+    # The lock starts a fresh count and is audited.
+    (user,) = [row for row in await rows(db_engine, AppUser) if row.role == "admin"]
+    assert user.failed_logins == 0
+    actions = [row.action for row in await rows(db_engine, AuditEvent)]
+    assert actions.count("auth.locked") == 1
 
-    # Locked: even the right password is refused until the five minutes pass.
-    clock.advance(minutes=4, seconds=59)
+    # Locked: a wrong password neither counts nor extends the lock.
+    clock.advance(minutes=1)
+    assert (await client.post(LOGIN, json=wrong)).status_code == 423
+    (user,) = [row for row in await rows(db_engine, AppUser) if row.role == "admin"]
+    assert user.failed_logins == 0
+    # Other accounts are not affected.
+    await sign_in(client, TECHNICIAN_EMAIL, TECHNICIAN_PASSWORD)
+
+    # Even the right password is refused until the five minutes pass.
+    clock.advance(minutes=3, seconds=59)
     locked = await client.post(LOGIN, json=right)
     assert locked.status_code == 423
     assert locked.headers["retry-after"] == "1"
@@ -151,12 +169,17 @@ async def test_five_failures_lock_the_account_for_five_minutes(
 
 
 async def test_a_success_resets_the_failure_count(
-    client: httpx.AsyncClient, admin: AppUser, db_engine: AsyncEngine
+    client: httpx.AsyncClient,
+    admin: AppUser,
+    db_engine: AsyncEngine,
+    clock: FakeClock,
 ) -> None:
     wrong = {"email": ADMIN_EMAIL, "password": WRONG_PASSWORD}
     for _ in range(4):
         assert (await client.post(LOGIN, json=wrong)).status_code == 401
     await sign_in(client, ADMIN_EMAIL, ADMIN_PASSWORD)
+    # A new minute: the address rate limit (10 a minute) stays out of the way.
+    clock.advance(minutes=1)
     for _ in range(4):
         assert (await client.post(LOGIN, json=wrong)).status_code == 401
     (user,) = await rows(db_engine, AppUser)
@@ -206,6 +229,40 @@ async def test_the_session_slides_and_expires_after_twelve_idle_hours(
     assert expired.json()["title"] == "Not signed in"
 
 
+async def test_a_session_ends_seven_days_after_sign_in(
+    client: httpx.AsyncClient, admin: AppUser, clock: FakeClock
+) -> None:
+    await sign_in(client, ADMIN_EMAIL, ADMIN_PASSWORD)
+    # Used every 11 hours, so the 12-hour idle limit is never reached.
+    for _ in range(15):
+        clock.advance(hours=11)
+        assert (await client.get("/api/v1/auth/me")).status_code == 200
+    clock.advance(hours=11)
+    # 176 hours after sign-in: past the 7-day cap.
+    assert (await client.get("/api/v1/auth/me")).status_code == 401
+
+
+async def test_api_bodies_over_64_kib_answer_413(client: httpx.AsyncClient) -> None:
+    padding = "x" * (64 * 1024)
+    declared = await client.post(
+        LOGIN, json={"email": ADMIN_EMAIL, "password": WRONG_PASSWORD, "x": padding}
+    )
+    assert declared.status_code == 413
+    assert declared.headers["content-type"] == "application/problem+json"
+
+    async def chunks() -> AsyncIterator[bytes]:
+        # Streamed without a Content-Length header.
+        yield b'{"email": "nobody@example.com", "password": "'
+        for _ in range(20):
+            yield b"x" * 4096
+        yield b'"}'
+
+    streamed = await client.post(
+        LOGIN, content=chunks(), headers={"Content-Type": "application/json"}
+    )
+    assert streamed.status_code == 413
+
+
 async def test_me_and_logout(
     client: httpx.AsyncClient, technician: AppUser, db_engine: AsyncEngine
 ) -> None:
@@ -247,16 +304,32 @@ async def test_sign_in_events_are_audited_by_id(
         assert "example.com" not in str(row.details)
 
 
+@pytest.mark.parametrize(
+    ("method", "path", "body"),
+    [
+        ("GET", "/api/v1/users", None),
+        ("POST", "/api/v1/users", {"email": "new@example.com"}),
+        ("GET", "/api/v1/users/{id}", None),
+        ("PATCH", "/api/v1/users/{id}", {"role": "admin"}),
+        ("DELETE", "/api/v1/users/{id}", None),
+        ("GET", "/api/v1/tokens", None),
+        ("POST", "/api/v1/tokens", {"label": "nightly script", "scope": "read"}),
+        ("DELETE", "/api/v1/tokens/{id}", None),
+    ],
+)
 async def test_a_technician_cannot_use_the_admin_routes(
-    client: httpx.AsyncClient, technician: AppUser
+    client: httpx.AsyncClient,
+    technician: AppUser,
+    method: str,
+    path: str,
+    body: dict[str, str] | None,
 ) -> None:
     csrf = await sign_in(client, TECHNICIAN_EMAIL, TECHNICIAN_PASSWORD)
-    assert (await client.get("/api/v1/users")).status_code == 403
-    assert (await client.get("/api/v1/tokens")).status_code == 403
-    created = await client.post(
-        "/api/v1/tokens",
-        json={"label": "nightly script", "scope": "read"},
+    response = await client.request(
+        method,
+        path.format(id=technician.id),
+        json=body,
         headers={CSRF_HEADER: csrf},
     )
-    assert created.status_code == 403
-    assert created.json()["title"] == "Admin role required"
+    assert response.status_code == 403
+    assert response.json()["title"] == "Admin role required"

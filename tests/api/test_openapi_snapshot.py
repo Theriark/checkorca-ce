@@ -58,3 +58,14 @@ def test_the_document_describes_the_c1_routes() -> None:
         "/api/v1/tokens/{token_id}",
     ):
         assert path in paths
+
+
+def test_errors_are_declared_as_problem_documents() -> None:
+    """The 4XX answers carry the media type the handlers send."""
+    for path, operations in generate()["paths"].items():
+        for method, operation in operations.items():
+            problems = operation["responses"].get("4XX")
+            if path.startswith("/api/v1/"):
+                assert problems is not None, (method, path)
+            if problems is not None:
+                assert list(problems["content"]) == ["application/problem+json"]

@@ -10,6 +10,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
+import app.__main__ as cli
 from app.logging import (
     REDACTED,
     JsonFormatter,
@@ -89,6 +90,27 @@ def test_known_secrets_are_redacted(monkeypatch: pytest.MonkeyPatch) -> None:
     line = JsonFormatter(secrets).format(record(f"oops {CANARY} and \\"))
     assert CANARY not in line
     assert REDACTED in line
+
+
+def test_uvicorn_colour_copies_are_dropped() -> None:
+    entry = record("Started server process [%d]", color_message="\x1b[36mStarted")
+    parsed = json.loads(JsonFormatter().format(entry))
+    assert "color_message" not in parsed
+
+
+@pytest.mark.usefixtures("quiet_cli")
+def test_a_failing_command_exits_1_without_the_exception_text(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def failing_migrate(settings: object) -> None:
+        raise RuntimeError(f"duplicate key value ({ADMIN_EMAIL}, {CANARY})")
+
+    monkeypatch.setattr(cli, "migrate", failing_migrate)
+    assert cli.main(["migrate"]) == 1
+    err = capsys.readouterr().err
+    assert "RuntimeError" in err
+    assert CANARY not in err
+    assert ADMIN_EMAIL not in err
 
 
 def test_configure_logging_installs_one_json_handler() -> None:
