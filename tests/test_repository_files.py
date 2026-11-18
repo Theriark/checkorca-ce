@@ -114,32 +114,63 @@ def test_the_registered_application_ids_are_in_the_workflows() -> None:
     assert stage in workflow("promote-stage.yml")
     assert stage in workflow("release.yml")
     assert "STAGE_APPLICATION_ID" not in workflow("ci.yml")
+    assert "DEV_APPLICATION_ID" not in workflow("release.yml")
 
 
 def test_dependabot_targets_development_on_every_entry() -> None:
     config = yaml.safe_load((ROOT / ".github" / "dependabot.yml").read_text())
-    assert config["updates"]
-    for entry in config["updates"]:
+    entries = config["updates"]
+    for entry in entries:
         assert entry["target-branch"] == "development", entry
+    covered = {(e["package-ecosystem"], e["directory"]) for e in entries}
+    assert ("pip", "/.github/lock-tools") in covered
 
 
-def test_lock_job_tools_are_hash_checked_and_git_hooks_are_off() -> None:
+def steps_script(job: str) -> str:
     jobs = yaml.safe_load(workflow("ci.yml"))["jobs"]
-    script = "\n".join(step.get("run", "") for step in jobs["lock"]["steps"])
-    assert "--require-hashes -r .github/lock-tools/requirements.txt" in script
-    assert "pip-tools==" not in script
-    assert 'git -c core.hooksPath=/dev/null commit -m "Update hashed' in script
-    assert "git -c core.hooksPath=/dev/null \\\n" in script
-    tools = (ROOT / ".github" / "lock-tools" / "requirements.txt").read_text()
-    pinned = r"^([a-z0-9-]+)==\S+ \\\n\s+--hash=sha256:[0-9a-f]{64}$"
-    pins = re.findall(pinned, tools, flags=re.MULTILINE)
-    assert set(pins) == {
+    return "\n".join(step.get("run", "") for step in jobs[job]["steps"])
+
+
+def test_lock_job_tools_are_hash_checked_and_git_is_isolated() -> None:
+    # The lock job, and the gate's lint job that proves the list still installs.
+    for job in ("lock", "lint"):
+        script = steps_script(job)
+        assert "--require-hashes -r .github/lock-tools/requirements.txt" in script
+        assert "pip-tools==" not in script
+    script = steps_script("lock")
+    safe_git = (
+        "safe_git=(git -c core.hooksPath=/dev/null -c core.fsmonitor=false\n"
+        "  -c http.proxy= -c http.sslVerify=true)"
+    )
+    assert safe_git in script
+    assert '"${safe_git[@]}" add requirements.txt requirements-dev.txt' in script
+    assert 'commit -m "Update hashed requirements lock files"' in script
+    assert '"${safe_git[@]}" \\\n' in script
+    # No other git call writes, commits or pushes in the lock job.
+    for verb in ("add", "commit", "push", "config"):
+        assert f"\ngit {verb}" not in script
+        assert f" git {verb}" not in script
+
+
+def test_lock_tools_are_all_pinned_with_hashes() -> None:
+    text = (ROOT / ".github" / "lock-tools" / "requirements.txt").read_text()
+    # One logical line per requirement: continuations joined, comments dropped.
+    logical = text.replace("\\\n", " ").splitlines()
+    lines = [line.strip() for line in logical if line.strip()]
+    lines = [line for line in lines if not line.startswith("#")]
+    pinned = re.compile(r"([a-z0-9-]+)==\S+(?:\s+--hash=sha256:[0-9a-f]{64})+")
+    names = set()
+    for line in lines:
+        match = pinned.fullmatch(line)
+        assert match, line
+        names.add(match.group(1))
+    assert names == {
         "build",
         "click",
         "packaging",
         "pip",
         "pip-tools",
-        "pyproject-hooks",
+        "preproject-hooks".replace("pre", "py"),
         "setuptools",
         "wheel",
     }

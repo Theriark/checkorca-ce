@@ -10,7 +10,8 @@
 # Exempt without a sign-off, because their author cannot sign off:
 # - a lock job commit of github-actions[bot]: its exact message, only the lock files;
 # - a genuine Dependabot commit: Dependabot's author address with GitHub as the
-#   committer, a signature GitHub reports as verified, a "Bump " subject and only
+#   committer, a signature GitHub reports as verified, a "Bump " or "bump " subject
+#   (after an optional conventional prefix such as "chore(deps): ") and only
 #   dependency manifests; on a pull request, Dependabot also opened it.
 # A later signed commit of the same author can sign off an earlier unsigned one
 # (retroactive sign-off, CONTRIBUTING.md).
@@ -43,6 +44,8 @@ case "${EVENT}" in
 esac
 sign_off='^Signed-off-by: [^<>]+ <[^<>@[:space:]]+@[^<>@[:space:]]+>[[:space:]]*$'
 retroactive='^I, [^<>]+ <([^<>@[:space:]]+@[^<>@[:space:]]+)>, hereby add my Signed-off-by to this commit: ([0-9a-f]{40})[[:space:]]*$'
+# Dependabot's subject, with the conventional prefix it copies from the history.
+bump_subject='^([a-z]+(\([a-z0-9._/-]+\))?: )?[Bb]ump '
 # The files .github/dependabot.yml lets Dependabot change.
 dependabot_files='\.github/workflows/[^/]+\.yml|\.github/actions/[^/]+/action\.yml|Dockerfile|docker-compose\.yml|requirements(-dev)?\.(in|txt)|\.github/lock-tools/requirements\.txt|frontend/package(-lock)?\.json'
 
@@ -53,7 +56,7 @@ genuine_dependabot() {
   [[ "$(git show -s --format=%ae "${sha}")" == "${dependabot}" ]] || return 1
   [[ "$(git show -s --format=%ce "${sha}")" == "noreply@github.com" ]] || return 1
   subject="$(git show -s --format=%s "${sha}")"
-  [[ "${subject}" == "Bump "* ]] || return 1
+  [[ "${subject}" =~ ${bump_subject} ]] || return 1
   files="$(git show --format= --name-only "${sha}")"
   [[ -n "${files}" ]] || return 1
   ! grep -qvxE "${dependabot_files}" <<<"${files}" || return 1

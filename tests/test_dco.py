@@ -22,13 +22,20 @@ GITHUB = ("GitHub", "noreply@github.com")
 SIGNED = "\n\nSigned-off-by: Ada Example <ada@example.com>"
 LOCK_MESSAGE = "Update hashed requirements lock files"
 BUMP = "Bump click from 8.3.0 to 8.3.1\n\nBumps click from 8.3.0 to 8.3.1."
+# The subject form of this repository's real Dependabot pull requests.
+CHORE_BUMP = "chore(deps): bump actions/checkout from 4.2.2 to 7.0.1"
+JQ = "[.commit.verification.verified, .commit.verification.reason] | @tsv"
+# Answers only the exact lookup dco.sh makes; anything else is an error, as is
+# GH_FAIL (GitHub unreachable).
 GH_STUB = """#!/usr/bin/env bash
+[[ -z "${GH_FAIL}" && "$1" == api && "$3" == --jq && "$4" == 'JQ' ]] || exit 1
+[[ "$2" =~ ^repos/Theriark/checkorca-ce/commits/[0-9a-f]{40}$ ]] || exit 1
 sha="${2##*/}"
 case " ${VERIFIED_SHAS} " in
   *" ${sha} "*) printf 'true\\tvalid\\n' ;;
   *) printf 'false\\tunsigned\\n' ;;
 esac
-"""
+""".replace("JQ", JQ)
 
 
 class Repo:
@@ -75,6 +82,7 @@ class Repo:
         event: str = "pull_request",
         pr_author: str = "ada",
         verified: tuple[str, ...] = (),
+        gh_fails: bool = False,
     ) -> subprocess.CompletedProcess[str]:
         stub = tmp_path / "bin" / "gh"
         stub.parent.mkdir(exist_ok=True)
@@ -94,6 +102,7 @@ class Repo:
             "HEAD_SHA": head,
             "REPOSITORY": "Theriark/checkorca-ce",
             "VERIFIED_SHAS": " ".join(verified),
+            "GH_FAIL": "1" if gh_fails else "",
         }
         return subprocess.run(
             ["bash", str(SCRIPT)],
@@ -136,6 +145,31 @@ def test_retroactive_sign_off_by_the_same_author(repo: Repo, tmp_path: Path) -> 
     assert result.returncode == 0, result.stdout
     expected = f"signed {unsigned} (retroactive sign-off by ada@example.com)"
     assert expected in result.stdout
+
+
+OTHER = ("Bob Example", "bob@example.com")
+BOB_SIGNED = "\n\nSigned-off-by: Bob Example <bob@example.com>"
+
+
+@pytest.mark.parametrize(
+    ("author", "trailer"),
+    [(OTHER, BOB_SIGNED), (HUMAN, "")],
+    ids=["written-by-another-author", "in-an-unsigned-commit"],
+)
+def test_retroactive_sign_off_needs_the_same_signed_author(
+    repo: Repo, tmp_path: Path, author: tuple[str, str], trailer: str
+) -> None:
+    # The line always names Ada, the author of the unsigned commit.
+    unsigned = repo.commit("feat: thing", {"app.py": "x = 1\n"})
+    repo.commit(
+        "chore: sign off\n\nI, Ada Example <ada@example.com>, hereby add my "
+        f"Signed-off-by to this commit: {unsigned}" + trailer,
+        {"notes.md": "n\n"},
+        author=author,
+    )
+    result = repo.dco(tmp_path)
+    assert result.returncode == 1, result.stdout
+    assert f"commit {unsigned} has no Signed-off-by line" in result.stdout
 
 
 def test_lock_job_commit_is_exempt(repo: Repo, tmp_path: Path) -> None:
@@ -237,3 +271,57 @@ def test_dependabot_commit_merged_into_development(repo: Repo, tmp_path: Path) -
     result = repo.dco(tmp_path, event="push", verified=(sha,))
     assert result.returncode == 0, result.stdout
     assert f"exempt {sha}: verified Dependabot commit" in result.stdout
+
+
+def test_dependabot_conventional_subject_is_exempt(repo: Repo, tmp_path: Path) -> None:
+    sha = repo.commit(
+        CHORE_BUMP,
+        {".github/workflows/ci.yml": "name: CI\n"},
+        author=DEPENDABOT,
+        committer=GITHUB,
+    )
+    result = repo.dco(tmp_path, pr_author="dependabot[bot]", verified=(sha,))
+    assert result.returncode == 0, result.stdout
+    assert f"exempt {sha}: verified Dependabot commit" in result.stdout
+
+
+def test_human_commit_in_a_dependabot_pull_request_needs_a_sign_off(
+    repo: Repo, tmp_path: Path
+) -> None:
+    sha = repo.commit(
+        BUMP,
+        {"requirements.txt": "c\n"},
+        author=HUMAN,
+        committer=GITHUB,
+    )
+    result = repo.dco(tmp_path, pr_author="dependabot[bot]", verified=(sha,))
+    assert result.returncode == 1, result.stdout
+    assert f"commit {sha} has no Signed-off-by line" in result.stdout
+
+
+def test_github_lookup_failure_fails_closed(repo: Repo, tmp_path: Path) -> None:
+    sha = repo.commit(
+        BUMP, {"requirements.txt": "c\n"}, author=DEPENDABOT, committer=GITHUB
+    )
+    result = repo.dco(
+        tmp_path, pr_author="dependabot[bot]", verified=(sha,), gh_fails=True
+    )
+    assert result.returncode == 1, result.stdout
+    assert f"commit {sha} has no Signed-off-by line" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("trailer", "returncode"), [("", 1), (SIGNED, 0)], ids=["unsigned", "signed"]
+)
+def test_dependabot_pull_request_with_a_human_commit(
+    repo: Repo, tmp_path: Path, trailer: str, returncode: int
+) -> None:
+    bump = repo.commit(
+        BUMP, {"requirements.txt": "c\n"}, author=DEPENDABOT, committer=GITHUB
+    )
+    human = repo.commit("fix: follow the bump" + trailer, {"app.py": "x = 2\n"})
+    result = repo.dco(tmp_path, pr_author="dependabot[bot]", verified=(bump,))
+    assert result.returncode == returncode, result.stdout
+    assert f"exempt {bump}: verified Dependabot commit" in result.stdout
+    error = f"commit {human} has no Signed-off-by line"
+    assert (error in result.stdout) is (returncode == 1)
