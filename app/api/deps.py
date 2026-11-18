@@ -77,14 +77,22 @@ def client_ip(request: Request) -> str | None:
     Behind a proxy, uvicorn takes it from X-Forwarded-For only when
     FORWARDED_ALLOW_IPS names the proxy network (never *: the left-most entry is
     the client's to choose). The check keeps any other value out of the rate
-    limit keys and the 45-character address columns.
+    limit keys and the 45-character address columns: an IPv6 zone id (any
+    length, the sender's to choose) is refused, and an IPv4-mapped IPv6 address
+    becomes its IPv4 form so one client has one bucket.
     """
     if request.client is None:
         return None
     try:
-        return str(ipaddress.ip_address(request.client.host))
+        address = ipaddress.ip_address(request.client.host)
     except ValueError:
         return None
+    if isinstance(address, ipaddress.IPv6Address):
+        if address.scope_id is not None:
+            return None
+        if address.ipv4_mapped is not None:
+            return str(address.ipv4_mapped)
+    return str(address)
 
 
 def enforce_rate_limit(limiter: RateLimiter, key: str) -> None:
