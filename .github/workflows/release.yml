@@ -49,9 +49,8 @@ jobs:
       packages: write
     env:
       IMAGE: ghcr.io/theriark/checkorca-ce
-      # Registered for this product by the setup broker (github_repo_status). Empty =
-      # not yet: the run then refuses before any read or write.
-      STAGE_APPLICATION_ID: ""
+      # Registered for this product by the setup broker (github_repo_status).
+      STAGE_APPLICATION_ID: fCwRCuJlf50NfQhaLImDx
       STAGE_HOST: ce-stg-checkorca.theriark.dev
       DRY_RUN_INPUT: ${{ inputs.dry_run }}
       # In the workspace: runner.temp is not available at job level.

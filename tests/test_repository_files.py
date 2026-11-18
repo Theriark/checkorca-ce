@@ -99,3 +99,47 @@ def test_dockerfile_contract() -> None:
     assert 'CMD ["python", "-m", "app", "all"]' in dockerfile
     assert "COPY LICENSE NOTICE ./" in dockerfile
     assert "THIRD_PARTY_NOTICES" in dockerfile
+
+
+def workflow(name: str) -> str:
+    return (ROOT / ".github" / "workflows" / name).read_text()
+
+
+def test_the_registered_application_ids_are_in_the_workflows() -> None:
+    # The setup broker's github_repo_status ids; Stage is never Development.
+    dev = "DEV_APPLICATION_ID: zdq2bYVkPCKllskIYhYQZ"
+    stage = "STAGE_APPLICATION_ID: fCwRCuJlf50NfQhaLImDx"
+    assert dev in workflow("ci.yml")
+    assert dev in workflow("promote-stage.yml")
+    assert stage in workflow("promote-stage.yml")
+    assert stage in workflow("release.yml")
+    assert "STAGE_APPLICATION_ID" not in workflow("ci.yml")
+
+
+def test_dependabot_targets_development_on_every_entry() -> None:
+    config = yaml.safe_load((ROOT / ".github" / "dependabot.yml").read_text())
+    assert config["updates"]
+    for entry in config["updates"]:
+        assert entry["target-branch"] == "development", entry
+
+
+def test_lock_job_tools_are_hash_checked_and_git_hooks_are_off() -> None:
+    jobs = yaml.safe_load(workflow("ci.yml"))["jobs"]
+    script = "\n".join(step.get("run", "") for step in jobs["lock"]["steps"])
+    assert "--require-hashes -r .github/lock-tools/requirements.txt" in script
+    assert "pip-tools==" not in script
+    assert 'git -c core.hooksPath=/dev/null commit -m "Update hashed' in script
+    assert "git -c core.hooksPath=/dev/null \\\n" in script
+    tools = (ROOT / ".github" / "lock-tools" / "requirements.txt").read_text()
+    pinned = r"^([a-z0-9-]+)==\S+ \\\n\s+--hash=sha256:[0-9a-f]{64}$"
+    pins = re.findall(pinned, tools, flags=re.MULTILINE)
+    assert set(pins) == {
+        "build",
+        "click",
+        "packaging",
+        "pip",
+        "pip-tools",
+        "pyproject-hooks",
+        "setuptools",
+        "wheel",
+    }
