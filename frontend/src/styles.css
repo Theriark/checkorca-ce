@@ -1,0 +1,177 @@
+/* Shell styles. Palette roles from the brand guide; the full token set and the
+   design system arrive in phase C2. Red is for the logo and failures only. */
+:root {
+  --ink: #121417;
+  --off-white: #f7f7f5;
+  --steel: #9fb3c8;
+  --muted: #5b6b7c;
+  --surface: #ffffff;
+  --border: #d9dee4;
+  --bg: var(--off-white);
+  --text: var(--ink);
+  --text-secondary: var(--muted);
+  --focus: #121417;
+
+  color-scheme: light dark;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  background: var(--bg);
+  color: var(--text);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: var(--ink);
+    --surface: #1b1f24;
+    --border: #2c333b;
+    --text: var(--off-white);
+    --text-secondary: var(--steel);
+    --focus: var(--off-white);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.shell-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 32px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.shell-logo {
+  display: block;
+  width: 216px;
+  height: auto;
+}
+
+.shell-edition {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 12px;
+  white-space: nowrap;
+}
+
+.shell-main {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: 48px 32px;
+}
+
+.shell-card {
+  width: 100%;
+  max-width: 640px;
+  padding: 32px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.shell-card h1 {
+  margin: 0 0 8px;
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.shell-lead {
+  margin: 0 0 16px;
+  font-size: 20px;
+  color: var(--text);
+}
+
+.shell-card p {
+  color: var(--text-secondary);
+}
+
+.shell-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 32px;
+  margin: 24px 0 0;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+}
+
+.shell-facts dt {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.shell-facts dd {
+  margin: 4px 0 0;
+  font-size: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.shell-footer {
+  padding: 16px 32px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  border-top: 1px solid var(--border);
+}
+
+.shell-footer p {
+  margin: 0;
+}
+
+@media (max-width: 480px) {
+  .shell-header {
+    padding: 12px 16px;
+  }
+
+  .shell-logo {
+    width: 150px;
+  }
+
+  .shell-main {
+    padding: 24px 16px;
+    place-items: start stretch;
+  }
+
+  .shell-card {
+    padding: 24px;
+  }
+
+  .shell-card h1 {
+    font-size: 24px;
+  }
+
+  .shell-lead {
+    font-size: 16px;
+  }
+
+  .shell-footer {
+    padding: 16px;
+  }
+}
