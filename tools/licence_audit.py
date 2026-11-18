@@ -314,8 +314,7 @@ def _npm_licence(entry: Mapping[str, Any]) -> tuple[str, str]:
     legacy = entry.get("licenses")
     if isinstance(legacy, list) and legacy:
         kinds = [
-            str(item.get("type") if isinstance(item, dict) else item)
-            for item in legacy
+            str(item.get("type") if isinstance(item, dict) else item) for item in legacy
         ]
         # The old "licenses" array offered a choice between its entries.
         return " OR ".join(kinds), "licenses"
