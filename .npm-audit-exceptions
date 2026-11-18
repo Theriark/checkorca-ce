@@ -1,0 +1,8 @@
+# Reviewed npm advisories for tools/npm_audit_gate.py (merge gate check 5).
+# One line each: the GHSA id, the review date (YYYY-MM-DD), then why it is
+# acceptable. An entry only applies while every vulnerable copy is a
+# development package ("dev": true) in frontend/package-lock.json; an advisory
+# that reaches the built web app always fails. An entry older than 90 days
+# fails until it is reviewed again. Remove an entry as soon as a fixed release
+# exists.
+GHSA-fc5q-39xc-vjpf 2026-11-18 picomatch ReDoS through repeated extglobs; no fixed picomatch release exists (vulnerable range *). Development only: vite, vitest and typescript-eslint match our own config globs with it, never user input, and it is not in the built web app. THE-1909.

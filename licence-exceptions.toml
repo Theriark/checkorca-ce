@@ -1,0 +1,218 @@
+# Reviewed licence exceptions for tools/licence_audit.py (merge gate check 6).
+#
+# The allow-list (docs/ci-cd.md): MIT, BSD-2-Clause, BSD-3-Clause, Apache-2.0,
+# ISC, PSF-2.0, Python-2.0, CNRI-Python, 0BSD, Unlicense, CC0-1.0. Anything else
+# needs one [[exception]] table here, read by both audits:
+#
+#   ecosystem  python or npm
+#   package    the package name
+#   licence    the SPDX identifier read in the package's licence file
+#   declared   optional: the exact declaration of the package when it is not
+#              the SPDX identifier (default: the licence)
+#   scope      runtime (shipped in the image; also covers development use) or
+#              dev (tests and build tools only, never shipped)
+#   reason     why it is acceptable, and where the licence was read
+#   reviewer   who reviewed it
+#   date       when
+#
+# An exception admits one package with one declared licence in its scope. A
+# copyleft licence (LGPL, GPL, AGPL, SSPL) can never be an exception, and an
+# unknown licence still fails. Fonts and icons are in the same gate (legal R-5).
+
+[[exception]]
+ecosystem = "python"
+package = "certifi"
+licence = "MPL-2.0"
+scope = "runtime"
+reason = "CA bundle that httpx uses. Shipped unmodified with its licence text in THIRD_PARTY_NOTICES; the MPL-2.0 file-level terms are met by not modifying it (legal-input L-1 a, dev-work-plan decision 7). LICENSE read at certifi/python-certifi on 2026-11-18."
+reviewer = "Platform and Release Engineer, THE-1909; reviewed in the pull request"
+date = 2026-11-18
+
+[[exception]]
+ecosystem = "python"
+package = "cffi"
+licence = "MIT-0"
+scope = "runtime"
+reason = "MIT No Attribution: the MIT grant without the attribution condition, more permissive than MIT. Required by argon2-cffi-bindings and cryptography. LICENSE read at python-cffi/cffi on 2026-11-18. MIT-0 is not on the docs/ci-cd.md list, so it is recorded here for review."
+reviewer = "Platform and Release Engineer, THE-1909; reviewed in the pull request"
+date = 2026-11-18
+
+[[exception]]
+ecosystem = "python"
+package = "hypothesis"
+licence = "MPL-2.0"
+scope = "dev"
+reason = "Property-based testing in tests only; never installed in the image (dev-work-plan C0-P1 step 5)."
+reviewer = "Platform and Release Engineer, THE-1909; reviewed in the pull request"
+date = 2026-11-18
+
+[[exception]]
+ecosystem = "python"
+package = "pathspec"
+licence = "MPL-2.0"
+scope = "dev"
+reason = "Dependency of mypy; type checking in CI only, never installed in the image. Declared by its classifier only."
+reviewer = "Platform and Release Engineer, THE-1909; reviewed in the pull request"
+date = 2026-11-18
+
+[[exception]]
+ecosystem = "npm"
+package = "axe-core"
+licence = "MPL-2.0"
+scope = "dev"
+reason = "Accessibility rules for the Playwright tests; never in the built web app (dev-work-plan C0-P1 step 5)."
+reviewer = "Platform and Release Engineer, THE-1909; reviewed in the pull request"
+date = 2026-11-18
+
+[[exception]]
+ecosystem = "npm"
+package = "@axe-core/playwright"
+licence = "MPL-2.0"
+scope = "dev"
+reason = "Playwright binding of axe-core for the accessibility tests; never in the built web app."
+reviewer = "Platform and Release Engineer, THE-1909; reviewed in the pull request"
+date = 2026-11-18
+
+[[exception]]
+ecosystem = "npm"
+package = "lightningcss"
+licence = "MPL-2.0"
+scope = "dev"
+reason = "CSS transformer inside the Vite build; its output is our CSS, the tool itself is never in the built web app (dev-work-plan C0-P1 step 5)."
+reviewer = "Platform and Release Engineer, THE-1909; reviewed in the pull request"
+date = 2026-11-18
+
+[[exception]]
+ecosystem = "npm"
+package = "lightningcss-android-arm64"
+licence = "MPL-2.0"
+scope = "dev"
+reason = "Prebuilt binary of lightningcss for one platform (optional dependency of lightningcss); same terms and use as lightningcss."
+reviewer = "Platform and Release Engineer, THE-1909; reviewed in the pull request"
+date = 2026-11-18
+
+[[exception]]
+ecosystem = "npm"
+package = "lightningcss-darwin-arm64"
+licence = "MPL-2.0"
+scope = "dev"
+reason = "Prebuilt binary of lightningcss for one platform (optional dependency of lightningcss); same terms and use as lightningcss."
+reviewer = "Platform and Release Engineer, THE-1909; reviewed in the pull request"
+date = 2026-11-18
+
+[[exception]]
+ecosystem = "npm"
+package = "lightningcss-darwin-x64"
+licence = "MPL-2.0"
+scope = "dev"
+reason = "Prebuilt binary of lightningcss for one platform (optional dependency of lightningcss); same terms and use as lightningcss."
+reviewer = "Platform and Release Engineer, THE-1909; reviewed in the pull request"
+date = 2026-11-18
+
+[[exception]]
+ecosystem = "npm"
+package = "lightningcss-freebsd-x64"
+licence = "MPL-2.0"
+scope = "dev"
+reason = "Prebuilt binary of lightningcss for one platform (optional dependency of lightningcss); same terms and use as lightningcss."
+reviewer = "Platform and Release Engineer, THE-1909; reviewed in the pull request"
+date = 2026-11-18
+
+[[exception]]
+ecosystem = "npm"
+package = "lightningcss-linux-arm-gnueabihf"
+licence = "MPL-2.0"
+scope = "dev"
+reason = "Prebuilt binary of lightningcss for one platform (optional dependency of lightningcss); same terms and use as lightningcss."
+reviewer = "Platform and Release Engineer, THE-1909; reviewed in the pull request"
+date = 2026-11-18
+
+[[exception]]
+ecosystem = "npm"
+package = "lightningcss-linux-arm64-gnu"
+licence = "MPL-2.0"
+scope = "dev"
+reason = "Prebuilt binary of lightningcss for one platform (optional dependency of lightningcss); same terms and use as lightningcss."
+reviewer = "Platform and Release Engineer, THE-1909; reviewed in the pull request"
+date = 2026-11-18
+
+[[exception]]
+ecosystem = "npm"
+package = "lightningcss-linux-arm64-musl"
+licence = "MPL-2.0"
+scope = "dev"
+reason = "Prebuilt binary of lightningcss for one platform (optional dependency of lightningcss); same terms and use as lightningcss."
+reviewer = "Platform and Release Engineer, THE-1909; reviewed in the pull request"
+date = 2026-11-18
+
+[[exception]]
+ecosystem = "npm"
+package = "lightningcss-linux-x64-gnu"
+licence = "MPL-2.0"
+scope = "dev"
+reason = "Prebuilt binary of lightningcss for one platform (optional dependency of lightningcss); same terms and use as lightningcss."
+reviewer = "Platform and Release Engineer, THE-1909; reviewed in the pull request"
+date = 2026-11-18
+
+[[exception]]
+ecosystem = "npm"
+package = "lightningcss-linux-x64-musl"
+licence = "MPL-2.0"
+scope = "dev"
+reason = "Prebuilt binary of lightningcss for one platform (optional dependency of lightningcss); same terms and use as lightningcss."
+reviewer = "Platform and Release Engineer, THE-1909; reviewed in the pull request"
+date = 2026-11-18
+
+[[exception]]
+ecosystem = "npm"
+package = "lightningcss-win32-arm64-msvc"
+licence = "MPL-2.0"
+scope = "dev"
+reason = "Prebuilt binary of lightningcss for one platform (optional dependency of lightningcss); same terms and use as lightningcss."
+reviewer = "Platform and Release Engineer, THE-1909; reviewed in the pull request"
+date = 2026-11-18
+
+[[exception]]
+ecosystem = "npm"
+package = "lightningcss-win32-x64-msvc"
+licence = "MPL-2.0"
+scope = "dev"
+reason = "Prebuilt binary of lightningcss for one platform (optional dependency of lightningcss); same terms and use as lightningcss."
+reviewer = "Platform and Release Engineer, THE-1909; reviewed in the pull request"
+date = 2026-11-18
+
+[[exception]]
+ecosystem = "npm"
+package = "minimatch"
+licence = "BlueOak-1.0.0"
+scope = "dev"
+reason = "Blue Oak Model License 1.0.0: a permissive, OSI-approved licence that is not on the allow-list. Glob matching inside the lint and test tools; never in the built web app."
+reviewer = "Platform and Release Engineer, THE-1909; reviewed in the pull request"
+date = 2026-11-18
+
+[[exception]]
+ecosystem = "npm"
+package = "lru-cache"
+licence = "BlueOak-1.0.0"
+scope = "dev"
+reason = "Blue Oak Model License 1.0.0 (permissive, OSI approved). The copy under jsdom used by the Vitest test environment; never in the built web app. Other copies of lru-cache are ISC and pass the allow-list."
+reviewer = "Platform and Release Engineer, THE-1909; reviewed in the pull request"
+date = 2026-11-18
+
+[[exception]]
+ecosystem = "npm"
+package = "@isaacs/nonrecursive-glob-match"
+licence = "BlueOak-1.0.0"
+scope = "dev"
+reason = "Blue Oak Model License 1.0.0 (permissive, OSI approved). Dependency of the development tools; never in the built web app."
+reviewer = "Platform and Release Engineer, THE-1909; reviewed in the pull request"
+date = 2026-11-18
+
+[[exception]]
+ecosystem = "npm"
+package = "caniuse-lite"
+licence = "CC-BY-4.0"
+scope = "dev"
+reason = "Browser support data that the build tools read; never in the built web app (dev-work-plan C0-P1 step 5)."
+reviewer = "Platform and Release Engineer, THE-1909; reviewed in the pull request"
+date = 2026-11-18

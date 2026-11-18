@@ -13,7 +13,10 @@ tests = sum(int(s.get("tests", 0)) for s in suites)
 skipped = sum(int(s.get("skipped", 0)) for s in suites)
 print(f"pytest: {tests} tests, {skipped} skipped")
 if skipped:
-    print(f"::error::{skipped} test(s) were skipped; CI requires zero skips (is DATABASE_URL set?)")
+    print(
+        f"::error::{skipped} test(s) were skipped; "
+        "CI requires zero skips (is DATABASE_URL set?)"
+    )
     sys.exit(1)
 if not tests:
     print("::error::no test ran")

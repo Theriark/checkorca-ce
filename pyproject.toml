@@ -1,0 +1,76 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "checkorca-ce"
+version = "27.0.0"
+description = "Self-hosted backup and job-status monitor for small MSPs (Community Edition)."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = "MIT"
+license-files = ["LICENSE", "NOTICE"]
+# Runtime dependencies live in requirements.in (one source, compiled into the
+# hashed requirements.txt by the lock job); development tools in
+# requirements-dev.in.
+dynamic = ["dependencies"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.in"] }
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"
+
+[tool.coverage.run]
+source = ["app"]
+branch = true
+
+[tool.coverage.report]
+# Gates in ci.yml: 80 percent overall, 95 for schedule, evaluator and parsers.
+fail_under = 80
+exclude_also = ["if __name__ == .__main__.:"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+extend-exclude = ["frontend"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "helpers", "tools"]
+known-third-party = ["alembic"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["app"]
+warn_unused_configs = true
+warn_return_any = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+
+# mypy strict for the three core packages (merge gate check 1). "strict" cannot
+# be set per module, so the flags it enables are listed.
+[[tool.mypy.overrides]]
+module = ["app.schedule.*", "app.evaluator.*", "app.parsers.*"]
+disallow_any_generics = true
+disallow_untyped_calls = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_subclassing_any = true
+disallow_untyped_decorators = true
+no_implicit_reexport = true
+warn_return_any = true
+warn_unused_ignores = true
+strict_equality = true
+extra_checks = true

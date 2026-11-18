@@ -1,0 +1,14 @@
+# Development and test tools; never installed in the image. The lock job
+# compiles this into requirements-dev.txt after requirements.txt and uses the
+# runtime pins as constraints, so both locks agree.
+-r requirements.in
+-c requirements.txt
+pytest
+pytest-asyncio
+pytest-cov
+hypothesis
+schemathesis
+ruff
+mypy
+pip-audit
+pip-licenses

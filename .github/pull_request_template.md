@@ -5,10 +5,11 @@
 ## Checklist
 
 - [ ] Branch is `feat/checkorca-ce-<task or topic>` and the pull request targets `development`
+- [ ] Every commit ends with `Signed-off-by: Name <e-mail>` (DCO 1.1, `git commit -s`, see CONTRIBUTING.md)
 - [ ] CI `Merge gate summary` is green on the head commit; a skipped check is not a pass
 - [ ] Tests added or updated for the behaviour changed
 - [ ] No secrets, credentials or real client data committed; test data is synthetic and labelled
-- [ ] New dependencies are pinned and on the licence allow-list (docs/ci-cd.md)
+- [ ] New dependencies are pinned and on the licence allow-list, or have a reviewed entry in licence-exceptions.toml
 - [ ] No EE code or EE package reference in CE
 - [ ] Documentation updated where behaviour or workflow changed
 - [ ] Reviewed by someone other than the author

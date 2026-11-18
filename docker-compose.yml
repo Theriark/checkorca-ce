@@ -1,0 +1,109 @@
+# Self-hosted Checkorca-CE: web, worker and PostgreSQL 16. Also the CI smoke test.
+#
+#   create .env with POSTGRES_PASSWORD, SECRET_KEY, FERNET_KEY, BASE_URL (README)
+#   docker compose up -d --build --wait
+#   open http://localhost:8080
+#
+# Dokploy runs one container with ROLE=all instead (deploy/dokploy.json).
+
+name: checkorca
+
+x-app-build: &app-build
+  context: .
+  args:
+    REVISION: ${REVISION:-}
+
+x-app-environment: &app-environment
+  DATABASE_URL: postgresql+asyncpg://checkorca:${POSTGRES_PASSWORD:?set it in .env, see README}@db:5432/checkorca
+  SECRET_KEY: ${SECRET_KEY:?set it in .env, see README}
+  FERNET_KEY: ${FERNET_KEY:?set it in .env, see README}
+  BASE_URL: ${BASE_URL:-http://localhost:8080}
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  db:
+    # postgres:16, pinned to the multi-arch index digest of 2026-11-07 (as ci.yml).
+    image: postgres:16@sha256:f9a7b9ebf6f56201f949db745e47bc423c0f0f8294bafe991cc10bf74b029657
+    environment:
+      POSTGRES_USER: checkorca
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set it in .env, see README}
+      POSTGRES_DB: checkorca
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # -h 127.0.0.1 forces TCP, so the temporary init-time server (unix socket
+      # only) does not count as ready.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U checkorca -d checkorca"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    mem_limit: 512m
+    logging: *logging
+    restart: unless-stopped
+
+  web:
+    build: *app-build
+    image: checkorca-ce:local
+    # Applies the migrations, then serves the web app and API on 8080.
+    command: ["python", "-m", "app", "web"]
+    environment:
+      <<: *app-environment
+      ROLE: web
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3).status == 200 else 1)"
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    depends_on:
+      db:
+        condition: service_healthy
+    mem_limit: 384m
+    logging: *logging
+    restart: unless-stopped
+
+  worker:
+    build: *app-build
+    image: checkorca-ce:local
+    # Background jobs; from phase C4 also the SMTP listener on 2525.
+    command: ["python", "-m", "app", "worker"]
+    environment:
+      <<: *app-environment
+      ROLE: worker
+    ports:
+      - "2525:2525"
+    # The image health check probes the web port, which the worker does not
+    # serve. Healthy means PID 1 is still the worker process.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import sys; sys.exit(0 if 'worker' in open('/proc/1/cmdline').read().split(chr(0)) else 1)"
+      interval: 5s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    depends_on:
+      db:
+        condition: service_healthy
+      # The web service applies the migrations first.
+      web:
+        condition: service_healthy
+    mem_limit: 384m
+    logging: *logging
+    restart: unless-stopped
+
+volumes:
+  pgdata:

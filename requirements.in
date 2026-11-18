@@ -1,0 +1,22 @@
+# Direct runtime dependencies (dev-work-plan C0-P1, rnd-report-2 5.1). The lock
+# job (ci.yml, mode=lock) compiles them on Python 3.12 into the hashed
+# requirements.txt. Lower bounds only where the plan pins nothing: the lock pins
+# exact versions and hashes. Licences: docs/licences.md.
+fastapi
+uvicorn
+starlette
+pydantic
+pydantic-settings
+sqlalchemy[asyncio]
+asyncpg
+alembic
+httpx
+argon2-cffi
+cryptography
+prometheus-client
+PyYAML
+jsonschema
+regex
+croniter
+aiosmtpd==1.4.6
+python-multipart
