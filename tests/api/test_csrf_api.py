@@ -9,7 +9,6 @@ import uuid
 
 import httpx
 import pytest
-from fastapi.routing import APIRoute
 
 from app.db.models import AppUser
 from app.main import create_app
@@ -32,19 +31,24 @@ CSRF_EXEMPT = {
 
 
 def unsafe_routes() -> list[tuple[str, str]]:
-    """Every (method, path) of /api/v1 that can change state."""
+    """Every (method, path) of /api/v1 that can change state.
+
+    Read from the app's OpenAPI document: FastAPI keeps included routers nested,
+    so app.routes does not list the full paths.
+    """
     settings = load_settings(
         secret_key=TEST_SECRET_KEY,
         fernet_key=TEST_FERNET_KEY,
         database_url=DATABASE_URL,
     )
-    app = create_app(settings, static_dir=None)
-    found = []
-    for route in app.routes:
-        if isinstance(route, APIRoute) and route.path.startswith("/api/v1/"):
-            for method in sorted(route.methods & UNSAFE_METHODS):
-                found.append((method, route.path))
-    return found
+    paths = create_app(settings, static_dir=None).openapi()["paths"]
+    return [
+        (method.upper(), path)
+        for path, operations in paths.items()
+        if path.startswith("/api/v1/")
+        for method in sorted(operations)
+        if method.upper() in UNSAFE_METHODS
+    ]
 
 
 UNSAFE_ROUTES = unsafe_routes()

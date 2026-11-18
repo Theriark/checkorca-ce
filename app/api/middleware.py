@@ -40,13 +40,15 @@ def _request_id(scope: Scope) -> str:
 
 
 def _route_template(scope: Scope) -> str:
-    """The matched route's path template; "static" for the web app files."""
-    path = getattr(scope.get("route"), "path", None)
-    if isinstance(path, str):
-        return path or "/"
+    """The path with every path parameter replaced by its name, never its value;
+    "static" for the web app files, "unmatched" when no route matched."""
     if isinstance(scope.get("endpoint"), StaticFiles):
         return "static"
-    return "unmatched"
+    if scope.get("route") is None:
+        return "unmatched"
+    names = {str(value): name for name, value in scope.get("path_params", {}).items()}
+    parts = str(scope.get("path", "")).split("/")
+    return "/".join(f"{{{names[part]}}}" if part in names else part for part in parts)
 
 
 class RequestContextMiddleware:
