@@ -9,6 +9,7 @@
     {"name": "ROLE", "kind": "literal", "value": "all"},
     {"name": "METRICS_TOKEN", "kind": "token24"},
     {"name": "ALLOW_PRIVATE_TARGETS", "kind": "literal", "value": "false"},
+    {"name": "FORWARDED_ALLOW_IPS", "kind": "literal", "value": "172.31.1.0/24,172.17.0.1"},
     {"name": "DEV_SEED", "kind": "literal", "value": "1"},
     {"name": "DEV_SEED_ACCOUNTS", "kind": "literal", "value": "checkorca.admin@example.com,checkorca.technician@example.com"},
     {"name": "DEV_SEED_PASSWORD_ADMIN", "kind": "token24"},
