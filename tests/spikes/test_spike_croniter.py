@@ -2,9 +2,11 @@
 
 Lisbon moves from WET (UTC+0) to WEST (UTC+1) at 01:00 local on 28 March 2027
 and back at 02:00 local on 31 October 2027. A job keeps its local wall time
-across both changes; an hourly job keeps firing once per real hour through the
-spring gap. Times inside the gap and the repeated hour are reported as croniter
-gives them: the schedule library of phase C3-B applies its own DST policy there.
+across both changes and an hourly job fires once per real hour through both.
+A time inside the spring gap fires once, at the end of the gap; a time inside
+the repeated autumn hour fires twice. These two cases are pinned as croniter
+7.0.0 behaves, so an upgrade that changes them fails here (docs/licences.md,
+legal L-2); the schedule library of phase C3-B applies its DST policy on top.
 """
 
 from collections.abc import Callable
@@ -79,20 +81,44 @@ def test_hourly_job_fires_once_per_real_hour_through_the_spring_gap() -> None:
     ]
 
 
-def test_gap_and_repeated_hour_are_reported(report: Callable[..., None]) -> None:
-    # 01:30 does not exist on 28 March and exists twice on 31 October.
-    spring = datetime(2027, 3, 27, tzinfo=LISBON)
-    autumn = datetime(2027, 10, 30, tzinfo=LISBON)
-    observed = {
-        "spring_0130": next_fires("30 1 * * *", spring, 3),
-        "autumn_0130": next_fires("30 1 * * *", autumn, 3),
-        "autumn_hourly": next_fires("0 * * * *", autumn.replace(hour=23, minute=30), 4),
-    }
-    for fires in observed.values():
-        instants = [fire.astimezone(UTC) for fire in fires]
-        assert instants == sorted(set(instants))
-    report(
-        "croniter-dst",
-        version=version("croniter"),
-        **{name: "|".join(local(fires)) for name, fires in observed.items()},
-    )
+def test_time_in_the_spring_gap_fires_once_at_the_end_of_the_gap() -> None:
+    # 01:30 does not exist on 28 March: croniter fires at 02:00 WEST instead.
+    fires = next_fires("30 1 * * *", datetime(2027, 3, 27, tzinfo=LISBON), 3)
+    assert local(fires) == [
+        "03-27 01:30 WET",
+        "03-28 02:00 WEST",
+        "03-29 01:30 WEST",
+    ]
+    assert utc(fires) == ["03-27 01:30Z", "03-28 01:00Z", "03-29 00:30Z"]
+
+
+def test_time_in_the_repeated_hour_fires_twice() -> None:
+    # 01:30 exists twice on 31 October and croniter fires at both. The schedule
+    # library of phase C3-B keeps only the first (docs/spikes.md).
+    fires = next_fires("30 1 * * *", datetime(2027, 10, 30, tzinfo=LISBON), 3)
+    assert local(fires) == [
+        "10-30 01:30 WEST",
+        "10-31 01:30 WEST",
+        "10-31 01:30 WET",
+    ]
+    assert utc(fires) == ["10-30 00:30Z", "10-31 00:30Z", "10-31 01:30Z"]
+
+
+def test_hourly_job_fires_once_per_real_hour_through_the_repeated_hour(
+    report: Callable[..., None],
+) -> None:
+    start = datetime(2027, 10, 30, 23, 30, tzinfo=LISBON)
+    fires = next_fires("0 * * * *", start, 4)
+    assert utc(fires) == [
+        "10-30 23:00Z",
+        "10-31 00:00Z",
+        "10-31 01:00Z",
+        "10-31 02:00Z",
+    ]
+    assert local(fires) == [
+        "10-31 00:00 WEST",
+        "10-31 01:00 WEST",
+        "10-31 01:00 WET",
+        "10-31 02:00 WET",
+    ]
+    report("croniter-dst", version=version("croniter"), zone="Europe/Lisbon")
