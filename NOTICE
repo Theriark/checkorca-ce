@@ -1,0 +1,26 @@
+Checkorca-CE
+Copyright (c) 2026 The Checkorca-CE authors
+
+Licensed under the MIT License (see LICENSE).
+
+Checkorca-CE is an independent open-source project. It is not affiliated with,
+endorsed by or sponsored by any vendor whose products it can read alerts from.
+Product and company names are trademarks of their owners and are used only to
+describe compatibility.
+
+Third-party software
+--------------------
+The container image contains third-party software, each part under its own
+licence:
+
+- Python packages installed from the hashed lock file (requirements.txt),
+- npm packages bundled into the web app (the non-development packages of
+  frontend/package-lock.json),
+- the Debian operating-system packages of the python:3.12-slim base image.
+
+The image holds their licence texts and a statement on the Debian packages in
+THIRD_PARTY_NOTICES, next to this file. The SBOM of each image build
+(sbom.spdx.json) lists every package with its version. docs/licences.md records
+the licence of each direct runtime dependency, and licence-exceptions.toml the
+reviewed exceptions to the licence allow-list. Some of these packages are under
+the MPL-2.0 (for example certifi); they are included unmodified.

@@ -1,0 +1,21 @@
+# Only what the Dockerfile copies or mounts is needed in the build context.
+.git
+.github
+**/__pycache__
+**/*.py[cod]
+.venv
+venv
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+.env
+.env.*
+docs
+tests
+frontend/node_modules
+frontend/dist
+frontend/screenshots
+frontend/test-results
+frontend/playwright-report
