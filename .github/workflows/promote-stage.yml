@@ -69,7 +69,7 @@ jobs:
     env:
       DRY_RUN_INPUT: ${{ inputs.dry_run }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -285,7 +285,7 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://checkorca:ci-only-not-a-secret@localhost:5432/checkorca_test
       SECRET_KEY: ci-only-secret-key-not-for-deployment
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.plan.outputs.commit }}
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -330,7 +330,7 @@ jobs:
       RC_TAG: ${{ needs.plan.outputs.rc_tag }}
       RC_EXISTS: ${{ needs.plan.outputs.rc_exists }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
