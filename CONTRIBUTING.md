@@ -12,7 +12,11 @@ Every commit must end with a `Signed-off-by` line that names you and your e-mail
 Signed-off-by: Ada Example <ada@example.com>
 ```
 
-`git commit -s` adds it for you. Use the same name and e-mail address as the commit author. By signing off you certify the DCO 1.1, in short: you wrote the change or have the right to submit it under the project's licence, and you understand that the contribution and your sign-off are public and kept permanently. The CI job `DCO - Signed-off-by on every commit` fails a pull request with an unsigned commit. To fix one, amend it with `git commit --amend -s` (or `git rebase --signoff` for several) and push again.
+`git commit -s` adds it for you. Use the same name and e-mail address as the commit author. By signing off you certify the DCO 1.1, in short: you wrote the change or have the right to submit it under the project's licence, and you understand that the contribution and your sign-off are public and kept permanently. The CI job `DCO - Signed-off-by on every commit` fails a pull request with an unsigned commit. To fix one, amend it with `git commit --amend -s` (or `git rebase --signoff` for several) and push again. When the history cannot be rewritten, add a new signed-off commit by the same author with one line per unsigned commit:
+
+```
+I, Ada Example <ada@example.com>, hereby add my Signed-off-by to this commit: <full 40-character commit SHA>
+```
 
 ## Branches and pull requests
 

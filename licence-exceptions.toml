@@ -183,6 +183,33 @@ date = 2026-11-18
 
 [[exception]]
 ecosystem = "npm"
+package = "minimatch"
+licence = "BlueOak-1.0.0"
+scope = "dev"
+reason = "Blue Oak Model License 1.0.0: a permissive, OSI-approved licence that is not on the allow-list. Glob matching inside the lint and test tools; never in the built web app."
+reviewer = "Platform and Release Engineer, THE-1909; reviewed in the pull request"
+date = 2026-11-18
+
+[[exception]]
+ecosystem = "npm"
+package = "lru-cache"
+licence = "BlueOak-1.0.0"
+scope = "dev"
+reason = "Blue Oak Model License 1.0.0 (permissive, OSI approved). The copy under jsdom used by the Vitest test environment; never in the built web app. Other copies of lru-cache are ISC and pass the allow-list."
+reviewer = "Platform and Release Engineer, THE-1909; reviewed in the pull request"
+date = 2026-11-18
+
+[[exception]]
+ecosystem = "npm"
+package = "@isaacs/nonrecursive-glob-match"
+licence = "BlueOak-1.0.0"
+scope = "dev"
+reason = "Blue Oak Model License 1.0.0 (permissive, OSI approved). Dependency of the development tools; never in the built web app."
+reviewer = "Platform and Release Engineer, THE-1909; reviewed in the pull request"
+date = 2026-11-18
+
+[[exception]]
+ecosystem = "npm"
 package = "caniuse-lite"
 licence = "CC-BY-4.0"
 scope = "dev"
