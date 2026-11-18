@@ -55,6 +55,9 @@ async def users(engine: AsyncEngine) -> dict[str, Any]:
         "https://ce-stg-checkorca.theriark.dev",
         "http://localhost:8080",
         "https://CE-DEV-checkorca.theriark.dev/",
+        # The rule is a prefix rule, as the plan words it: the domain is not
+        # checked, only that the host starts with ce-dev- or ce-stg-.
+        "https://ce-dev-anything.example.com",
     ],
 )
 def test_seed_hosts_are_allowed(base_url: str) -> None:

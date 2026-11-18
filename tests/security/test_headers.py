@@ -47,6 +47,21 @@ async def test_every_answer_carries_the_headers(tmp_path: Path, path: str) -> No
     assert len(response.headers["x-request-id"]) == 32
 
 
+@pytest.mark.parametrize(
+    ("base_url", "hsts"),
+    [
+        ("https://ce-dev-checkorca.theriark.dev", "max-age=31536000"),
+        ("http://localhost:8080", None),
+    ],
+)
+async def test_hsts_only_for_an_https_site(base_url: str, hsts: str | None) -> None:
+    application = create_app(load_settings(base_url=base_url), static_dir=None)
+    async with running(application) as client:
+        response = await client.get("/healthz")
+    assert response.headers.get("strict-transport-security") == hsts
+    assert_security_headers(response)
+
+
 async def test_api_answers_are_not_cached(client: httpx.AsyncClient) -> None:
     response = await client.get("/api/v1/auth/setup-state")
     assert response.headers["cache-control"] == "no-store"
