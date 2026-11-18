@@ -18,7 +18,10 @@ RUN python -m venv /opt/venv
 # --require-hashes refuses anything that is not in the lock; no development
 # package can enter the image.
 COPY requirements.txt /tmp/requirements.txt
-RUN /opt/venv/bin/pip install --require-hashes --no-deps -r /tmp/requirements.txt
+# pip itself leaves the virtual environment afterwards: nothing installs
+# packages at run time.
+RUN /opt/venv/bin/pip install --require-hashes --no-deps -r /tmp/requirements.txt \
+    && /opt/venv/bin/python -m pip uninstall -y pip
 # Python and npm licence texts plus the Debian statement (legal R-3, R-4). The
 # script and the frontend build folder are only mounted for this step.
 RUN --mount=type=bind,source=tools/third_party_notices.py,target=/mnt/third_party_notices.py \
@@ -38,6 +41,14 @@ RUN groupadd --system --gid 10001 checkorca \
     && useradd --system --uid 10001 --gid 10001 --no-create-home \
         --shell /usr/sbin/nologin checkorca
 COPY --from=builder /opt/venv /opt/venv
+# Debian security fixes the pinned base image does not carry yet (found by the
+# grype scan of ci.yml), and no pip in the runtime image. Drop the zlib1g line
+# once Dependabot's base digest ships zlib1g 1:1.3.dfsg+really1.3.1-1+deb13u1
+# or later (CVE-2026-85091).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends --only-upgrade zlib1g \
+    && rm -rf /var/lib/apt/lists/* \
+    && /usr/local/bin/python -m pip uninstall -y pip
 WORKDIR /srv/checkorca
 COPY LICENSE NOTICE ./
 COPY --from=builder /THIRD_PARTY_NOTICES ./THIRD_PARTY_NOTICES
