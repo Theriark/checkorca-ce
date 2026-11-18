@@ -43,7 +43,7 @@ Python 3.12, FastAPI, SQLAlchemy 2 with asyncpg, Alembic and PostgreSQL 16 for t
 ## Development
 
 - `development` is the integration branch. Work happens on feature branches with pull requests into it; every commit is signed off (DCO 1.1). See [CONTRIBUTING.md](CONTRIBUTING.md) and the [code of conduct](CODE_OF_CONDUCT.md).
-- CI, the Stage promotion and the release are described in [docs/ci-cd.md](docs/ci-cd.md); dependency licences in [docs/licences.md](docs/licences.md).
+- CI, the Stage promotion and the release are described in [docs/ci-cd.md](docs/ci-cd.md); dependency licences in [docs/licences.md](docs/licences.md); the backend spikes of phase C0 in [docs/spikes.md](docs/spikes.md).
 
 ## Security
 
