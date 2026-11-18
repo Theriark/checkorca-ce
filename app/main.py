@@ -1,4 +1,4 @@
-"""HTTP application: health endpoints and the built web app."""
+"""HTTP application: health endpoints, the /api/v1 routes and the built web app."""
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -7,22 +7,60 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.ext.asyncio import async_sessionmaker
+from starlette.middleware import Middleware
 
 from app import PRODUCT_NAME, __version__
+from app.access import AccessPolicy, AllowAllPolicy
+from app.api import v1
+from app.api.deps import Services
+from app.api.middleware import RequestContextMiddleware
+from app.api.problems import EXCEPTION_HANDLERS
+from app.clock import Clock, SystemClock
 from app.db.engine import check_database, make_engine
+from app.ext.audit import AuditSink, DatabaseAuditSink
+from app.security.crypto import SecretBox
+from app.security.passwords import PasswordService
+from app.security.ratelimit import RateLimiter
 from app.settings import Settings, get_settings
 
 # Where the Dockerfile puts the Vite build (frontend/dist).
 DEFAULT_STATIC_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
+# Sign-in and first run: 10 attempts a minute per client address.
+LOGIN_RATE = (10, 60.0)
+# API tokens: 120 requests a minute per token (rnd-report-2 5.7).
+TOKEN_RATE = (120, 60.0)
+
 
 def create_app(
     settings: Settings | None = None,
     static_dir: Path | None = DEFAULT_STATIC_DIR,
+    *,
+    clock: Clock | None = None,
+    policy: AccessPolicy | None = None,
+    audit: AuditSink | None = None,
 ) -> FastAPI:
-    """Build the application. The engine connects on first use only."""
+    """Build the application. The engine connects on first use only.
+
+    clock, policy and audit replace the CE defaults (tests, and EE through the
+    extension seams).
+    """
     config = settings or get_settings()
     engine = make_engine(config.database_url.get_secret_value())
+    clock = clock or SystemClock()
+    services = Services(
+        settings=config,
+        engine=engine,
+        sessionmaker=async_sessionmaker(engine, expire_on_commit=False),
+        clock=clock,
+        policy=policy or AllowAllPolicy(),
+        audit=audit or DatabaseAuditSink(),
+        passwords=PasswordService(),
+        secret_box=SecretBox(config.fernet_key.get_secret_value()),
+        login_limiter=RateLimiter(*LOGIN_RATE, clock=clock),
+        token_limiter=RateLimiter(*TOKEN_RATE, clock=clock),
+    )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -37,7 +75,10 @@ def create_app(
         lifespan=lifespan,
         docs_url=None,
         redoc_url=None,
+        middleware=[Middleware(RequestContextMiddleware)],
+        exception_handlers=EXCEPTION_HANDLERS,
     )
+    app.state.services = services
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str | None]:
@@ -57,6 +98,8 @@ def create_app(
             {"status": "unavailable", "database": "unreachable"},
             status_code=503,
         )
+
+    app.include_router(v1.router)
 
     # Mounted last so the API routes above always win.
     if static_dir is not None and (static_dir / "index.html").is_file():

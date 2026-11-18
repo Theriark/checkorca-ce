@@ -2,7 +2,7 @@
 
 Without a command the ROLE setting decides (web, worker or all). The image runs
 "all": web and worker in one process, as Dokploy deploys it. web and all apply
-the migrations before the HTTP port opens.
+the migrations and then the development seed before the HTTP port opens.
 """
 
 import argparse
@@ -17,8 +17,10 @@ import uvicorn
 from alembic import command
 from alembic.config import Config
 
+from app.logging import configure_logging
 from app.main import create_app
-from app.settings import Settings, SettingsError, load_settings
+from app.seed.accounts import SeedError, ensure_seed_accounts
+from app.settings import Settings, SettingsError, known_secrets, load_settings
 from app.worker.loop import run_worker
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -44,8 +46,16 @@ def migrate(settings: Settings) -> None:
 
 
 def seed(settings: Settings) -> None:
-    """Development seed. The accounts arrive in phase C1, demo data in C8."""
-    logger.info("seed: nothing to seed yet for %s", settings.base_url)
+    """Development seed: with DEV_SEED=1 the accounts of DEV_SEED_ACCOUNTS.
+
+    Raises SeedError (the process exits with 2) when the seed is switched on for
+    a host that is not ce-dev-*, ce-stg-* or localhost, or is incomplete.
+    Demo data arrives in phase C8.
+    """
+    if not settings.dev_seed:
+        logger.info("seed: DEV_SEED is not 1, nothing to seed")
+        return
+    asyncio.run(ensure_seed_accounts(settings))
 
 
 async def serve(settings: Settings, with_worker: bool) -> None:
@@ -57,6 +67,10 @@ async def serve(settings: Settings, with_worker: bool) -> None:
             port=settings.port,
             log_level=settings.log_level,
             server_header=False,
+            # Logging is JSON (app/logging.py); the middleware writes the access
+            # log with route templates instead of raw paths.
+            log_config=None,
+            access_log=False,
         )
     )
     if not with_worker:
@@ -94,20 +108,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     except SettingsError as error:
         print(f"checkorca: {error}", file=sys.stderr)
         return 2
-    logging.basicConfig(
-        level=settings.log_level.upper(),
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
+    configure_logging(settings.log_level, known_secrets(settings))
     name: str = args.command or settings.role
-    if name == "migrate":
-        migrate(settings)
-    elif name == "seed":
-        seed(settings)
-    elif name == "worker":
-        asyncio.run(work())
-    else:
-        migrate(settings)
-        asyncio.run(serve(settings, with_worker=name == "all"))
+    try:
+        if name == "migrate":
+            migrate(settings)
+        elif name == "seed":
+            seed(settings)
+        elif name == "worker":
+            asyncio.run(work())
+        else:
+            migrate(settings)
+            seed(settings)
+            asyncio.run(serve(settings, with_worker=name == "all"))
+    except SeedError as error:
+        logger.error("seed refused: %s", error)
+        print(f"checkorca: {error}", file=sys.stderr)
+        return 2
     return 0
 
 

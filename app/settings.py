@@ -11,6 +11,8 @@ from typing import Any, Literal
 
 from pydantic import Field, SecretStr, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError
 
 DATABASE_URL_PREFIX = "postgresql+asyncpg://"
 MIN_SECRET_KEY_LENGTH = 32
@@ -39,6 +41,12 @@ class Settings(BaseSettings):
     log_level: LogLevel = "info"
     # The commit the image was built from (Dockerfile ARG REVISION).
     revision: str = ""
+    # Development and Stage seed (app/seed/accounts.py): the admin, then the
+    # technician of DEV_SEED_ACCOUNTS, with their passwords.
+    dev_seed: bool = False
+    dev_seed_accounts: str = ""
+    dev_seed_password_admin: SecretStr | None = None
+    dev_seed_password_technician: SecretStr | None = None
 
     @field_validator("secret_key")
     @classmethod
@@ -71,6 +79,27 @@ class Settings(BaseSettings):
         if not value.startswith(("http://", "https://")):
             raise ValueError("must start with http:// or https://")
         return value.rstrip("/")
+
+
+def known_secrets(settings: Settings) -> list[str]:
+    """Every secret value of the settings, for the log redaction (D-6)."""
+    values = [
+        settings.secret_key.get_secret_value(),
+        settings.fernet_key.get_secret_value(),
+    ]
+    try:
+        password = make_url(settings.database_url.get_secret_value()).password
+    except (ArgumentError, ValueError):
+        password = None
+    if password:
+        values.append(str(password))
+    for secret in (
+        settings.dev_seed_password_admin,
+        settings.dev_seed_password_technician,
+    ):
+        if secret is not None and secret.get_secret_value():
+            values.append(secret.get_secret_value())
+    return values
 
 
 def load_settings(**overrides: Any) -> Settings:
