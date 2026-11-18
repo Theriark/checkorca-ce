@@ -2,9 +2,12 @@
 
 import json
 import re
+import tomllib
 from pathlib import Path
 
 import yaml
+
+from app import __version__
 
 ROOT = Path(__file__).resolve().parent.parent
 SEED_ACCOUNTS = "checkorca.admin@example.com,checkorca.technician@example.com"
@@ -72,6 +75,16 @@ def test_compose_services_ports_limits_and_logs() -> None:
             "options": {"max-size": "10m", "max-file": "3"},
         }
         assert "healthcheck" in service
+
+
+def test_the_version_is_the_same_everywhere() -> None:
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    package = json.loads((ROOT / "frontend" / "package.json").read_text())
+    strings = (ROOT / "frontend" / "src" / "strings.ts").read_text()
+    shown = re.search(r"APP_VERSION = '([^']+)'", strings)
+    assert shown is not None
+    versions = {pyproject["project"]["version"], package["version"], shown.group(1)}
+    assert versions == {__version__}
 
 
 def test_dockerfile_contract() -> None:

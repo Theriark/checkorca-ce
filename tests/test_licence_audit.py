@@ -137,7 +137,8 @@ def test_npm_scopes_and_licences() -> None:
     packages = {package.name: package for package in licence_audit.npm_packages(lock)}
     assert packages["react"].scope == "runtime"
     assert packages["typefest"].scope == "dev"
-    assert packages["devopt"].scope == "dev"
+    # devOptional can ship in the production tree.
+    assert packages["devopt"].scope == "runtime"
     assert packages["old"].declared == "MIT OR GPL-2.0"
     assert packages["bare"].declared == "UNKNOWN"
     result = audit(packages.values(), "npm")

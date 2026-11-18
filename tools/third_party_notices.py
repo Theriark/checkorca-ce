@@ -77,7 +77,8 @@ def npm_section(frontend: Path) -> list[str]:
     lock = json.loads((frontend / "package-lock.json").read_text(encoding="utf-8"))
     lines: list[str] = []
     for path, entry in sorted(lock.get("packages", {}).items()):
-        if not path or entry.get("dev") or entry.get("devOptional"):
+        # devOptional packages can ship, so only "dev" ones are left out.
+        if not path or entry.get("dev") is True:
             continue
         name = entry.get("name") or path.rsplit("node_modules/", 1)[-1]
         lines += [RULE, f"{name} {entry.get('version', 'unknown')}"]

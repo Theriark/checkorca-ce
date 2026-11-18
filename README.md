@@ -27,7 +27,7 @@ Pre-release. The application skeleton, the container image and the CI merge gate
 
 ## Try the skeleton with Docker Compose
 
-Create a `.env` file next to `docker-compose.yml` with four values of your own: `POSTGRES_PASSWORD`, `SECRET_KEY` (at least 32 characters, for example `openssl rand -hex 32`), `FERNET_KEY` (a Fernet key: 32 random bytes, URL-safe base64) and `BASE_URL` (for example `http://localhost:8080`). Then:
+Create a `.env` file next to `docker-compose.yml` with four values of your own: `POSTGRES_PASSWORD` (URL-safe, because it becomes part of the database URL: for example `openssl rand -hex 24`), `SECRET_KEY` (at least 32 characters, for example `openssl rand -hex 32`), `FERNET_KEY` (a Fernet key: 32 random bytes, URL-safe base64) and `BASE_URL` (for example `http://localhost:8080`). Then:
 
 ```sh
 docker compose up -d --build --wait

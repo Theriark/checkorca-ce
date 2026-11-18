@@ -3,7 +3,8 @@
 Python mode (default) reads the metadata of every installed distribution on the
 given paths (default: the running interpreter, transitive packages included).
 npm mode (--npm) reads every package of a package-lock.json (lockfile v2 or v3);
-a package that only development dependencies pull in has scope "dev".
+a package marked "dev": true (only development dependencies pull it in) has
+scope "dev", every other package scope "runtime".
 
 A licence passes when its SPDX expression is satisfied by the allow-list: OR
 needs one allowed side, AND needs both. Everything else fails, including LGPL,
@@ -333,7 +334,8 @@ def npm_packages(lock: Mapping[str, Any]) -> list[Package]:
             continue
         name = str(entry.get("name") or path.rsplit("node_modules/", 1)[-1])
         version = str(entry.get("version", "unknown"))
-        scope = "dev" if entry.get("dev") or entry.get("devOptional") else "runtime"
+        # "devOptional" can be in the production tree, so only "dev" is dev.
+        scope = "dev" if entry.get("dev") is True else "runtime"
         if (name, version, scope) in seen:
             continue
         seen.add((name, version, scope))
