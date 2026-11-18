@@ -54,11 +54,15 @@ async def test_second_session_gets_the_key_after_the_first_unlocks(
 
         # pg_advisory_lock blocks the second session behind the first.
         waiting = asyncio.create_task(second.execute(LOCK, {"key": KEY}))
-        await asyncio.sleep(0.3)
-        assert not waiting.done()
-        released = time.perf_counter()
-        assert await call(first, UNLOCK) is True
-        await asyncio.wait_for(waiting, timeout=5)
+        try:
+            await asyncio.sleep(0.3)
+            assert not waiting.done()
+            released = time.perf_counter()
+            assert await call(first, UNLOCK) is True
+            await asyncio.wait_for(waiting, timeout=5)
+        finally:
+            # After a failed assertion the blocked call must not outlive the test.
+            waiting.cancel()
         handover_ms = (time.perf_counter() - released) * 1000
 
         assert await holders(first) == [second_pid]
