@@ -64,6 +64,9 @@ async def test_sign_in_buckets_follow_the_forwarded_client(
         (("2001:db8::1", 443), "2001:db8::1"),
         (("not-an-address", 443), None),
         (("192.0.2." + "1" * 60, 443), None),
+        (("fe80::1%eth0", 443), None),
+        (("fe80::1%" + "a" * 80, 443), None),
+        (("::ffff:192.0.2.10", 443), "192.0.2.10"),
         (None, None),
     ],
 )
