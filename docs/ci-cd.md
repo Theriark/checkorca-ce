@@ -32,12 +32,12 @@ All three share the concurrency group `checkorca-ce-delivery` with `cancel-in-pr
 | 2 | pytest against PostgreSQL 16; no skipped test; coverage 80 percent overall and 95 percent for `app/schedule`, `app/evaluator`, `app/parsers` | `pyproject.toml` |
 | 3 | `alembic upgrade head`, `alembic check`, `downgrade -1`, `upgrade head` | `alembic.ini` |
 | 4 | Frontend: `npm run lint`, `npm run typecheck`, `npm run test` (Vitest), `npm run e2e` (Playwright with axe; screenshots at 1440, 768, 390 in `frontend/screenshots`, uploaded) | `frontend/package.json` |
-| 5 | pip-audit (any known vulnerability; exceptions in `.pip-audit-exceptions`) and `npm audit --audit-level=moderate` | Python app or frontend |
+| 5 | pip-audit (any known vulnerability; exceptions in `.pip-audit-exceptions`) and npm audit from moderate up through `tools/npm_audit_gate.py` (reviewed exceptions in `.npm-audit-exceptions`, valid only while every vulnerable copy is a development package in `frontend/package-lock.json`) | Python app or frontend |
 | 6 | Licence audit: `python tools/licence_audit.py` on the runtime packages, again with `--scope dev` on the development packages, and `npm run licence:audit` on every package of `frontend/package-lock.json`; reviewed exceptions in `licence-exceptions.toml` | `tools/licence_audit.py` or frontend |
 | 7 | No `psycopg` in the lock files, no `checkorca-ee`/`checkorca_ee` reference in `app` or `frontend/src`, gitleaks credential scan of the tree | Always |
 | 8 | docker build; the image must not run as root | `Dockerfile` |
 | 9 | Compose smoke: throwaway values generated for the run, `docker compose up --wait`, `/readyz` on port 8080 answers 200, then `scripts/smoke.sh` when present (from C4: one e-mail through the SMTP listener) | `docker-compose.yml` |
-| DCO | `Signed-off-by: Name <e-mail>` on every commit of the pull request (DCO 1.1, CONTRIBUTING.md). On a push to `development` the new commits are checked except the merge or squash commits GitHub writes; lock commits of `github-actions[bot]` are exempt | Always |
+| DCO | `Signed-off-by: Name <e-mail>` on every commit of the pull request (DCO 1.1, CONTRIBUTING.md). On a push to `development` the new commits are checked except the merge or squash commits GitHub writes; lock commits of `github-actions[bot]` are exempt; a later signed commit of the same author can sign off an earlier one (retroactive sign-off, CONTRIBUTING.md) | Always |
 | Brand | `sha256sum -c MANIFEST.sha256` in `frontend/public/brand`, and the folder holds exactly the files of the manifest | Always |
 | SBOM | syft on the built image: `sbom.spdx.json` (SPDX JSON) uploaded as an artefact; the base image digests go to the run summary (legal R-4) | `Dockerfile` |
 

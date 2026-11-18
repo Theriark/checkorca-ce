@@ -47,7 +47,7 @@ Every other transitive package passes the allow-list from its own metadata. fast
 
 ## Web app (npm)
 
-The built web app ships React and React DOM (MIT, Meta Platforms) and scheduler (MIT). Every npm package, development ones included, is audited from `frontend/package-lock.json` by `npm run licence:audit`. The build and test tools under MPL-2.0 or CC-BY-4.0 (axe-core, @axe-core/playwright, lightningcss with its platform binaries, caniuse-lite) are development-only exceptions in `licence-exceptions.toml`; they are never in the image.
+The built web app ships React and React DOM (MIT, Meta Platforms) and scheduler (MIT). Every npm package, development ones included, is audited from `frontend/package-lock.json` by `npm run licence:audit`. The build and test tools under MPL-2.0, CC-BY-4.0 or BlueOak-1.0.0 (axe-core, @axe-core/playwright, lightningcss with its platform binaries, caniuse-lite; minimatch, one copy of lru-cache and @isaacs/nonrecursive-glob-match) are development-only exceptions in `licence-exceptions.toml`; they are never in the image. The Blue Oak Model License 1.0.0 is permissive and OSI approved, but not on the allow-list.
 
 ## Development packages (Python)
 
