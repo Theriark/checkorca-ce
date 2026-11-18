@@ -10,8 +10,14 @@ logger = logging.getLogger(__name__)
 
 
 def make_engine(url: str) -> AsyncEngine:
-    """Create the engine. It opens no connection until first use."""
-    return create_async_engine(url, pool_pre_ping=True, pool_size=5, max_overflow=5)
+    """Create the engine. It opens no connection until first use.
+
+    hide_parameters keeps bound values (addresses, hashes) out of the text of
+    database errors, which can reach a log outside a request (D-6).
+    """
+    return create_async_engine(
+        url, pool_pre_ping=True, pool_size=5, max_overflow=5, hide_parameters=True
+    )
 
 
 async def check_database(engine: AsyncEngine, timeout: float = 3.0) -> bool:

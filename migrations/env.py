@@ -14,7 +14,7 @@ from sqlalchemy import pool, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from app.db.base import Base
+from app.db import models
 
 # Held for the length of a migration, so two processes that start together
 # (web and all, or two replicas) never migrate at once.
@@ -26,7 +26,8 @@ configure_logger = config.attributes.get("configure_logger", True)
 if config.config_file_name is not None and configure_logger:
     fileConfig(config.config_file_name, disable_existing_loggers=False)
 
-target_metadata = Base.metadata
+# Importing the models module registers every table on the metadata.
+target_metadata = models.Base.metadata
 
 
 def database_url() -> str:
