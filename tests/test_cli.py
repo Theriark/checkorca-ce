@@ -5,11 +5,14 @@ import logging
 
 import pytest
 import uvicorn
+from alembic.script import ScriptDirectory
 from sqlalchemy import text
 
 import app.__main__ as cli
 from app.db.engine import make_engine
 from app.settings import Settings, load_settings
+
+pytestmark = pytest.mark.usefixtures("quiet_cli")
 
 
 async def current_revision() -> str:
@@ -36,14 +39,15 @@ def test_unknown_command_is_refused() -> None:
     assert caught.value.code == 2
 
 
-def test_migrate_upgrades_the_database_to_the_baseline() -> None:
+def test_migrate_upgrades_the_database_to_head() -> None:
+    scripts = ScriptDirectory.from_config(cli.alembic_config(load_settings()))
     assert cli.main(["migrate"]) == 0
-    assert asyncio.run(current_revision()) == "c0_baseline"
+    assert asyncio.run(current_revision()) == scripts.get_current_head() == "c1_auth"
     # A second run finds nothing to do.
     assert cli.main(["migrate"]) == 0
 
 
-def test_seed_has_nothing_to_do_yet(caplog: pytest.LogCaptureFixture) -> None:
+def test_seed_without_dev_seed_does_nothing(caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level(logging.INFO, logger="app"):
         assert cli.main(["seed"]) == 0
     assert "nothing to seed" in caplog.text
@@ -82,13 +86,18 @@ def test_web_and_all_migrate_before_serving(
     def fake_migrate(settings: Settings) -> None:
         events.append("migrate")
 
+    def fake_seed(settings: Settings) -> None:
+        events.append("seed")
+
     async def fake_serve(settings: Settings, with_worker: bool) -> None:
         events.append(("serve", with_worker))
 
     monkeypatch.setattr(cli, "migrate", fake_migrate)
+    monkeypatch.setattr(cli, "seed", fake_seed)
     monkeypatch.setattr(cli, "serve", fake_serve)
     assert cli.main(argv) == 0
-    assert events == ["migrate", ("serve", with_worker)]
+    # The seed accounts exist before the HTTP port opens (first-run takeover).
+    assert events == ["migrate", "seed", ("serve", with_worker)]
 
 
 async def test_serve_starts_and_stops_the_worker(
