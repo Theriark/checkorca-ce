@@ -170,7 +170,7 @@ def test_lock_tools_are_all_pinned_with_hashes() -> None:
         "packaging",
         "pip",
         "pip-tools",
-        "preproject-hooks".replace("pre", "py"),
+        "pyproject-hooks",
         "setuptools",
         "wheel",
     }
