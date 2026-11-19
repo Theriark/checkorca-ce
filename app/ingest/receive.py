@@ -43,6 +43,12 @@ _QUOTED_OR_COMMENT = re.compile(r'"((?:[^"\\]|\\.)*)"|\((?:[^()\\]|\\.)*\)')
 # value (RFC 8601 allows header.d="example.com"); the window it is looked for in.
 _PROPERTY_BEFORE = re.compile(r"\bheader\.[di]\s*=\s*$", re.IGNORECASE)
 _PROPERTY_WINDOW: Final = 32
+# What may follow such a whole value (RFC 8601): CFWS, then the end, a ";" or
+# the next ptype.property=. After a local part an @ or a "." follows instead
+# ("a@example.com" (x) @attacker.test), so a quoted local part stays opaque.
+_VALUE_END = re.compile(
+    r"(?:\s|\((?:[^()\\]|\\.)*\))*(?:$|;|[A-Za-z][A-Za-z0-9-]*\.[A-Za-z0-9-]+\s*=)"
+)
 _PLAIN_VALUE = re.compile(r"(?:[A-Za-z0-9._+-]+@)?[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*")
 _DKIM_PASS = re.compile(r"^\s*dkim\s*=\s*pass\b", re.IGNORECASE)
 # header.d (the signing domain) and header.i (the AUID, local part optional).
@@ -93,8 +99,9 @@ def masked(value: str) -> str | None:
     """The Authentication-Results text with every comment a space and every
     quoted string the opaque word q, in one left-to-right pass, so nothing
     inside them is read as a separator, a property or a domain. A quoted
-    string that is a whole header.d or header.i value and a plain domain or
-    AUID keeps its text. None when a quote or a parenthesis is left over (an
+    string that is a whole header.d or header.i value (only CFWS, then the
+    end, a ";" or the next property after it) and a plain domain or AUID
+    keeps its text. None when a quote or a parenthesis is left over (an
     unbalanced quote or a nested comment): the header is not trusted."""
 
     def replace(match: re.Match[str]) -> str:
@@ -105,7 +112,7 @@ def masked(value: str) -> str | None:
         before = value[max(0, start - _PROPERTY_WINDOW) : start]
         if (
             _PROPERTY_BEFORE.search(before)
-            and not value.startswith("@", match.end())
+            and _VALUE_END.match(value, match.end())
             and _PLAIN_VALUE.fullmatch(text)
         ):
             return text
@@ -141,9 +148,11 @@ def dkim_passed(headers: Message, addresses: list[str]) -> bool:
     results = headers.get_all("Authentication-Results", [])
     if not results or not addresses:
         return False
-    # Parsed as sent: no encoded-word decoding, and quoted strings and
-    # comments masked before the split, so neither can add a ";".
-    value = masked(mime.raw_header_value(results[0]))
+    # Parsed as sent and whole: no encoded-word decoding, no cut value, and
+    # quoted strings and comments masked before the split, so neither can
+    # add a ";".
+    raw = mime.raw_header_value(results[0])
+    value = None if raw is None else masked(raw)
     if value is None:
         return False
     # The first item is the authserv-id; the results follow, one per ";".

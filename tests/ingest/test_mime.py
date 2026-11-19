@@ -40,6 +40,13 @@ def test_a_value_is_cut_before_it_is_decoded(monkeypatch: pytest.MonkeyPatch) ->
     assert decoded.startswith("aaaa") and len(decoded) <= mime.MAX_DECODED_INPUT
 
 
+def test_a_raw_value_is_unfolded_never_decoded_and_never_cut() -> None:
+    value = "a=?utf-8?q?x=3B_y?=\r\n\tb\x00"
+    assert mime.raw_header_value(value) == "a=?utf-8?q?x=3B_y?= b"
+    assert mime.raw_header_value("z" * mime.MAX_DECODED_INPUT) is not None
+    assert mime.raw_header_value("z" * (mime.MAX_DECODED_INPUT + 1)) is None
+
+
 def test_header_bytes_ends_at_the_first_blank_line() -> None:
     assert mime.header_bytes(b"A: 1\r\n\r\nbody\r\n\r\n") == 4
     assert mime.header_bytes(b"A: 1\n\nbody") == 4

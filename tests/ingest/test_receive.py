@@ -104,6 +104,20 @@ OPENDKIM = "mx.example.org; dkim=pass (1024-bit key; unprotected) header.d=examp
 # RFC 8601 allows a quoted property value.
 QUOTED_D = 'mx.example.org; dkim=pass header.d="example.com"'
 QUOTED_I = 'mx.example.org; dkim=pass header.i="alerts@example.com"'
+QUOTED_D_THEN = (
+    'mx.example.org; dkim=pass header.d="example.com" (ok) header.s=sel;'
+    " spf=pass smtp.mailfrom=example.com"
+)
+# Whitespace, a fold, a comment or a "." before the @: still a local part.
+CFWS_SPACE = 'mx.example.org; dkim=pass header.i="a@example.com" @attacker.test'
+CFWS_TAB = 'mx.example.org; dkim=pass header.i="a@example.com"\t@attacker.test'
+CFWS_COMMENT = 'mx.example.org; dkim=pass header.i="a@example.com"(x)@attacker.test'
+CFWS_FOLD = 'mx.example.org; dkim=pass header.i="a@example.com"\r\n\t@attacker.test'
+DOTTED = 'mx.example.org; dkim=pass header.i="a@example.com" . "b"@attacker.test'
+# Longer than the 8,000 characters read: refused, never read cut (a cut
+# after character 8,000 would leave header.d=example.com).
+_SIGNED = "; dkim=pass header.d=example.com"
+TOO_LONG = "m" * (mime.MAX_DECODED_INPUT - len(_SIGNED)) + _SIGNED + ".attacker.test"
 
 
 @pytest.mark.parametrize(
@@ -132,6 +146,13 @@ QUOTED_I = 'mx.example.org; dkim=pass header.i="alerts@example.com"'
         ("a@example.com", [OPENDKIM], True),
         ("a@example.com", [QUOTED_D], True),
         ("a@example.com", [QUOTED_I], True),
+        ("a@example.com", [QUOTED_D_THEN], True),
+        ("a@example.com", [CFWS_SPACE], False),
+        ("a@example.com", [CFWS_TAB], False),
+        ("a@example.com", [CFWS_COMMENT], False),
+        ("a@example.com", [CFWS_FOLD], False),
+        ("a@example.com", [DOTTED], False),
+        ("a@example.com", [TOO_LONG], False),
         ("a@example.com", [FAIL], False),
         ("a@example.com", [OTHER], False),
         ("a@example.com", [SPF], False),

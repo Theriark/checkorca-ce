@@ -47,12 +47,16 @@ def clean_text(text: str) -> str:
     return data.decode("utf-8", "replace").replace("\x00", "")
 
 
-def raw_header_value(value: object) -> str:
-    """A structured header value unfolded, from at most MAX_DECODED_INPUT
-    characters of it, without RFC 2047 decoding: encoded words mean nothing
-    in a structured header such as Authentication-Results, and decoding them
-    first could add separators to it."""
-    text = _FOLD.sub(" ", str(value))[:MAX_DECODED_INPUT]
+def raw_header_value(value: object) -> str | None:
+    """A structured header value unfolded, without RFC 2047 decoding: encoded
+    words mean nothing in a structured header such as Authentication-Results,
+    and decoding them first could add separators to it. None when it is longer
+    than MAX_DECODED_INPUT characters: a cut value could end inside a domain
+    (header.d=example.com.attacker.test read as example.com), so it is read
+    whole or not at all."""
+    text = _FOLD.sub(" ", str(value))
+    if len(text) > MAX_DECODED_INPUT:
+        return None
     return clean_text(_LINE_BREAK.sub(" ", text))
 
 
