@@ -18,6 +18,7 @@ from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.access import Principal
 from app.api.deps import (
     DbDep,
     ReaderDep,
@@ -100,15 +101,24 @@ def ping_url(services: Services, job: Job) -> str:
     return f"{services.settings.base_url.rstrip('/')}/api/v1/ping/{job.ping_token}"
 
 
-def job_out(services: Services, job: Job, client_name: str, now: datetime) -> JobOut:
+def job_out(
+    services: Services,
+    job: Job,
+    client_name: str,
+    now: datetime,
+    principal: Principal,
+) -> JobOut:
     # Every column JobOut shares with the table, then the derived fields.
     stored = {
         field: getattr(job, field) for field in JobOut.model_fields if field in COLUMNS
     }
+    # The ping token alone lets its holder report results (C4), so a read-only
+    # API token never sees it; only signed-in users do.
+    url = None if principal.kind == "token" else ping_url(services, job)
     return JobOut(
         **stored,
         client_name=client_name,
-        ping_url=ping_url(services, job),
+        ping_url=url,
         state=job_state(job, now),
         state_since=None,
         last_success_at=None,
@@ -157,7 +167,7 @@ async def list_jobs(
         last, _ = items[-1]
         next_cursor = encode_cursor({"name_key": last.name_key, "id": str(last.id)})
     return JobPage(
-        items=[job_out(services, job, name, now) for job, name in items],
+        items=[job_out(services, job, name, now, principal) for job, name in items],
         next_cursor=next_cursor,
     )
 
@@ -208,7 +218,7 @@ async def create_job(
         target_id=job.id,
     )
     await db.commit()
-    return job_out(services, job, client.name, now)
+    return job_out(services, job, client.name, now, context.principal)
 
 
 @router.get("/export.csv", response_class=Response, responses=CSV_RESPONSE)
@@ -430,7 +440,7 @@ async def get_job(
     client = await ClientRepository(db, services.policy).get(principal, job.client_id)
     if client is None:
         raise job_not_found()
-    return job_out(services, job, client.name, services.clock.now())
+    return job_out(services, job, client.name, services.clock.now(), principal)
 
 
 async def save(
@@ -468,7 +478,7 @@ async def save(
         )
     # Without changes this only ends the transaction and its row lock.
     await db.commit()
-    return job_out(services, job, client.name, now)
+    return job_out(services, job, client.name, now, context.principal)
 
 
 @router.patch("/{job_id}")
