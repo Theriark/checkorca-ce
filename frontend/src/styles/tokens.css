@@ -1,0 +1,213 @@
+/*
+ * Design tokens of the product (docs/design-direction.md).
+ *
+ * Palette roles from the brand guide: signal red for the logo, failures and
+ * destructive confirms only; ink for text and primary buttons on light and the
+ * dark background; steel for borders, secondary text on dark and gridlines;
+ * off-white for the light background and text on dark.
+ *
+ * The theme follows the system until the user picks one: [data-theme] on the
+ * html element wins over prefers-color-scheme. Status is never shown by colour
+ * alone; every status token has an icon and a word next to it (SeverityBadge).
+ */
+
+:root {
+  /* Brand constants (never themed). */
+  --brand-signal: #d0202a;
+  --brand-ink: #121417;
+  --brand-steel: #9fb3c8;
+  --brand-off-white: #f7f7f5;
+
+  /* Type: Inter for everything, JetBrains Mono for cron, logs and raw mail. */
+  --font-sans: 'Inter Variable', 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --text-12: 12px;
+  --text-14: 14px;
+  --text-16: 16px;
+  --text-20: 20px;
+  --text-24: 24px;
+  --text-32: 32px;
+  --leading-tight: 1.2;
+  --leading-normal: 1.5;
+  --tracking-caps: 0.06em;
+
+  /* Space (4 px grid) and shape. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+  --control-height: 40px;
+  --control-height-sm: 32px;
+
+  /* Layout. */
+  --shell-header-height: 64px;
+  --shell-sidebar-width: 248px;
+  --shell-rail-width: 96px;
+  --shell-bottom-bar-height: 64px;
+  --content-max-width: 1280px;
+
+  /* Motion. */
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-slow: 320ms;
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Stacking. */
+  --z-sticky: 10;
+  --z-shell: 20;
+  --z-overlay: 40;
+  --z-dialog: 50;
+  --z-toast: 60;
+
+  /* Light theme. */
+  --bg: #f7f7f5;
+  --bg-sunken: #eeeeea;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-hover: #f1f1ee;
+  --border: #dadfe5;
+  --border-strong: #b8c2cc;
+  --gridline: #9fb3c8;
+  --text: #121417;
+  --text-secondary: #5b6b7c;
+  --text-inverse: #f7f7f5;
+  --primary: #121417;
+  --primary-hover: #2a2f36;
+  --primary-text: #f7f7f5;
+  --link: #121417;
+  --focus: #121417;
+  --focus-halo: rgba(18, 20, 23, 0.18);
+  --danger-fill: #d0202a;
+  --danger-fill-hover: #b51b24;
+  --danger-fill-text: #ffffff;
+  --shadow-sm: 0 1px 2px rgba(18, 20, 23, 0.06);
+  --shadow-md: 0 6px 20px rgba(18, 20, 23, 0.1);
+  --shadow-lg: 0 18px 48px rgba(18, 20, 23, 0.18);
+  --skeleton-base: #e6e8e5;
+  --skeleton-sheen: #f3f3f1;
+
+  /* Status tokens (light). Text colours pass 4.5:1 on bg and surface; the
+     badge backgrounds are solid tints so the ratio does not depend on what
+     is behind the badge. */
+  --status-success: #1e7b4f;
+  --status-success-bg: #e8f2ed;
+  --status-warning: #9a5b00;
+  --status-warning-bg: #f5efe6;
+  --status-danger: #d0202a;
+  --status-danger-bg: #fbedee;
+  --status-muted: #5b6b7c;
+  --status-muted-bg: #eff0f2;
+  --status-info: #121417;
+  --status-info-bg: #f0f0f0;
+
+  /* Night Ribbon: night sky, ring strokes and the morning line. */
+  --ribbon-night: #e9edf2;
+  --ribbon-ring: #121417;
+  --ribbon-morning: #d0202a;
+  --ribbon-gap: #9fb3c8;
+
+  color-scheme: light;
+}
+
+/* Dark theme, once by the system preference and once by the user's choice.
+   The two blocks are identical on purpose: CSS has no way to share a block
+   between a media query and an attribute selector without a preprocessor. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #121417;
+    --bg-sunken: #0d0f12;
+    --surface: #1b1f24;
+    --surface-raised: #22272e;
+    --surface-hover: #262c34;
+    --border: #2c333b;
+    --border-strong: #3d4650;
+    --gridline: #3d4650;
+    --text: #f7f7f5;
+    --text-secondary: #9fb3c8;
+    --text-inverse: #121417;
+    --primary: #f7f7f5;
+    --primary-hover: #e2e2de;
+    --primary-text: #121417;
+    --link: #f7f7f5;
+    --focus: #f7f7f5;
+    --focus-halo: rgba(247, 247, 245, 0.22);
+    --danger-fill: #d0202a;
+    --danger-fill-hover: #e3303a;
+    --danger-fill-text: #ffffff;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.45);
+    --shadow-lg: 0 18px 48px rgba(0, 0, 0, 0.6);
+    --skeleton-base: #22272e;
+    --skeleton-sheen: #2c333b;
+    --status-success: #3fb37a;
+    --status-success-bg: #182a25;
+    --status-warning: #e0a030;
+    --status-warning-bg: #2f281a;
+    /* #f4585f instead of the guide's #f0444c for text: the guide's value reads
+       4.4:1 on a raised surface, below its own 4.5:1 rule. Fills stay #d0202a. */
+    --status-danger: #f4585f;
+    --status-danger-bg: #311b1e;
+    --status-muted: #9fb3c8;
+    --status-muted-bg: #23272c;
+    --status-info: #f7f7f5;
+    --status-info-bg: #242629;
+    --ribbon-night: #0d0f12;
+    --ribbon-ring: #f7f7f5;
+    --ribbon-morning: #f4585f;
+    --ribbon-gap: #9fb3c8;
+    color-scheme: dark;
+  }
+}
+
+[data-theme='dark'] {
+  --bg: #121417;
+  --bg-sunken: #0d0f12;
+  --surface: #1b1f24;
+  --surface-raised: #22272e;
+  --surface-hover: #262c34;
+  --border: #2c333b;
+  --border-strong: #3d4650;
+  --gridline: #3d4650;
+  --text: #f7f7f5;
+  --text-secondary: #9fb3c8;
+  --text-inverse: #121417;
+  --primary: #f7f7f5;
+  --primary-hover: #e2e2de;
+  --primary-text: #121417;
+  --link: #f7f7f5;
+  --focus: #f7f7f5;
+  --focus-halo: rgba(247, 247, 245, 0.22);
+  --danger-fill: #d0202a;
+  --danger-fill-hover: #e3303a;
+  --danger-fill-text: #ffffff;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 18px 48px rgba(0, 0, 0, 0.6);
+  --skeleton-base: #22272e;
+  --skeleton-sheen: #2c333b;
+  --status-success: #3fb37a;
+  --status-success-bg: #182a25;
+  --status-warning: #e0a030;
+  --status-warning-bg: #2f281a;
+  --status-danger: #f4585f;
+  --status-danger-bg: #311b1e;
+  --status-muted: #9fb3c8;
+  --status-muted-bg: #23272c;
+  --status-info: #f7f7f5;
+  --status-info-bg: #242629;
+  --ribbon-night: #0d0f12;
+  --ribbon-ring: #f7f7f5;
+  --ribbon-morning: #f4585f;
+  --ribbon-gap: #9fb3c8;
+  color-scheme: dark;
+}

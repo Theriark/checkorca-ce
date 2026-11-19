@@ -1,0 +1,96 @@
+/* The Night Ribbon mark (NightRibbonMark.tsx). */
+
+.co-ribbon-mark {
+  display: block;
+  height: auto;
+  overflow: visible;
+}
+
+.co-ribbon-mark__night {
+  fill: var(--ribbon-night);
+}
+
+.co-ribbon-mark--hero .co-ribbon-mark__night {
+  fill: rgba(247, 247, 245, 0.06);
+}
+
+.co-ribbon-mark__line {
+  stroke: var(--gridline);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+.co-ribbon-mark__tick {
+  stroke: var(--gridline);
+  stroke-width: 1;
+  opacity: 0.6;
+}
+
+.co-ribbon-mark__ring {
+  stroke-width: 2.5;
+  fill: var(--surface);
+}
+
+.co-ribbon-mark--hero .co-ribbon-mark__ring {
+  fill: var(--brand-ink);
+}
+
+.co-ribbon-mark__ring--verified {
+  stroke: var(--status-success);
+  fill: var(--status-success);
+}
+
+.co-ribbon-mark__ring--warning {
+  stroke: var(--status-warning);
+  fill: var(--status-warning);
+}
+
+.co-ribbon-mark__ring--failed {
+  stroke: var(--status-danger);
+  fill: var(--status-danger);
+}
+
+/* Silence: a hollow ring that slowly breathes (still under reduced motion). */
+.co-ribbon-mark__ring--hollow {
+  stroke: var(--ribbon-ring);
+  fill: transparent;
+  animation: co-ribbon-pulse 2.4s ease-in-out infinite;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+.co-ribbon-mark--hero .co-ribbon-mark__ring--hollow {
+  stroke: var(--brand-off-white);
+}
+
+.co-ribbon-mark__gap {
+  stroke: var(--ribbon-gap);
+  stroke-width: 1.5;
+  stroke-dasharray: 2 4;
+  stroke-linecap: round;
+}
+
+.co-ribbon-mark__morning {
+  stroke: var(--ribbon-morning);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+@keyframes co-ribbon-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.55;
+    transform: scale(1.18);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .co-ribbon-mark__ring--hollow {
+    animation: none;
+  }
+}
