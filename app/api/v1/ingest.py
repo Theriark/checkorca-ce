@@ -23,7 +23,7 @@ import uuid
 from typing import Annotated, Any, Final, Literal
 
 from fastapi import APIRouter, Depends, File, Form, Path, Request, UploadFile
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.access import SYSTEM, Principal
@@ -69,6 +69,14 @@ RAW_MAIL_BODY: Final[dict[str, Any]] = {
     }
 }
 PING_STATUS: Final[dict[str, ResultStatus]] = {"start": "started", "fail": "failed"}
+# The ping answer is text; declared here, so the 4XX answers stay problem
+# documents (a text/plain response_class would file them as text/plain too).
+PING_RESPONSE: Final[dict[int | str, dict[str, Any]]] = {
+    200: {
+        "content": {"text/plain": {"schema": {"type": "string"}}},
+        "description": "OK: the result was recorded.",
+    }
+}
 
 
 def inbox_not_found() -> ProblemError:
@@ -193,7 +201,7 @@ async def create_result(
 
 async def ping(
     services: Services, db: AsyncSession, token: str, status: ResultStatus
-) -> str:
+) -> Response:
     # Keyed by the token's hash: the limiter keeps no ping URL in memory.
     enforce_rate_limit(services.token_limiter, f"ping:{sha256_hex(token)}")
     job = await JobRepository(db, services.policy).find_by_ping_token(SYSTEM, token)
@@ -208,26 +216,30 @@ async def ping(
         job_id=job.id,
     )
     await db.commit()
-    return "OK"
+    return PlainTextResponse("OK")
 
 
-@router.get("/ping/{ping_token}", response_class=PlainTextResponse)
-@router.post("/ping/{ping_token}", response_class=PlainTextResponse)
+@router.get("/ping/{ping_token}", response_class=Response, responses=PING_RESPONSE)
+@router.post("/ping/{ping_token}", response_class=Response, responses=PING_RESPONSE)
 async def ping_success(
     ping_token: PingTokenPath, services: ServicesDep, db: DbDep
-) -> str:
+) -> Response:
     """The job's run ended well; answers OK."""
     return await ping(services, db, ping_token, "success")
 
 
-@router.get("/ping/{ping_token}/{signal}", response_class=PlainTextResponse)
-@router.post("/ping/{ping_token}/{signal}", response_class=PlainTextResponse)
+@router.get(
+    "/ping/{ping_token}/{signal}", response_class=Response, responses=PING_RESPONSE
+)
+@router.post(
+    "/ping/{ping_token}/{signal}", response_class=Response, responses=PING_RESPONSE
+)
 async def ping_signal(
     ping_token: PingTokenPath,
     signal: Literal["start", "fail"],
     services: ServicesDep,
     db: DbDep,
-) -> str:
+) -> Response:
     """start: the job's run began; fail: it failed. Answers OK."""
     return await ping(services, db, ping_token, PING_STATUS[signal])
 

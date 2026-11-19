@@ -136,9 +136,11 @@ class ImapConnector:
             size_of: dict[str, int] = {}
             for item in sizes:
                 line = item[0] if isinstance(item, tuple) else item
-                uid, size = _UID.search(line or b""), _SIZE.search(line or b"")
-                if uid and size:
-                    size_of[uid.group(1).decode("ascii")] = int(size.group(1))
+                uid_match = _UID.search(line or b"")
+                size_match = _SIZE.search(line or b"")
+                if uid_match and size_match:
+                    uid = uid_match.group(1).decode("ascii")
+                    size_of[uid] = int(size_match.group(1))
             fetched: list[FetchedMessage] = []
             oversize: list[str] = []
             for uid in uids:

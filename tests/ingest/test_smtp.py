@@ -96,8 +96,12 @@ def message(
 
 
 def client(port: int) -> smtplib.SMTP:
+    """A connected client after EHLO: aiosmtpd answers 503 to MAIL before it,
+    and smtplib's mail() does not send it (sendmail() does)."""
     # local_hostname avoids a DNS lookup of the runner's name.
-    return smtplib.SMTP("127.0.0.1", port, local_hostname="sender.test", timeout=10)
+    session = smtplib.SMTP("127.0.0.1", port, local_hostname="sender.test", timeout=10)
+    session.ehlo()
+    return session
 
 
 async def blocking[T](call: Callable[[], T]) -> T:
