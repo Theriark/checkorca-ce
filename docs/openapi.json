@@ -38,7 +38,7 @@
     "/readyz": {
       "get": {
         "summary": "Readyz",
-        "description": "Ready when the database answers (phase C4 adds the worker heartbeat).",
+        "description": "Ready when the database answers and the worker heartbeat is younger\nthan 3 minutes (ROLE=all runs the worker in this process).",
         "operationId": "readyz_readyz_get",
         "responses": {
           "200": {
@@ -1543,6 +1543,682 @@
           }
         }
       }
+    },
+    "/api/v1/inboxes": {
+      "get": {
+        "tags": [
+          "inboxes"
+        ],
+        "summary": "List Inboxes",
+        "description": "Inboxes, oldest first.",
+        "operationId": "list_inboxes_api_v1_inboxes_get",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "smtp",
+                    "imap",
+                    "webhook",
+                    "upload"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 512
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboxPage"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "inboxes"
+        ],
+        "summary": "Create Inbox",
+        "description": "Create an inbox. A webhook inbox's token is in this answer only.",
+        "operationId": "create_inbox_api_v1_inboxes_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewInbox"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboxCreated"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inboxes/{inbox_id}": {
+      "get": {
+        "tags": [
+          "inboxes"
+        ],
+        "summary": "Get Inbox",
+        "operationId": "get_inbox_api_v1_inboxes__inbox_id__get",
+        "parameters": [
+          {
+            "name": "inbox_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Inbox Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboxOut"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "inboxes"
+        ],
+        "summary": "Update Inbox",
+        "description": "Change the label, the sender allowlist, the Authentication-Results rule\nor (IMAP inboxes) the IMAP settings. A password sent replaces the stored\none; none sent keeps it.",
+        "operationId": "update_inbox_api_v1_inboxes__inbox_id__patch",
+        "parameters": [
+          {
+            "name": "inbox_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Inbox Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InboxPatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboxOut"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "inboxes"
+        ],
+        "summary": "Delete Inbox",
+        "description": "Delete an inbox: its address, URL and token stop working at once. Its\nmessages stay, without an inbox, until the retention purge.",
+        "operationId": "delete_inbox_api_v1_inboxes__inbox_id__delete",
+        "parameters": [
+          {
+            "name": "inbox_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Inbox Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inboxes/{inbox_id}/token": {
+      "post": {
+        "tags": [
+          "inboxes"
+        ],
+        "summary": "Rotate Inbox Token",
+        "description": "A new token for a webhook inbox, shown once; the old one stops working.",
+        "operationId": "rotate_inbox_token_api_v1_inboxes__inbox_id__token_post",
+        "parameters": [
+          {
+            "name": "inbox_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Inbox Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboxToken"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/messages": {
+      "get": {
+        "tags": [
+          "messages"
+        ],
+        "summary": "List Messages",
+        "description": "Messages, newest first.",
+        "operationId": "list_messages_api_v1_messages_get",
+        "parameters": [
+          {
+            "name": "inbox_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Inbox Id"
+            }
+          },
+          {
+            "name": "parse_state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "pending",
+                    "parsed",
+                    "unmatched",
+                    "error"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Parse State"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 512
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessagePage"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/messages/{message_id}": {
+      "get": {
+        "tags": [
+          "messages"
+        ],
+        "summary": "Get Message",
+        "description": "One message: headers, readable text (at most 256 KB) and its results.",
+        "operationId": "get_message_api_v1_messages__message_id__get",
+        "parameters": [
+          {
+            "name": "message_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Message Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageDetail"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/results": {
+      "get": {
+        "tags": [
+          "results"
+        ],
+        "summary": "List Results",
+        "description": "Results, newest first; job_id and status narrow the list.",
+        "operationId": "list_results_api_v1_results_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "success",
+                    "warning",
+                    "failed",
+                    "started",
+                    "unknown"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 512
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResultPage"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/jobs/{job_id}/results": {
+      "get": {
+        "tags": [
+          "results"
+        ],
+        "summary": "List Job Results",
+        "description": "One job's results, newest first; 404 for an unknown job.",
+        "operationId": "list_job_results_api_v1_jobs__job_id__results_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "success",
+                    "warning",
+                    "failed",
+                    "started",
+                    "unknown"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 512
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResultPage"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/system/status": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "System Status",
+        "description": "A heartbeat older than 3 minutes (or none) is stale: the web app shows a\nred banner and /readyz answers 503.",
+        "operationId": "system_status_api_v1_system_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemStatus"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1859,6 +2535,277 @@
         "title": "FieldProblem",
         "description": "One invalid input: where it is (for example body.email) and why."
       },
+      "HeaderOut": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "value": {
+            "type": "string",
+            "title": "Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "value"
+        ],
+        "title": "HeaderOut"
+      },
+      "ImapOut": {
+        "properties": {
+          "host": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host"
+          },
+          "port": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Port"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          },
+          "folder": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folder"
+          },
+          "poll_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Poll Seconds"
+          },
+          "tls": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tls"
+          },
+          "secret_set": {
+            "type": "boolean",
+            "title": "Secret Set"
+          },
+          "secret_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secret Hint"
+          }
+        },
+        "type": "object",
+        "required": [
+          "host",
+          "port",
+          "username",
+          "folder",
+          "poll_seconds",
+          "tls",
+          "secret_set",
+          "secret_hint"
+        ],
+        "title": "ImapOut"
+      },
+      "ImapPatch": {
+        "properties": {
+          "host": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 253,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9._:-]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host"
+          },
+          "port": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 65535.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Port"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 320,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          },
+          "password": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1024,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password"
+          },
+          "folder": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folder"
+          },
+          "poll_seconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 86400.0,
+                "minimum": 60.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Poll Seconds"
+          },
+          "tls": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tls"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ImapPatch",
+        "description": "Only the fields sent change; a password replaces the stored one."
+      },
+      "ImapSettings": {
+        "properties": {
+          "host": {
+            "type": "string",
+            "maxLength": 253,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._:-]+$",
+            "title": "Host"
+          },
+          "port": {
+            "type": "integer",
+            "maximum": 65535.0,
+            "minimum": 1.0,
+            "title": "Port",
+            "default": 993
+          },
+          "username": {
+            "type": "string",
+            "maxLength": 320,
+            "minLength": 1,
+            "title": "Username"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Password"
+          },
+          "folder": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Folder",
+            "default": "INBOX"
+          },
+          "poll_seconds": {
+            "type": "integer",
+            "maximum": 86400.0,
+            "minimum": 60.0,
+            "title": "Poll Seconds",
+            "default": 300
+          },
+          "tls": {
+            "type": "boolean",
+            "title": "Tls",
+            "default": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "host",
+          "username",
+          "password"
+        ],
+        "title": "ImapSettings",
+        "description": "A mailbox the MSP already collects alert mail in."
+      },
       "ImportProblem": {
         "properties": {
           "row": {
@@ -1913,6 +2860,378 @@
           "dry_run"
         ],
         "title": "ImportResult"
+      },
+      "InboxActivity": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "smtp",
+              "imap",
+              "webhook",
+              "upload"
+            ],
+            "title": "Kind"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "last_message_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Message At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "label",
+          "last_message_at"
+        ],
+        "title": "InboxActivity"
+      },
+      "InboxCreated": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "smtp",
+              "imap",
+              "webhook",
+              "upload"
+            ],
+            "title": "Kind"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address"
+          },
+          "ingest_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ingest Url"
+          },
+          "imap": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImapOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "webhook_token_set": {
+            "type": "boolean",
+            "title": "Webhook Token Set"
+          },
+          "sender_allowlist": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Sender Allowlist"
+          },
+          "require_auth_results": {
+            "type": "boolean",
+            "title": "Require Auth Results"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "last_message_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Message At"
+          },
+          "webhook_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webhook Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "label",
+          "address",
+          "ingest_url",
+          "imap",
+          "webhook_token_set",
+          "sender_allowlist",
+          "require_auth_results",
+          "created_at",
+          "updated_at",
+          "last_message_at",
+          "webhook_token"
+        ],
+        "title": "InboxCreated",
+        "description": "The new inbox; webhook_token is in this answer only (webhook inboxes)."
+      },
+      "InboxOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "smtp",
+              "imap",
+              "webhook",
+              "upload"
+            ],
+            "title": "Kind"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address"
+          },
+          "ingest_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ingest Url"
+          },
+          "imap": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImapOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "webhook_token_set": {
+            "type": "boolean",
+            "title": "Webhook Token Set"
+          },
+          "sender_allowlist": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Sender Allowlist"
+          },
+          "require_auth_results": {
+            "type": "boolean",
+            "title": "Require Auth Results"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "last_message_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Message At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "label",
+          "address",
+          "ingest_url",
+          "imap",
+          "webhook_token_set",
+          "sender_allowlist",
+          "require_auth_results",
+          "created_at",
+          "updated_at",
+          "last_message_at"
+        ],
+        "title": "InboxOut"
+      },
+      "InboxPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/InboxOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "InboxPage"
+      },
+      "InboxPatch": {
+        "properties": {
+          "label": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "imap": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImapPatch"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sender_allowlist": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string",
+                  "maxLength": 254
+                },
+                "type": "array",
+                "maxItems": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sender Allowlist"
+          },
+          "require_auth_results": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Require Auth Results"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "InboxPatch",
+        "description": "Only the fields sent change. The kind and the code never change."
+      },
+      "InboxToken": {
+        "properties": {
+          "webhook_token": {
+            "type": "string",
+            "title": "Webhook Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "webhook_token"
+        ],
+        "title": "InboxToken",
+        "description": "A webhook inbox's new token, shown this once; the old one stops working."
       },
       "JobOut": {
         "properties": {
@@ -2421,6 +3740,256 @@
         ],
         "title": "Me"
       },
+      "MessageDetail": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "inbox_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inbox Id"
+          },
+          "client_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Id"
+          },
+          "received_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Received At"
+          },
+          "message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message Id"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size"
+          },
+          "parse_state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "parsed",
+              "unmatched",
+              "error"
+            ],
+            "title": "Parse State"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          },
+          "sender": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sender"
+          },
+          "headers": {
+            "items": {
+              "$ref": "#/components/schemas/HeaderOut"
+            },
+            "type": "array",
+            "title": "Headers"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "text_truncated": {
+            "type": "boolean",
+            "title": "Text Truncated"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/ResultOut"
+            },
+            "type": "array",
+            "title": "Results"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "inbox_id",
+          "client_id",
+          "received_at",
+          "message_id",
+          "size",
+          "parse_state",
+          "subject",
+          "sender",
+          "headers",
+          "text",
+          "text_truncated",
+          "results"
+        ],
+        "title": "MessageDetail"
+      },
+      "MessageOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "inbox_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inbox Id"
+          },
+          "client_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Id"
+          },
+          "received_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Received At"
+          },
+          "message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message Id"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size"
+          },
+          "parse_state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "parsed",
+              "unmatched",
+              "error"
+            ],
+            "title": "Parse State"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          },
+          "sender": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sender"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "inbox_id",
+          "client_id",
+          "received_at",
+          "message_id",
+          "size",
+          "parse_state",
+          "subject",
+          "sender"
+        ],
+        "title": "MessageOut"
+      },
+      "MessagePage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MessageOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "MessagePage"
+      },
       "NewAccount": {
         "properties": {
           "email": {
@@ -2475,6 +4044,58 @@
           "name"
         ],
         "title": "NewClient"
+      },
+      "NewInbox": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "smtp",
+              "imap",
+              "webhook",
+              "upload"
+            ],
+            "title": "Kind"
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Label"
+          },
+          "imap": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImapSettings"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sender_allowlist": {
+            "items": {
+              "type": "string",
+              "maxLength": 254
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Sender Allowlist",
+            "default": []
+          },
+          "require_auth_results": {
+            "type": "boolean",
+            "title": "Require Auth Results",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "label"
+        ],
+        "title": "NewInbox"
       },
       "NewJob": {
         "properties": {
@@ -2757,6 +4378,173 @@
         "title": "Problem",
         "description": "An RFC 9457 problem details document."
       },
+      "QueueStatus": {
+        "properties": {
+          "pending_messages": {
+            "type": "integer",
+            "title": "Pending Messages"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pending_messages"
+        ],
+        "title": "QueueStatus"
+      },
+      "ResultOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "client_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Hint"
+          },
+          "job_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Name"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "success",
+              "warning",
+              "failed",
+              "started",
+              "unknown"
+            ],
+            "title": "Status"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "received_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Received At"
+          },
+          "raw_message_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Message Id"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "details": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Details"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "job_id",
+          "client_hint",
+          "job_name",
+          "status",
+          "started_at",
+          "finished_at",
+          "received_at",
+          "raw_message_id",
+          "run_id",
+          "details"
+        ],
+        "title": "ResultOut"
+      },
+      "ResultPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ResultOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "ResultPage"
+      },
       "SchedulePreview": {
         "properties": {
           "next": {
@@ -2900,6 +4688,47 @@
           "csrf_token"
         ],
         "title": "SignedIn"
+      },
+      "SystemStatus": {
+        "properties": {
+          "worker": {
+            "$ref": "#/components/schemas/WorkerStatus"
+          },
+          "inboxes": {
+            "items": {
+              "$ref": "#/components/schemas/InboxActivity"
+            },
+            "type": "array",
+            "title": "Inboxes"
+          },
+          "queue": {
+            "$ref": "#/components/schemas/QueueStatus"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          }
+        },
+        "type": "object",
+        "required": [
+          "worker",
+          "inboxes",
+          "queue",
+          "version",
+          "revision"
+        ],
+        "title": "SystemStatus"
       },
       "TokenOut": {
         "properties": {
@@ -3128,6 +4957,69 @@
         "type": "object",
         "title": "UserPatch",
         "description": "Only the fields sent change. A new password also clears a lockout."
+      },
+      "WorkerStatus": {
+        "properties": {
+          "heartbeat_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heartbeat At"
+          },
+          "age_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age Seconds"
+          },
+          "stale": {
+            "type": "boolean",
+            "title": "Stale"
+          },
+          "holder": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Holder"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "heartbeat_at",
+          "age_seconds",
+          "stale",
+          "holder",
+          "started_at"
+        ],
+        "title": "WorkerStatus"
       }
     }
   }

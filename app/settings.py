@@ -6,8 +6,10 @@ refuses to start. Error messages name the variable and never include a value.
 
 import base64
 import binascii
+import re
 from functools import lru_cache
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -16,6 +18,8 @@ from sqlalchemy.exc import ArgumentError
 
 DATABASE_URL_PREFIX = "postgresql+asyncpg://"
 MIN_SECRET_KEY_LENGTH = 32
+_LABEL = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+MAIL_DOMAIN_PATTERN = rf"(?:{_LABEL}\.)*{_LABEL}"
 
 Role = Literal["web", "worker", "all"]
 LogLevel = Literal["critical", "error", "warning", "info", "debug"]
@@ -38,6 +42,9 @@ class Settings(BaseSettings):
     role: Role = "all"
     port: int = Field(default=8080, ge=1, le=65535)
     smtp_port: int = Field(default=2525, ge=1, le=65535)
+    # The domain of the inbox addresses (code@MAIL_DOMAIN); empty means the
+    # host name of BASE_URL.
+    mail_domain: str = Field(default="", max_length=253)
     log_level: LogLevel = "info"
     # The commit the image was built from (Dockerfile ARG REVISION).
     revision: str = ""
@@ -79,6 +86,19 @@ class Settings(BaseSettings):
         if not value.startswith(("http://", "https://")):
             raise ValueError("must start with http:// or https://")
         return value.rstrip("/")
+
+    @field_validator("mail_domain")
+    @classmethod
+    def _mail_domain_shape(cls, value: str) -> str:
+        value = value.strip().lower()
+        if value and not re.fullmatch(MAIL_DOMAIN_PATTERN, value):
+            raise ValueError("must be a domain name such as mail.example.com")
+        return value
+
+    @property
+    def inbox_domain(self) -> str:
+        """The domain of the inbox addresses: MAIL_DOMAIN or BASE_URL's host."""
+        return self.mail_domain or (urlsplit(self.base_url).hostname or "localhost")
 
 
 def known_secrets(settings: Settings) -> list[str]:

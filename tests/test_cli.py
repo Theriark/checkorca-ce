@@ -42,7 +42,7 @@ def test_unknown_command_is_refused() -> None:
 def test_migrate_upgrades_the_database_to_head() -> None:
     scripts = ScriptDirectory.from_config(cli.alembic_config(load_settings()))
     assert cli.main(["migrate"]) == 0
-    assert asyncio.run(current_revision()) == scripts.get_current_head() == "c3_jobs"
+    assert asyncio.run(current_revision()) == scripts.get_current_head() == "c4_ingest"
     # A second run finds nothing to do.
     assert cli.main(["migrate"]) == 0
 
@@ -60,7 +60,7 @@ def test_worker_runs_the_worker_loop(
     monkeypatch.setenv("ROLE", role)
     calls: list[asyncio.Event] = []
 
-    async def fake_run_worker(stop: asyncio.Event) -> None:
+    async def fake_run_worker(settings: Settings, stop: asyncio.Event) -> None:
         calls.append(stop)
 
     monkeypatch.setattr(cli, "run_worker", fake_run_worker)

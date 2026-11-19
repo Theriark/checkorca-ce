@@ -9,7 +9,11 @@ import pytest
 from sqlalchemy import false
 
 import app.repos.clients
+import app.repos.heartbeat
+import app.repos.inboxes
 import app.repos.jobs
+import app.repos.messages
+import app.repos.results
 import app.repos.sessions
 import app.repos.settings
 import app.repos.tokens
@@ -33,7 +37,11 @@ from helpers import ADMIN_EMAIL, ADMIN_PASSWORD, TEST_FERNET_KEY, running, sign_
 # Importing the modules registers every repository class.
 MODULES = (
     app.repos.clients,
+    app.repos.heartbeat,
+    app.repos.inboxes,
     app.repos.jobs,
+    app.repos.messages,
+    app.repos.results,
     app.repos.sessions,
     app.repos.settings,
     app.repos.tokens,
@@ -85,7 +93,7 @@ def build(cls: type[Repository], policy: Any) -> Repository:
     return cls(NoDatabase(), policy)
 
 
-def test_the_c1_and_c3_repositories_are_covered() -> None:
+def test_the_c1_c3_and_c4_repositories_are_covered() -> None:
     names = {cls.__name__ for cls in repositories()}
     assert names >= {
         "UserRepository",
@@ -94,8 +102,12 @@ def test_the_c1_and_c3_repositories_are_covered() -> None:
         "SettingsRepository",
         "ClientRepository",
         "JobRepository",
+        "InboxRepository",
+        "RawMessageRepository",
+        "JobResultRepository",
+        "HeartbeatRepository",
     }
-    assert len(REPOSITORY_METHODS) >= 35
+    assert len(REPOSITORY_METHODS) >= 55
 
 
 @pytest.mark.parametrize(
@@ -182,6 +194,18 @@ async def test_list_and_get_queries_go_through_the_policy_scope(
         assert (await client.get("/api/v1/clients")).json()["items"] == []
         found = await client.get(f"/api/v1/clients/{made.json()['id']}")
         assert found.status_code == 404
+        inbox = await client.post(
+            "/api/v1/inboxes",
+            json={"kind": "smtp", "label": "Scoped away"},
+            headers={"X-CSRF-Token": csrf},
+        )
+        assert inbox.status_code == 201
+        for path in ("/api/v1/inboxes", "/api/v1/messages", "/api/v1/results"):
+            assert (await client.get(path)).json()["items"] == []
+        found = await client.get(f"/api/v1/inboxes/{inbox.json()['id']}")
+        assert found.status_code == 404
+        status = (await client.get("/api/v1/system/status")).json()
+        assert status["inboxes"] == [] and status["worker"]["heartbeat_at"] is None
 
 
 def test_private_helpers_need_no_guard() -> None:

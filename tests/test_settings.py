@@ -96,3 +96,19 @@ def test_settings_are_read_once() -> None:
     first = get_settings()
     assert isinstance(first, Settings)
     assert get_settings() is first
+
+
+def test_inbox_domain_is_mail_domain_or_the_base_url_host(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BASE_URL", "https://ce-dev-checkorca.example.test/")
+    assert load_settings().inbox_domain == "ce-dev-checkorca.example.test"
+    monkeypatch.setenv("MAIL_DOMAIN", " Alerts.Example.COM ")
+    assert load_settings().inbox_domain == "alerts.example.com"
+
+
+@pytest.mark.parametrize("value", ["a b.example.com", "-bad.example.com", "x@y.com"])
+def test_invalid_mail_domain_fails(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    monkeypatch.setenv("MAIL_DOMAIN", value)
+    with pytest.raises(SettingsError, match="MAIL_DOMAIN"):
+        load_settings()
