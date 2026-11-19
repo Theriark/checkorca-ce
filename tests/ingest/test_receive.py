@@ -73,6 +73,14 @@ AUID = "mx.example.org; dkim=pass header.i=alerts@example.com"
 LOCAL_PART = "mx.example.org; dkim=pass header.i=example.com@attacker.test"
 # header.d wins over header.i, whatever their order.
 I_THEN_D = "mx.example.org; dkim=pass header.i=@attacker.test header.d=example.com"
+# A quoted local part is one word: neither its @ nor its text counts.
+QUOTED_AUID = 'mx.example.org; dkim=pass header.i="a@example.com"@attacker.test'
+QUOTED_WORD = 'mx.example.org; dkim=pass header.i="com"@attacker.test'
+ESCAPED = r'mx.example.org; dkim=pass header.i="\"a@example.com\"@attacker.test"'
+INNER_D = 'mx.example.org; dkim=pass header.i="x header.d=example.com y"@attacker.test'
+QUOTED_OK = 'mx.example.org; dkim=pass header.i="a b"@example.com'
+# An AUID has an @; a bare header.i value is no signer.
+NO_AT = "mx.example.org; dkim=pass header.i=example.com"
 
 
 @pytest.mark.parametrize(
@@ -85,6 +93,13 @@ I_THEN_D = "mx.example.org; dkim=pass header.i=@attacker.test header.d=example.c
         ("a@example.com", [AUID], True),
         ("a@example.com", [LOCAL_PART], False),
         ("a@example.com", [I_THEN_D], True),
+        ("x@example.com", [QUOTED_AUID], False),
+        ("x@example.com", [QUOTED_WORD], False),
+        ("x@example.com", [ESCAPED], False),
+        ("x@example.com", [INNER_D], False),
+        ("x@attacker.test", [QUOTED_AUID], True),
+        ("x@example.com", [QUOTED_OK], True),
+        ("a@example.com", [NO_AT], False),
         ("a@example.com", [FAIL], False),
         ("a@example.com", [OTHER], False),
         ("a@example.com", [SPF], False),

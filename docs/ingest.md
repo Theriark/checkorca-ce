@@ -128,7 +128,7 @@ Untrusted headers cost bounded time: the size and sender checks run in a thread,
 ### Sender checks
 
 - `sender_allowlist` (empty: anyone): every address of the `From` header must be listed, as itself (`alerts@example.com`) or by its domain (`@example.com`). Subdomains are not included. A message without a From address is refused.
-- `require_auth_results`: the topmost `Authentication-Results` header must report `dkim=pass` with a signing domain equal to the From domain or a parent domain of it. The signing domain is `header.d`, else the domain of `header.i` (after its last `@`; a local part chosen by the signer never counts). The header is written by the mail server that received the message, so the check helps for an IMAP mailbox or a forwarder behind such a server. A sender that talks to the SMTP listener directly can write its own header: the inbox address (24 random characters) stays the real secret, and docs/security.md (C11) records this residual risk.
+- `require_auth_results`: the topmost `Authentication-Results` header must report `dkim=pass` with a signing domain equal to the From domain or a parent domain of it. The signing domain is `header.d`, else the domain of `header.i` (after its last `@`; a local part chosen by the signer never counts, and a `header.i` without an `@` counts for nothing). A quoted string, such as a quoted local part `"a@example.com"@example.net`, is read as one opaque word: neither an `@` nor a property inside it counts. The header is written by the mail server that received the message, so the check helps for an IMAP mailbox or a forwarder behind such a server. A sender that talks to the SMTP listener directly can write its own header: the inbox address (24 random characters) stays the real secret, and docs/security.md (C11) records this residual risk.
 - A refusal stores nothing. Its reason is a fixed text that names no address: SMTP `550 5.7.1`, HTTP 422 `Message refused`, IMAP marks the message Seen (it would be refused again) and counts it in the log.
 
 ### SMTP listener (`app/ingest/smtp.py`)
@@ -146,6 +146,8 @@ aiosmtpd 1.4.6 on the worker's event loop, port `SMTP_PORT` (2525) on all interf
 | DATA | 5 MB (aiosmtpd's SIZE limit, and again in `handle_DATA`), of which at most 256 KB of headers | `552` |
 | DATA | stored once per inbox in one transaction, committed before the answer; sender rules per inbox | `250 2.0.0`; `550 5.7.1` when every inbox refuses |
 | any | a database error or an unexpected error | `451 4.3.0` (the sender retries; the duplicate keys keep one row) |
+
+The per-source limits see the peer address of the TCP connection. Anything in front of port 2525 that does not keep the client address collapses its senders into one source that shares the 3 sessions and 60 messages a minute: Docker's userland proxy does this for IPv6 clients on a bridge network without IPv6, and so does a TCP proxy without PROXY protocol (Swarm ingress, a Traefik TCP router). Publish 2525 on IPv4 only (`0.0.0.0:2525:2525`) or with host networking where that matters.
 
 STARTTLS is offered when `SMTP_TLS_CERT_FILE` and `SMTP_TLS_KEY_FILE` name PEM files mounted into the container (both or neither; TLS 1.2 or newer). With `ROLE` `worker` or `all` both files must exist and be readable, or the process refuses to start: a missing file would otherwise leave port 2525 closed while `/readyz` answers 200. Without them the listener speaks plain SMTP. Logs carry counts only; aiosmtpd's own logger (`mail.log`, which writes addresses) is kept at error level.
 

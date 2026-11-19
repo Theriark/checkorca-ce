@@ -308,6 +308,7 @@ async def test_results_by_job_id_ping_token_or_names(
         # Blank names would store a result the matcher can never bind.
         {"status": "failed", "client_hint": " ", "job_name": " "},
         {"status": "failed", "client_hint": DENTAL, "job_name": ""},
+        {"status": "failed", "client_hint": DENTAL, "job_name": JOB, "run_id": " "},
         {
             "status": "success",
             "client_hint": DENTAL,
@@ -392,6 +393,32 @@ async def test_ping_urls_allow_120_requests_a_minute_per_token(
     assert (await client.get(f"/api/v1/ping/{other}")).status_code == 200
     clock.advance(seconds=1)
     assert (await client.get(url)).status_code == 200
+
+
+async def test_an_unknown_ping_token_spends_no_bucket(
+    app: FastAPI,
+    client: httpx.AsyncClient,
+    csrf: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job_id, ping_token = await job_with_token(client, csrf)
+    limiter = app.state.services.token_limiter
+    keys: list[str] = []
+    hit = limiter.hit
+
+    def recorded(key: str) -> float:
+        keys.append(key)
+        return hit(key)
+
+    monkeypatch.setattr(limiter, "hit", recorded)
+    # Guessed tokens never reach the limiter, so they cannot push the
+    # buckets of real ping URLs out of its bounded table.
+    for number in range(3):
+        unknown = await client.get(f"/api/v1/ping/{'Z' * 23}{number}")
+        assert unknown.status_code == 404
+    assert keys == []
+    assert (await client.get(f"/api/v1/ping/{ping_token}")).status_code == 200
+    assert keys == [f"ping:{job_id}"]
 
 
 async def test_a_webhook_token_allows_120_messages_a_minute(

@@ -39,8 +39,10 @@ RefusalReason = Literal["sender", "authentication"]
 # An RFC 8601 comment: (anything without parentheses).
 _COMMENT = re.compile(r"\([^()]*\)")
 _DKIM_PASS = re.compile(r"^\s*dkim\s*=\s*pass\b", re.IGNORECASE)
+# An RFC 5322 quoted string, as in a quoted local part: "a@example.com"@x.test.
+_QUOTED = re.compile(r'"(?:[^"\\]|\\.)*"')
 # header.d (the signing domain) and header.i (the AUID, local part optional).
-_DKIM_PROPERTY = re.compile(r"\bheader\.([di])\s*=\s*\"?([^\s;\"]+)", re.IGNORECASE)
+_DKIM_PROPERTY = re.compile(r"\bheader\.([di])\s*=\s*([^\s;]+)", re.IGNORECASE)
 _DOMAIN = re.compile(r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*")
 MAIL_HEADERS: Final = ("From", "Subject", "Date", "Message-ID")
 REFUSAL_TEXT: Final[dict[RefusalReason, str]] = {
@@ -85,14 +87,18 @@ def _aligned(signer: str, domain: str) -> bool:
 
 def dkim_signer(result: str) -> str | None:
     """The signing domain of one dkim=pass result: header.d, else the domain
-    of header.i (after its last @, never its local part)."""
+    of header.i (after its last @, never its local part). A quoted string
+    counts as one opaque word, so nothing inside it is read as a property or
+    a domain; a header.i without an @ is no AUID and counts for nothing."""
     properties: dict[str, str] = {}
-    for name, value in _DKIM_PROPERTY.findall(result):
+    for name, value in _DKIM_PROPERTY.findall(_QUOTED.sub("q", result)):
         properties.setdefault(name.lower(), value)
-    found = properties.get("d") or properties.get("i")
-    if found is None:
+    if "d" in properties:
+        domain = properties["d"]
+    elif "@" in properties.get("i", ""):
+        domain = properties["i"].rpartition("@")[2]
+    else:
         return None
-    domain = found.rpartition("@")[2]
     return domain if _DOMAIN.fullmatch(domain) else None
 
 
