@@ -81,6 +81,29 @@ INNER_D = 'mx.example.org; dkim=pass header.i="x header.d=example.com y"@attacke
 QUOTED_OK = 'mx.example.org; dkim=pass header.i="a b"@example.com'
 # An AUID has an @; a bare header.i value is no signer.
 NO_AT = "mx.example.org; dkim=pass header.i=example.com"
+# A ";" or a "(" inside a quoted local part splits nothing.
+SEMI_D = (
+    "mx.example.org; dkim=pass header.d=attacker.test"
+    ' header.i="x;dkim=pass header.d=example.com y"@attacker.test'
+)
+SEMI_I = (
+    "mx.example.org; dkim=pass"
+    ' header.i="x;dkim=pass header.i=a@example.com y"@attacker.test'
+)
+PAREN = 'mx.example.org; dkim=pass header.i="x) header.d=example.com (y"@attacker.test'
+# Encoded words are not decoded in Authentication-Results.
+ENCODED = (
+    "mx.example.org; dkim=pass header.d=attacker.test"
+    " header.i==?utf-8?q?x=3B_dkim=3Dpass_header.d=3Dexample.com?=@attacker.test"
+)
+# A quote or a parenthesis left over: the header is not trusted.
+UNBALANCED = 'mx.example.org; dkim=pass header.i="x header.d=example.com'
+NESTED = "mx.example.org; dkim=pass (a (b) c) header.d=example.com"
+# A comment may hold a ";" (OpenDKIM writes one).
+OPENDKIM = "mx.example.org; dkim=pass (1024-bit key; unprotected) header.d=example.com"
+# RFC 8601 allows a quoted property value.
+QUOTED_D = 'mx.example.org; dkim=pass header.d="example.com"'
+QUOTED_I = 'mx.example.org; dkim=pass header.i="alerts@example.com"'
 
 
 @pytest.mark.parametrize(
@@ -100,6 +123,15 @@ NO_AT = "mx.example.org; dkim=pass header.i=example.com"
         ("x@attacker.test", [QUOTED_AUID], True),
         ("x@example.com", [QUOTED_OK], True),
         ("a@example.com", [NO_AT], False),
+        ("x@example.com", [SEMI_D], False),
+        ("x@example.com", [SEMI_I], False),
+        ("x@example.com", [PAREN], False),
+        ("x@example.com", [ENCODED], False),
+        ("x@example.com", [UNBALANCED], False),
+        ("a@example.com", [NESTED], False),
+        ("a@example.com", [OPENDKIM], True),
+        ("a@example.com", [QUOTED_D], True),
+        ("a@example.com", [QUOTED_I], True),
         ("a@example.com", [FAIL], False),
         ("a@example.com", [OTHER], False),
         ("a@example.com", [SPF], False),

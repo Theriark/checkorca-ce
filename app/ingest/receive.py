@@ -36,11 +36,15 @@ from app.ingest.store import MAX_MESSAGE_BYTES, MessageTooLarge, StoredRaw, stor
 
 RefusalReason = Literal["sender", "authentication"]
 
-# An RFC 8601 comment: (anything without parentheses).
-_COMMENT = re.compile(r"\([^()]*\)")
+# An RFC 5322 quoted string, as in a quoted local part ("a@example.com"@x.test),
+# or an RFC 8601 comment without nesting, whichever starts first.
+_QUOTED_OR_COMMENT = re.compile(r'"((?:[^"\\]|\\.)*)"|\((?:[^()\\]|\\.)*\)')
+# What comes just before a quoted string that is a whole header.d or header.i
+# value (RFC 8601 allows header.d="example.com"); the window it is looked for in.
+_PROPERTY_BEFORE = re.compile(r"\bheader\.[di]\s*=\s*$", re.IGNORECASE)
+_PROPERTY_WINDOW: Final = 32
+_PLAIN_VALUE = re.compile(r"(?:[A-Za-z0-9._+-]+@)?[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*")
 _DKIM_PASS = re.compile(r"^\s*dkim\s*=\s*pass\b", re.IGNORECASE)
-# An RFC 5322 quoted string, as in a quoted local part: "a@example.com"@x.test.
-_QUOTED = re.compile(r'"(?:[^"\\]|\\.)*"')
 # header.d (the signing domain) and header.i (the AUID, local part optional).
 _DKIM_PROPERTY = re.compile(r"\bheader\.([di])\s*=\s*([^\s;]+)", re.IGNORECASE)
 _DOMAIN = re.compile(r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*")
@@ -85,13 +89,42 @@ def _aligned(signer: str, domain: str) -> bool:
     return domain == signer or domain.endswith("." + signer)
 
 
+def masked(value: str) -> str | None:
+    """The Authentication-Results text with every comment a space and every
+    quoted string the opaque word q, in one left-to-right pass, so nothing
+    inside them is read as a separator, a property or a domain. A quoted
+    string that is a whole header.d or header.i value and a plain domain or
+    AUID keeps its text. None when a quote or a parenthesis is left over (an
+    unbalanced quote or a nested comment): the header is not trusted."""
+
+    def replace(match: re.Match[str]) -> str:
+        text = match.group(1)
+        if text is None:
+            return " "
+        start = match.start()
+        before = value[max(0, start - _PROPERTY_WINDOW) : start]
+        if (
+            _PROPERTY_BEFORE.search(before)
+            and not value.startswith("@", match.end())
+            and _PLAIN_VALUE.fullmatch(text)
+        ):
+            return text
+        return "q"
+
+    result = _QUOTED_OR_COMMENT.sub(replace, value)
+    return None if any(char in result for char in '"()') else result
+
+
 def dkim_signer(result: str) -> str | None:
     """The signing domain of one dkim=pass result: header.d, else the domain
-    of header.i (after its last @, never its local part). A quoted string
-    counts as one opaque word, so nothing inside it is read as a property or
-    a domain; a header.i without an @ is no AUID and counts for nothing."""
+    of header.i (after its last @, never its local part). Quoted strings and
+    comments are masked first (see masked); a header.i without an @ is no
+    AUID and counts for nothing."""
+    text = masked(result)
+    if text is None:
+        return None
     properties: dict[str, str] = {}
-    for name, value in _DKIM_PROPERTY.findall(_QUOTED.sub("q", result)):
+    for name, value in _DKIM_PROPERTY.findall(text):
         properties.setdefault(name.lower(), value)
     if "d" in properties:
         domain = properties["d"]
@@ -108,7 +141,11 @@ def dkim_passed(headers: Message, addresses: list[str]) -> bool:
     results = headers.get_all("Authentication-Results", [])
     if not results or not addresses:
         return False
-    value = _COMMENT.sub(" ", mime.header_value(results[0]))
+    # Parsed as sent: no encoded-word decoding, and quoted strings and
+    # comments masked before the split, so neither can add a ";".
+    value = masked(mime.raw_header_value(results[0]))
+    if value is None:
+        return False
     # The first item is the authserv-id; the results follow, one per ";".
     signers = []
     for item in value.split(";")[1:]:
