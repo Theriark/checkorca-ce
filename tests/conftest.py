@@ -38,6 +38,8 @@ OPTIONAL_VARIABLES = (
     "PORT",
     "SMTP_PORT",
     "MAIL_DOMAIN",
+    "SMTP_TLS_CERT_FILE",
+    "SMTP_TLS_KEY_FILE",
     "BASE_URL",
     "LOG_LEVEL",
     "DEV_SEED",

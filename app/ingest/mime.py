@@ -17,6 +17,7 @@ from email.policy import compat32
 from typing import Final
 
 from app.db.models import MESSAGE_ID_LENGTH
+from app.ingest.html_text import html_to_text
 
 MAX_HEADERS: Final = 200
 MAX_HEADER_NAME: Final = 200
@@ -125,9 +126,8 @@ def _text_part(message: Message) -> Message | None:
 def message_text(raw: bytes) -> tuple[str, bool]:
     """The readable text of a message and whether it was cut at MAX_TEXT.
 
-    An HTML-only message gives its HTML source as text until the stripper of
-    phase C4-I (app/ingest/html_text.py) turns it into text. Callers show it
-    escaped, never as HTML.
+    An HTML-only message gives the visible text of its HTML part
+    (app/ingest/html_text.py), never the markup. Callers show it escaped.
     """
     part = _text_part(BytesParser(policy=compat32).parsebytes(raw))
     if part is None:
@@ -140,5 +140,7 @@ def message_text(raw: bytes) -> tuple[str, bool]:
         text = payload.decode(charset, "replace")
     except LookupError:
         text = payload.decode("utf-8", "replace")
+    if part.get_content_type() == "text/html":
+        text = html_to_text(text)
     text = clean_text(text)
     return text[:MAX_TEXT], len(text) > MAX_TEXT

@@ -100,6 +100,18 @@ def test_the_document_describes_the_c4_routes() -> None:
         assert not hidden & set(schemas[name]["properties"])
 
 
+def test_the_document_describes_the_c4_receivers() -> None:
+    paths = generate()["paths"]
+    ingest = paths["/api/v1/ingest/email/{inbox_code}"]["post"]
+    assert list(ingest["requestBody"]["content"]) == ["message/rfc822"]
+    assert "post" in paths["/api/v1/results"]
+    assert "post" in paths["/api/v1/messages/upload"]
+    for path in ("/api/v1/ping/{ping_token}", "/api/v1/ping/{ping_token}/{signal}"):
+        assert set(paths[path]) == {"get", "post"}
+        answer = paths[path]["get"]["responses"]["200"]
+        assert list(answer["content"]) == ["text/plain"]
+
+
 def test_errors_are_declared_as_problem_documents() -> None:
     """The 4XX answers carry the media type the handlers send."""
     for path, operations in generate()["paths"].items():

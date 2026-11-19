@@ -8,10 +8,10 @@ import base64
 import binascii
 import re
 from functools import lru_cache
-from typing import Any, Literal
+from typing import Any, Literal, Self
 from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr, ValidationError, field_validator
+from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     # The domain of the inbox addresses (code@MAIL_DOMAIN); empty means the
     # host name of BASE_URL.
     mail_domain: str = Field(default="", max_length=253)
+    # STARTTLS on the SMTP listener: the PEM certificate chain and key mounted
+    # into the container. Both empty (the default) means no STARTTLS.
+    smtp_tls_cert_file: str = ""
+    smtp_tls_key_file: str = ""
     log_level: LogLevel = "info"
     # The commit the image was built from (Dockerfile ARG REVISION).
     revision: str = ""
@@ -94,6 +98,14 @@ class Settings(BaseSettings):
         if value and not re.fullmatch(MAIL_DOMAIN_PATTERN, value):
             raise ValueError("must be a domain name such as mail.example.com")
         return value
+
+    @model_validator(mode="after")
+    def _smtp_tls_pair(self) -> Self:
+        if bool(self.smtp_tls_cert_file) != bool(self.smtp_tls_key_file):
+            raise ValueError(
+                "SMTP_TLS_CERT_FILE and SMTP_TLS_KEY_FILE must be set together"
+            )
+        return self
 
     @property
     def inbox_domain(self) -> str:

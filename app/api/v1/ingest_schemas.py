@@ -13,6 +13,7 @@ from typing import Annotated, Any, Final, Literal, Self
 
 from pydantic import (
     AfterValidator,
+    AwareDatetime,
     BaseModel,
     ConfigDict,
     Field,
@@ -22,6 +23,7 @@ from pydantic import (
 
 from app.api.v1.job_schemas import clean_name
 from app.api.v1.schemas import Body
+from app.db.models import NAME_LENGTH
 from app.ingest.results import ResultStatus
 
 InboxKind = Literal["smtp", "imap", "webhook", "upload"]
@@ -206,6 +208,52 @@ class ResultOut(BaseModel):
 class ResultPage(BaseModel):
     items: list[ResultOut]
     next_cursor: str | None
+
+
+# A job's ping token: letters and digits (24 when made by Checkorca-CE).
+PingToken = Annotated[
+    str, StringConstraints(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9]+$")
+]
+ResultText = Annotated[str, StringConstraints(max_length=NAME_LENGTH)]
+
+
+class NewResult(Body):
+    """A run reported by a script (POST results). The job is named by job_id,
+    by ping_token, or by client_hint and job_name for the matcher."""
+
+    status: ResultStatus
+    job_id: uuid.UUID | None = None
+    ping_token: PingToken | None = None
+    job_name: ResultText | None = None
+    client_hint: ResultText | None = None
+    started_at: AwareDatetime | None = None
+    finished_at: AwareDatetime | None = None
+    run_id: ResultText | None = None
+    details: dict[str, Any] = {}
+
+    @model_validator(mode="after")
+    def _one_job_reference(self) -> Self:
+        if self.job_id is not None and self.ping_token is not None:
+            raise ValueError("send job_id or ping_token, not both")
+        named = bool(self.client_hint and self.job_name)
+        if self.job_id is None and self.ping_token is None and not named:
+            raise ValueError("send job_id, ping_token, or client_hint and job_name")
+        return self
+
+
+class ResultAccepted(BaseModel):
+    """The stored result; job_id is null until the matcher binds it."""
+
+    result_id: uuid.UUID
+    job_id: uuid.UUID | None
+
+
+class MessageAccepted(BaseModel):
+    """The stored message, or for a duplicate the earlier one; the worker
+    parses it (parse_state pending)."""
+
+    message_id: uuid.UUID
+    duplicate: bool
 
 
 class MessageOut(BaseModel):

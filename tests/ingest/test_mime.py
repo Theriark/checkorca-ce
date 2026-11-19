@@ -93,9 +93,17 @@ def test_text_prefers_plain_and_skips_attachments() -> None:
     assert not truncated
 
 
-def test_an_html_only_message_gives_its_source_as_text() -> None:
-    raw = b"Content-Type: text/html\r\n\r\n<p onclick=x>Backup failed</p>"
-    assert mime.message_text(raw) == ("<p onclick=x>Backup failed</p>", False)
+def test_an_html_only_message_gives_its_visible_text() -> None:
+    raw = (
+        b"Content-Type: text/html; charset=utf-8\r\n\r\n"
+        b"<html><head><style>p {color: red}</style></head><body>"
+        b"<p onclick=x>Backup failed</p><script>alert(1)</script>"
+        b"<p>&lt;script&gt; is shown as text</p></body></html>"
+    )
+    text, truncated = mime.message_text(raw)
+    assert text == "Backup failed\n\n<script> is shown as text"
+    assert "alert" not in text and "color" not in text and "onclick" not in text
+    assert not truncated
 
 
 def test_text_with_an_unknown_charset_or_no_text_part() -> None:

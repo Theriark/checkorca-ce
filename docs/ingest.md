@@ -1,6 +1,6 @@
 # Ingest: data model, worker and the contract for the receivers
 
-Phase C4-B built the store, the worker loop and the read API. Phase C4-I (Integration and Protocol Engineer) builds the receivers (SMTP, IMAP, HTTP ingest, ping, upload) against this contract without changing the C4-B code. Sources: dev-work-plan rev 35 (C4 and the Interfaces chapter), rnd-report-2 5.4, 5.7, 5.9 to 5.11.
+Phase C4-B built the store, the worker loop and the read API. Phase C4-I (Integration and Protocol Engineer) built the receivers (SMTP, IMAP, HTTP ingest, results, ping, upload) on this contract; they are described in [Receivers](#receivers-c4-i). Sources: dev-work-plan rev 35 (C4 and the Interfaces chapter), rnd-report-2 5.4, 5.7, 5.9 to 5.11.
 
 ## Tables (revision `c4_ingest`)
 
@@ -111,24 +111,70 @@ class Receiver(Protocol):
 
 
 type ReceiverFactory = Callable[[WorkerContext], Receiver]
-# C4-I adds the SMTP listener and the IMAP poller.
-RECEIVERS: tuple[ReceiverFactory, ...] = ()
+# C4-I: the SMTP listener on SMTP_PORT and the IMAP poller.
+RECEIVERS: tuple[ReceiverFactory, ...] = (SmtpReceiver, ImapPoller)
 ```
 
-`WorkerContext` carries `settings` (`smtp_port` 2525, `inbox_domain`), `engine`, `sessionmaker`, `clock`, `policy` (CE: AllowAllPolicy) and `secret_box`. Receivers run only while the worker holds the lock, so one SMTP listener and one IMAP poller run per installation. Between ticks the holder checks its lock every 15 seconds: after a lost lock session the old and the new holder's receivers can overlap for about that long, and the duplicate keys of the store keep one row per message. A receiver that fails to start is logged and skipped; the worker keeps ticking. C4-I's SMTP abstraction (aiosmtpd or the own fallback receiver) implements this `Receiver`.
+`WorkerContext` carries `settings` (`smtp_port` 2525, `inbox_domain`), `engine`, `sessionmaker`, `clock`, `policy` (CE: AllowAllPolicy) and `secret_box`. Receivers run only while the worker holds the lock, so one SMTP listener and one IMAP poller run per installation. Between ticks the holder checks its lock every 15 seconds: after a lost lock session the old and the new holder's receivers can overlap for about that long, and the duplicate keys of the store keep one row per message. A receiver that fails to start is logged and skipped; the worker keeps ticking.
 
 IMAP: decrypt with `context.secret_box.decrypt(inbox.imap_password_enc)` only inside the poller, build `app.ext.ingest.MailboxAccount` (its repr hides the password), and acknowledge (Seen) only after `store_raw` committed. `MailboxConnector` and `ResultSource` (`app/ext/ingest.py`) are the seams EE implements later.
 
-## HTTP routes C4-I adds
+## Receivers (C4-I)
+
+Every channel calls `accept_message` (`app/ingest/receive.py`): the 5 MB cap, the inbox's sender rules, then `store_raw`. Its callers commit and only then answer 250, mark the mail Seen or answer 202. A duplicate (same Message-ID or content hash in the same inbox) counts as success and stores nothing.
+
+### Sender checks
+
+- `sender_allowlist` (empty: anyone): every address of the `From` header must be listed, as itself (`alerts@example.com`) or by its domain (`@example.com`). Subdomains are not included. A message without a From address is refused.
+- `require_auth_results`: the topmost `Authentication-Results` header must report `dkim=pass` with `header.d` (or `header.i`) equal to the From domain or a parent domain of it. The header is written by the mail server that received the message, so the check helps for an IMAP mailbox or a forwarder behind such a server. A sender that talks to the SMTP listener directly can write its own header: the inbox address (24 random characters) stays the real secret, and docs/security.md (C11) records this residual risk.
+- A refusal stores nothing. Its reason is a fixed text that names no address: SMTP `550 5.7.1`, HTTP 422 `Message refused`, IMAP marks the message Seen (it would be refused again) and counts it in the log.
+
+### SMTP listener (`app/ingest/smtp.py`)
+
+aiosmtpd 1.4.6 on the worker's event loop, port `SMTP_PORT` (2525) on all interfaces of the container. It never relays, sends no bounce and needs no authentication.
+
+| Step | Rule | Answer |
+| --- | --- | --- |
+| connect | at most 20 connections at a time; greeting `Checkorca-CE ESMTP` (no library version) | `421 4.7.0` past 20 |
+| idle | 30 seconds without a command closes the connection (DATA included: a 5 MB message must arrive within 30 s of the DATA command) | connection closed |
+| MAIL | 60 messages a minute per source IP address (token bucket); `SIZE=` above 5 MB | `451 4.7.1`; `552` |
+| RCPT | `code@MAIL_DOMAIN` of an smtp inbox, code compared in lower case; anything else, a webhook inbox's code or another domain included | `550 5.1.1 No such inbox` |
+| RCPT | at most 20 recipients per message | `452 4.5.3` |
+| DATA | 5 MB (aiosmtpd's SIZE limit, and again in `handle_DATA`) | `552` |
+| DATA | stored once per inbox in one transaction, committed before the answer; sender rules per inbox | `250 2.0.0`; `550 5.7.1` when every inbox refuses |
+| any | a database error or an unexpected error | `451 4.3.0` (the sender retries; the duplicate keys keep one row) |
+
+STARTTLS is offered when `SMTP_TLS_CERT_FILE` and `SMTP_TLS_KEY_FILE` name PEM files mounted into the container (both or neither; TLS 1.2 or newer). Without them the listener speaks plain SMTP. Logs carry counts only; aiosmtpd's own logger (`mail.log`, which writes addresses) is kept at error level.
+
+### IMAP poller (`app/ingest/imap.py`)
+
+Every 30 seconds the poller polls each imap inbox whose `poll_seconds` have passed, one inbox at a time, with imaplib in a thread (30 s socket timeout). TLS (port 993) verifies the server's certificate and name; `tls` false is plain IMAP for a server on the MSP's own network, and sends the password unencrypted. The IMAP host is set by an admin and is not filtered like outbound webhooks: MSPs read mailboxes on internal servers.
+
+1. Decrypt the password into a `MailboxAccount` (only here).
+2. `UID SEARCH UNSEEN`, at most 50 messages, sizes first; bodies with `BODY.PEEK[]`, so nothing becomes Seen by being read. A message over 5 MB is not downloaded: it is marked Seen and counted in a warning.
+3. `accept_message` and commit, one message per transaction.
+4. `UID STORE +FLAGS (\Seen)` for what was stored, was a duplicate or was refused. A message whose store failed stays unseen and is fetched again by the next poll. A ref is `UIDVALIDITY:UID`, so a rebuilt folder never gets the wrong message marked.
+
+A failed login or a lost connection is logged with the inbox id and the error class and tried again at the inbox's next poll; one failing inbox never stops the others.
+
+### HTTP routes (`app/api/v1/ingest.py`)
 
 | Route | Auth | Contract |
 | --- | --- | --- |
-| `POST /api/v1/ingest/email/{inbox_code}` | `Authorization: Bearer` with an ingest-scope API token, or the inbox's own webhook token (only for its own inbox) | raw RFC 822 body; `find_by_code(kinds=("smtp", "webhook"))`, 404 for an unknown code; 413 above 5 MiB; `store_raw`; 202 with `message_id` (the stored row id) and `duplicate` |
-| `POST /api/v1/results` | ingest-scope API token | ParsedResult plus `job_id`, `ping_token`, or `client_hint` and `job_name`; `record_result`; 202 |
-| `GET/POST /api/v1/ping/{ping_token}`, plus `/start` and `/fail` | the ping token | `JobRepository` lookup by ping token; `record_result` with `success`, `started` or `failed`; 200 `OK`; 120 a minute per token |
-| `POST /api/v1/messages/upload` | session (CSRF) | multipart `file` and `inbox_id`; `store_raw` into that inbox |
+| `POST /api/v1/ingest/email/{inbox_code}` | `Authorization: Bearer` with an ingest-scope API token (any smtp or webhook inbox), or a webhook inbox's own `chki_` token (only its own inbox, else 403) | raw RFC 822 body (`message/rfc822`); 401 without a valid token, 403 for a read token; 404 for an unknown code or another kind; 413 above 5 MiB; 422 for an empty body, a body without From, Subject, Date or Message-ID headers, or the sender rules; 202 `{message_id, duplicate}` |
+| `POST /api/v1/results` | ingest-scope API token | `NewResult`: `status`, `job_id` or `ping_token` (404 when no job has it; not both), else `client_hint` and `job_name`; `started_at` and `finished_at` with a time zone; `run_id`; `details` (JSON object, at most 16 KiB); 422 for anything else; 202 `{result_id, job_id}` (`job_id` null until the matcher binds it) |
+| `GET` or `POST /api/v1/ping/{ping_token}`, `/ping/{ping_token}/start`, `/ping/{ping_token}/fail` | the ping token in the URL | records `success`, `started` or `failed` for the job with `details` `{"source": "ping"}`; 200 `text/plain` `OK`; 404 for an unknown token, 422 for a malformed one |
+| `POST /api/v1/messages/upload` | session with `X-CSRF-Token`, admin or technician | multipart `file` (the .eml, read up to 5 MiB) and `inbox_id` (any kind); 404 for an unknown inbox; the same 413 and 422 rules; audit event `message.upload`; 202 `{message_id, duplicate}` |
 
-The read routes are in place: `GET /inboxes`, `/inboxes/{id}`, `/messages`, `/messages/{id}`, `/results`, `/jobs/{id}/results`, `/system/status`. Token-authenticated routes are not session routes: `tests/api/test_csrf_api.py` reads every state-changing route from the app, so C4-I adds them to its exemption list with the reason.
+Rate limits: 120 requests a minute per API token (all its routes), per webhook inbox token and per ping token, then 429 with `Retry-After`. Request bodies are capped by the middleware (`BODY_LIMITS`): 5 MiB for raw mail, 5 MiB plus 16 KiB of multipart framing for the upload, 64 KiB elsewhere.
+
+The token routes read no cookie, so they need no CSRF token: their credential is the Authorization header or the URL, which a cross-site form cannot send or does not know. `tests/api/test_csrf_api.py` lists them as `TOKEN_ROUTES` and checks that a signed-in browser without a token writes nothing. A ping URL records a result on GET too (curl, wget and schedulers use GET); treat the URL like a password.
+
+The read routes: `GET /inboxes`, `/inboxes/{id}`, `/messages`, `/messages/{id}`, `/results`, `/jobs/{id}/results`, `/system/status`. A message detail gives the visible text of an HTML-only mail (`app/ingest/html_text.py`: script, style, head and comments dropped, entities decoded); the web app shows it escaped.
+
+### Smoke test
+
+`scripts/smoke.sh` runs in CI job 9 after `docker compose up`: it creates the first admin with a throwaway password, an smtp inbox, sends one synthetic message to the worker on port 2525 twice and expects one row with its Message-ID and subject in `GET /api/v1/messages`, then deletes the inbox. Against an install that has users, set `SMOKE_ADMIN_EMAIL` and `SMOKE_ADMIN_PASSWORD`.
 
 ## Readiness and System status
 

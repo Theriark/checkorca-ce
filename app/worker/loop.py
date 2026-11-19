@@ -30,6 +30,8 @@ from app.access import SYSTEM, AccessPolicy, AllowAllPolicy
 from app.clock import Clock, SystemClock
 from app.db.engine import make_engine
 from app.db.locks import WORKER_LOCK
+from app.ingest.imap import ImapPoller
+from app.ingest.smtp import SmtpReceiver
 from app.repos.heartbeat import HeartbeatRepository
 from app.security.crypto import SecretBox
 from app.settings import Settings
@@ -76,7 +78,8 @@ type ReceiverFactory = Callable[[WorkerContext], Receiver]
 
 # Phases append their hooks and receivers here.
 TICK_HOOKS: tuple[TickHook, ...] = ()
-RECEIVERS: tuple[ReceiverFactory, ...] = ()
+# C4-I: the SMTP listener on SMTP_PORT and the IMAP poller.
+RECEIVERS: tuple[ReceiverFactory, ...] = (SmtpReceiver, ImapPoller)
 
 
 def default_holder() -> str:
