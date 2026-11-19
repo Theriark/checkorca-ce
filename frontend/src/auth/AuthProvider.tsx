@@ -4,7 +4,10 @@
  * On load it asks /auth/me once: 200 means signed in (and gives the CSRF token
  * for the client), 401 means anonymous, anything else is an error the shell
  * shows with a retry. Sign-in and first run store the CSRF token and replace
- * the cached user; sign-out clears both.
+ * the cached user; sign-out clears both once the server has ended the session
+ * (a failed logout keeps the user signed in and reports, so a shared
+ * workstation is never left with a live server session behind a signed-out
+ * screen).
  */
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, type ReactNode } from 'react';
@@ -76,11 +79,16 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
   const signOut = useCallback(async () => {
     try {
       await authApi.logout();
-    } finally {
-      setCsrfToken(null);
-      queryClient.setQueryData(ME_QUERY_KEY, null);
-      queryClient.removeQueries({ predicate: (item) => item.queryKey[0] !== 'auth' });
+    } catch (error) {
+      // 401: the server session is already gone, so the local one goes too.
+      // Anything else: keep the session and let the caller report it.
+      if (!(error instanceof ApiError && error.status === 401)) {
+        throw error;
+      }
     }
+    setCsrfToken(null);
+    queryClient.setQueryData(ME_QUERY_KEY, null);
+    queryClient.removeQueries({ predicate: (item) => item.queryKey[0] !== 'auth' });
   }, [queryClient]);
 
   const refresh = useCallback(() => {

@@ -42,6 +42,28 @@ describe('api client', () => {
     expect((init.headers as Headers).get('Content-Type')).toBeNull();
   });
 
+  it('adds X-CSRF-Token to PUT, PATCH and DELETE too, never to GET', async () => {
+    setCsrfToken('csrf-456');
+    for (const [call, method] of [
+      [() => api.put('/users/1', { body: {} }), 'PUT'],
+      [() => api.patch('/users/1', { body: {} }), 'PATCH'],
+      [() => api.delete('/users/1'), 'DELETE'],
+      [() => api.get('/users/1'), 'GET'],
+    ] as const) {
+      fetchMock.mockResolvedValueOnce(jsonResponse(method === 'DELETE' ? 204 : 200, {}));
+      await call();
+      const [, init] = fetchMock.mock.calls.at(-1) as [string, RequestInit];
+      expect(init.method).toBe(method);
+      expect((init.headers as Headers).get(CSRF_HEADER), method).toBe(method === 'GET' ? null : 'csrf-456');
+    }
+  });
+
+  it('passes an abort through untouched so a cancelled query is not an error', async () => {
+    const abort = new DOMException('The user aborted a request.', 'AbortError');
+    fetchMock.mockRejectedValue(abort);
+    await expect(api.get('/auth/me')).rejects.toBe(abort);
+  });
+
   it('serialises a body and a query string', async () => {
     fetchMock.mockResolvedValue(jsonResponse(200, { items: [], next_cursor: null }));
     await request('GET', '/users', { query: { limit: 50, cursor: undefined, archived: false } });

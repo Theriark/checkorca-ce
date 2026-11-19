@@ -16,7 +16,7 @@ function Probe() {
       <button onClick={() => void signIn({ email: ADMIN.email, password: 'secret-password-1' }).catch(() => undefined)}>
         sign in
       </button>
-      <button onClick={() => void signOut()}>sign out</button>
+      <button onClick={() => void signOut().catch(() => undefined)}>sign out</button>
     </div>
   );
 }
@@ -54,6 +54,44 @@ describe('AuthProvider', () => {
     await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('anonymous'));
     const logout = calls.find((call) => call.url.endsWith('/auth/logout'));
     expect((logout?.init?.headers as Headers).get('X-CSRF-Token')).toBe('csrf-login');
+    expect(getCsrfToken()).toBeNull();
+  });
+
+  it('keeps the session when the server cannot end it, and ends it on a 401', async () => {
+    stubFetch({
+      'GET /api/v1/auth/me': { status: 200, body: ADMIN },
+      'POST /api/v1/auth/logout': { status: 503, body: { title: 'Service Unavailable', status: 503 } },
+    });
+    const { unmount } = render(
+      <Providers>
+        <Probe />
+      </Providers>,
+    );
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('signed-in'));
+    await act(async () => {
+      screen.getByText('sign out').click();
+    });
+    // Still signed in: a shared workstation never shows a signed-out screen
+    // in front of a live server session.
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('signed-in'));
+    expect(getCsrfToken()).toBe(ADMIN.csrf_token);
+    unmount();
+    vi.unstubAllGlobals();
+
+    stubFetch({
+      'GET /api/v1/auth/me': { status: 200, body: ADMIN },
+      'POST /api/v1/auth/logout': { status: 401, body: { title: 'Unauthorized', status: 401 } },
+    });
+    render(
+      <Providers>
+        <Probe />
+      </Providers>,
+    );
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('signed-in'));
+    await act(async () => {
+      screen.getByText('sign out').click();
+    });
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('anonymous'));
     expect(getCsrfToken()).toBeNull();
   });
 

@@ -81,6 +81,58 @@ describe('DataTable', () => {
     expect(screen.getByRole('combobox', { name: strings.table.views }).textContent).toContain('Most runs');
   });
 
+  it('applies a saved view after a remount and deletes it', async () => {
+    const user = userEvent.setup();
+    window.localStorage.setItem(
+      'checkorca.table.t6.views',
+      JSON.stringify([{ id: 'v1', name: 'Fewest runs', sortColumn: 'runs', sortDirection: 'desc', density: 'compact' }]),
+    );
+    render(<DataTable tableId="t6" caption="Jobs" columns={COLUMNS} rows={ROWS} getRowId={(row) => row.id} />);
+    const views = screen.getByRole('combobox', { name: strings.table.views });
+    expect(views.textContent).toContain(strings.table.defaultView);
+    await user.click(views);
+    await user.click(await screen.findByRole('option', { name: 'Fewest runs' }));
+    expect(screen.getByRole('columnheader', { name: /Runs/ }).getAttribute('aria-sort')).toBe('descending');
+    expect(bodyNames()).toEqual(['Charlie', 'alpha', 'Bravo']);
+    expect(document.querySelector('.co-table-wrap')?.className).toContain('co-table-wrap--compact');
+    await user.click(screen.getByRole('button', { name: strings.table.deleteView }));
+    expect(readSavedViews('t6')).toEqual([]);
+    expect(screen.getByRole('columnheader', { name: /Runs/ }).getAttribute('aria-sort')).toBeNull();
+  });
+
+  it('ignores malformed entries in localStorage', () => {
+    window.localStorage.setItem(
+      'checkorca.table.t7.views',
+      JSON.stringify([
+        { id: 'ok', name: 'Fine', sortColumn: null, sortDirection: 'asc', density: 'comfortable' },
+        { id: 'bad-direction', name: 'x', sortColumn: 'a', sortDirection: 'sideways', density: 'compact' },
+        { name: 'no id', sortColumn: null, sortDirection: 'asc', density: 'compact' },
+        'a string',
+        null,
+      ]),
+    );
+    expect(readSavedViews('t7').map((view) => view.id)).toEqual(['ok']);
+    window.localStorage.setItem('checkorca.table.t8.views', '{not json');
+    expect(readSavedViews('t8')).toEqual([]);
+  });
+
+  it('opens a clickable row with the keyboard as well as the mouse', async () => {
+    const user = userEvent.setup();
+    const onRowClick = vi.fn();
+    render(<DataTable tableId="t9" caption="Jobs" columns={COLUMNS} rows={ROWS} getRowId={(row) => row.id} onRowClick={onRowClick} />);
+    const rows = document.querySelectorAll('tbody tr');
+    expect(rows[0]?.getAttribute('tabindex')).toBe('0');
+    (rows[0] as HTMLElement).focus();
+    await user.keyboard('{Enter}');
+    expect(onRowClick).toHaveBeenLastCalledWith(ROWS[0]);
+    (rows[1] as HTMLElement).focus();
+    await user.keyboard(' ');
+    expect(onRowClick).toHaveBeenLastCalledWith(ROWS[1]);
+    await user.click(rows[2] as HTMLElement);
+    expect(onRowClick).toHaveBeenLastCalledWith(ROWS[2]);
+    expect(onRowClick).toHaveBeenCalledTimes(3);
+  });
+
   it('refuses an empty view name', async () => {
     const user = userEvent.setup();
     render(<DataTable tableId="t4" caption="Jobs" columns={COLUMNS} rows={ROWS} getRowId={(row) => row.id} />);

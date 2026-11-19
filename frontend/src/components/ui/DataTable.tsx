@@ -234,7 +234,21 @@ export function DataTable<Row>({
                 <tr
                   key={getRowId(row)}
                   className={onRowClick ? 'co-table__row co-table__row--clickable' : 'co-table__row'}
+                  // A clickable row is also reachable by keyboard: Tab to it,
+                  // Enter or Space opens it. Keys pressed inside a cell control
+                  // (a button or link in the row) are left to that control.
+                  tabIndex={onRowClick ? 0 : undefined}
                   onClick={onRowClick ? () => onRowClick(row) : undefined}
+                  onKeyDown={
+                    onRowClick
+                      ? (event) => {
+                          if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
+                            event.preventDefault();
+                            onRowClick(row);
+                          }
+                        }
+                      : undefined
+                  }
                 >
                   {columns.map((item) => (
                     <td
@@ -294,7 +308,7 @@ export function DataTable<Row>({
           }
         }}
         title={strings.table.saveView}
-        description="Keeps the current sort and density under a name on this browser."
+        description={strings.table.saveViewLead}
         size="sm"
         initialFocusRef={nameRef}
         footer={

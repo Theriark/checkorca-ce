@@ -1,5 +1,15 @@
 /* Charts (visx). Colours come from the status tokens. */
 
+/* The sparkline box is fluid: it fills what its parent gives, up to the
+   preferred width (inline max-width), and never less than zero. In a flex
+   row it shares the line and wraps when the line is too short. */
+.co-sparkline-box {
+  display: block;
+  flex: 1 1 96px;
+  width: 100%;
+  min-width: 0;
+}
+
 .co-sparkline {
   display: block;
   max-width: 100%;
@@ -59,16 +69,19 @@
 
 /* Coverage ring */
 
+/* Ring and caption side by side; in a narrow card (under about 290 px) the
+   caption moves under the ring instead of wrapping one word per line. */
 .co-ring {
-  display: grid;
-  grid-template-columns: auto 1fr;
+  display: flex;
+  flex-wrap: wrap;
   gap: var(--space-4);
   align-items: center;
+  min-width: 0;
 }
 
 .co-ring--standalone {
-  grid-template-columns: auto;
-  justify-items: center;
+  flex-direction: column;
+  justify-content: center;
   text-align: center;
 }
 
@@ -135,6 +148,7 @@
 
 .co-ring__caption {
   display: grid;
+  flex: 1 1 140px;
   gap: var(--space-1);
   min-width: 0;
 }

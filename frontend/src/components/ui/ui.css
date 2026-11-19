@@ -671,12 +671,21 @@
   color: var(--text-secondary);
 }
 
+/* Change line and sparkline share the foot; the sparkline box shrinks with
+   the card (down to 96 px) and wraps under the change line in a card too
+   narrow for both. Nothing in the foot can leave the card. */
 .co-stat__foot {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-end;
   justify-content: space-between;
-  gap: var(--space-3);
+  gap: var(--space-2) var(--space-3);
+  min-width: 0;
   margin-top: var(--space-1);
+}
+
+.co-stat__foot .co-sparkline-box {
+  margin-left: auto;
 }
 
 .co-stat__change {
@@ -686,6 +695,7 @@
   gap: var(--space-1);
   font-size: var(--text-12);
   font-weight: 600;
+  white-space: nowrap;
   color: var(--text-secondary);
 }
 
@@ -957,6 +967,12 @@
 
 .co-table__row:last-child .co-table__td {
   border-bottom: 0;
+}
+
+.co-table__row--clickable:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+  box-shadow: none;
 }
 
 .co-table__row--clickable {

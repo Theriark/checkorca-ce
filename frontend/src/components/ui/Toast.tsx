@@ -11,7 +11,7 @@ interface ToastItem extends ToastInput {
 }
 
 const ICONS = { success: CircleCheck, danger: CircleX, info: Info } as const;
-const WORDS = { success: 'Done', danger: 'Failed', info: 'Note' } as const;
+const WORDS = { success: strings.toast.done, danger: strings.toast.failed, info: strings.toast.note } as const;
 
 let nextId = 1;
 

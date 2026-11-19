@@ -29,6 +29,22 @@ function storageKey(tableId: string): string {
   return `checkorca.table.${tableId}.views`;
 }
 
+/** localStorage is user-writable: only a well-formed entry is a saved view. */
+function isSavedView(value: unknown): value is SavedView {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const entry = value as Record<string, unknown>;
+  return (
+    typeof entry.id === 'string' &&
+    typeof entry.name === 'string' &&
+    entry.name.length > 0 &&
+    (entry.sortColumn === null || typeof entry.sortColumn === 'string') &&
+    (entry.sortDirection === 'asc' || entry.sortDirection === 'desc') &&
+    (entry.density === 'comfortable' || entry.density === 'compact')
+  );
+}
+
 export function readSavedViews(tableId: string): readonly SavedView[] {
   try {
     const raw = window.localStorage.getItem(storageKey(tableId));
@@ -36,7 +52,7 @@ export function readSavedViews(tableId: string): readonly SavedView[] {
       return [];
     }
     const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as SavedView[]) : [];
+    return Array.isArray(parsed) ? parsed.filter(isSavedView) : [];
   } catch {
     return [];
   }
