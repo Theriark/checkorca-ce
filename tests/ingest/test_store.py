@@ -24,6 +24,7 @@ from app.ingest.store import (
     store_raw,
 )
 from app.repos.inboxes import InboxRepository
+from app.repos.messages import RawMessageRepository
 
 POLICY = AllowAllPolicy()
 RECEIVED = datetime(2027, 1, 4, 6, 30, tzinfo=UTC)
@@ -170,6 +171,65 @@ async def test_the_same_text_on_another_day_is_a_new_message(
     assert await count(db_engine) == 2
 
 
+async def test_alerts_that_differ_only_in_the_subject_are_two_messages(
+    sessions: async_sessionmaker[AsyncSession], inbox: Inbox, db_engine: AsyncEngine
+) -> None:
+    # A tool that puts the status in the Subject, same second, same empty body.
+    ok = mail("", message_id="<a@backup.example.com>", subject="srv1: OK")
+    failed = mail("", message_id="<b@backup.example.com>", subject="srv1: FAILED")
+    assert not (await store(sessions, inbox, ok)).duplicate
+    assert not (await store(sessions, inbox, failed)).duplicate
+    assert await count(db_engine) == 2
+
+
+async def test_mail_without_a_date_is_deduplicated_by_message_id_only(
+    sessions: async_sessionmaker[AsyncSession], inbox: Inbox, db_engine: AsyncEngine
+) -> None:
+    def undated(message_id: str | None) -> bytes:
+        header = "" if message_id is None else f"Message-ID: {message_id}\r\n"
+        return f"Subject: nightly\r\n{header}\r\ndone\r\n".encode()
+
+    # A script without Date or Message-ID: every run is kept.
+    for _ in range(2):
+        assert not (await store(sessions, inbox, undated(None))).duplicate
+    first = await store(sessions, inbox, undated("<run-7@script.example.com>"))
+    again = await store(sessions, inbox, undated("<run-7@script.example.com>"))
+    assert again.duplicate and again.id == first.id
+    assert await count(db_engine) == 3
+
+
+async def test_a_duplicate_purged_before_the_lookup_is_stored_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inserts: list[uuid.UUID | None] = [None, uuid.uuid4()]
+
+    async def insert(self: Any, principal: Any, **fields: Any) -> uuid.UUID | None:
+        return inserts.pop(0)
+
+    async def nothing(self: Any, principal: Any, *args: Any, **kwargs: Any) -> Any:
+        return None
+
+    async def keep_days(self: Any, principal: Any) -> int:
+        return 30
+
+    monkeypatch.setattr(RawMessageRepository, "insert", insert)
+    monkeypatch.setattr(RawMessageRepository, "find_duplicate", nothing)
+    monkeypatch.setattr(RawMessageRepository, "keep_days", keep_days)
+    monkeypatch.setattr(InboxRepository, "mark_received", nothing)
+    db: Any = None
+    stored = await store_raw(
+        db, POLICY, SYSTEM, inbox_id=uuid.uuid4(), raw=mail(), received_at=RECEIVED
+    )
+    assert not stored.duplicate and inserts == []
+
+    # Neither stored nor found twice: an error, never a silent loss.
+    inserts.extend([None, None])
+    with pytest.raises(RuntimeError, match="neither stored nor found"):
+        await store_raw(
+            db, POLICY, SYSTEM, inbox_id=uuid.uuid4(), raw=mail(), received_at=RECEIVED
+        )
+
+
 async def test_two_deliveries_at_once_store_one_row(
     sessions: async_sessionmaker[AsyncSession], inbox: Inbox, db_engine: AsyncEngine
 ) -> None:
@@ -255,6 +315,9 @@ async def test_record_result_keeps_a_run(
         ),
         (ParsedResult(status="failed", details={"at": RECEIVED}), "JSON"),
         (ParsedResult(status="failed", details={"x": "a\0b"}), "NUL"),
+        (ParsedResult(status="failed", details={"x": ["a", {"\0": 1}]}), "NUL"),
+        # json.loads turns the escape \ud800 of a request body into this.
+        (ParsedResult(status="failed", details={"x": "\ud800"}), "Unicode"),
         (ParsedResult(status="failed", details={"x": "a" * 17000}), "bytes"),
     ],
 )
@@ -268,6 +331,20 @@ async def test_record_result_refuses_what_the_table_cannot_hold(
         with pytest.raises(ResultRejected, match=field):
             await record_result(db, POLICY, SYSTEM, result, received_at=RECEIVED)
     assert await count(db_engine, JobResult) == 0
+
+
+async def test_a_backslash_u0000_text_is_not_a_nul(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    path = "C:\\backup\\u0000\\job.log"
+    result = ParsedResult(status="success", details={"log": path})
+    async with sessions() as db:
+        result_id = await record_result(
+            db, POLICY, SYSTEM, result, received_at=RECEIVED
+        )
+        await db.commit()
+        row = await db.get(JobResult, result_id)
+    assert row is not None and row.details == {"log": path}
 
 
 class Refuses(AllowAllPolicy):

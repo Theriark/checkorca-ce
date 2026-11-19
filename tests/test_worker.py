@@ -103,6 +103,58 @@ async def test_a_worker_that_loses_its_lock_session_takes_the_lock_again(
         await asyncio.wait_for(running, timeout=5)
 
 
+async def test_a_holder_that_loses_its_session_stops_its_receivers_at_once(
+    context: WorkerContext, db_engine: AsyncEngine
+) -> None:
+    events: list[str] = []
+    # A long tick: the loss must be noticed between ticks, not at the next one.
+    first = Worker(
+        context,
+        hooks=(),
+        receivers=(lambda context: FakeReceiver("first", events),),
+        holder="first",
+        tick_seconds=30,
+        lock_retry_seconds=0.05,
+    )
+    second = Worker(context, hooks=(), receivers=(), holder="second", **FAST)
+    stop_first, stop_second = asyncio.Event(), asyncio.Event()
+    running_first = asyncio.create_task(first.run(stop_first))
+    await until(lambda: first.ticks >= 1)
+    running_second = asyncio.create_task(second.run(stop_second))
+    try:
+        await asyncio.sleep(0.2)
+        assert second.ticks == 0
+        holder = text(
+            "SELECT pid FROM pg_locks WHERE locktype = 'advisory' AND granted"
+            " AND classid = 0 AND objid = :key AND objsubid = 1"
+        )
+        async with db_engine.connect() as connection:
+            found = await connection.execute(holder, {"key": WORKER_LOCK})
+            await connection.execute(
+                text("SELECT pg_terminate_backend(:pid)"),
+                {"pid": found.scalar_one()},
+            )
+            await connection.commit()
+        # Within a lock check, not after the 30 second tick.
+        await until(lambda: "stop first" in events, timeout=5)
+        # Whoever takes the lock next, exactly one worker holds it.
+        await until(lambda: first.holds_lock or second.ticks >= 1, timeout=5)
+        async with db_engine.connect() as connection:
+            found = await connection.execute(holder, {"key": WORKER_LOCK})
+            assert len(found.all()) == 1
+        # Once the first stops, the second ticks and its heartbeat shows it.
+        stop_first.set()
+        await asyncio.wait_for(running_first, timeout=5)
+        await until(lambda: second.holds_lock and second.ticks >= 1, timeout=5)
+        row = await heartbeat(db_engine)
+        assert row is not None and row.holder == "second"
+    finally:
+        stop_first.set()
+        stop_second.set()
+        await asyncio.wait_for(running_second, timeout=5)
+        await asyncio.wait_for(running_first, timeout=5)
+
+
 async def test_a_tick_writes_the_heartbeat_and_runs_every_hook(
     context: WorkerContext,
     db_engine: AsyncEngine,
