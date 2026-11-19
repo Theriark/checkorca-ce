@@ -38,12 +38,12 @@ export function StatCard({ label, value, delta, spark, goodWhen = 'up', icon, lo
           {label}: {strings.states.loading}
         </span>
         <div className="co-stat__head">
-          <Skeleton width={88} height={12} />
+          <Skeleton width="55%" height={12} />
         </div>
-        <Skeleton width={72} height={32} />
+        <Skeleton width="40%" height={32} />
         <div className="co-stat__foot">
-          <Skeleton width={110} height={12} />
-          <Skeleton width={120} height={36} />
+          <Skeleton width="42%" height={12} />
+          <Skeleton width="42%" height={36} />
         </div>
       </div>
     );
