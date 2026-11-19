@@ -79,7 +79,7 @@ Widths: 1440, 768 and 390 px are the reference widths; nothing overflows horizon
 
 ## 7. Deep links on the current backend
 
-The FastAPI app serves the build with `StaticFiles(html=True)`, which has no single-page fallback: a deep link such as `/login` or `/clients/ID` would be a plain 404. The build therefore writes `404.html` as a second entry of the same app; StaticFiles serves it (with HTTP status 404) for any path that is not a built file, the app boots and the router renders the right screen. Client-side navigation is unaffected. A backend fallback that answers 200 with `index.html` for non-API paths is the proper fix and is left to a backend phase (Delivery decides where).
+The FastAPI app answers every path that no route matched and that is not a built file, outside `/api/`, with HTTP 200 and `index.html` (`app/web.py`, phase C3-B), so a deep link such as `/login` or `/clients/ID` boots the app and the router renders the right screen (or its own 404 page). Unknown paths under `/api/` answer 404 as `application/problem+json`, never HTML. The `404.html` second entry of phase C2 is gone; the build has one entry, `index.html`.
 
 ## 8. What later phases keep
 
