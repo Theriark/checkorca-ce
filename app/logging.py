@@ -35,6 +35,9 @@ _UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
 # Libraries that log SQL parameters, outbound URLs or form fields at info or
 # debug level. They stay at warning whatever LOG_LEVEL says.
 _QUIET_LOGGERS = ("sqlalchemy", "httpx", "httpcore", "multipart", "python_multipart")
+# aiosmtpd logs peer addresses, envelope addresses and commands up to warning
+# level; the SMTP listener (app/ingest/smtp.py) logs what it needs itself.
+_SILENT_LOGGERS = ("mail.log",)
 
 
 class JsonFormatter(logging.Formatter):
@@ -72,9 +75,12 @@ class JsonFormatter(logging.Formatter):
 
 
 def quiet_libraries() -> None:
-    """Keep the libraries that would log content at warning level."""
+    """Keep the libraries that would log content at warning level, or at error
+    level when even their warnings carry addresses."""
     for name in _QUIET_LOGGERS:
         logging.getLogger(name).setLevel(logging.WARNING)
+    for name in _SILENT_LOGGERS:
+        logging.getLogger(name).setLevel(logging.ERROR)
 
 
 def configure_logging(level: str, secrets: Iterable[str] = ()) -> None:

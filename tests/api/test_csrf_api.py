@@ -1,7 +1,10 @@
 """CSRF: every state-changing route refuses a session request without the token.
 
 The routes are read from the app, so a route added later is covered without a
-change here. Only sign-in and first run are exempt: no session exists yet.
+change here. Sign-in and first run are exempt: no session exists yet. The
+token routes of C4-I are exempt too: they read no cookie, and their credential
+(the Authorization header, or the token in a ping URL) is something a
+cross-site form cannot send or does not know.
 """
 
 import json
@@ -31,11 +34,20 @@ CSRF_EXEMPT = {
     ("POST", "/api/v1/auth/login"),
     ("POST", "/api/v1/auth/first-run"),
 }
+TOKEN_ROUTES = {
+    ("POST", "/api/v1/ingest/email/{inbox_code}"),
+    ("POST", "/api/v1/results"),
+    ("POST", "/api/v1/ping/{ping_token}"),
+    ("POST", "/api/v1/ping/{ping_token}/{signal}"),
+}
 # What a cross-site HTML form can send: url-encoded fields, or JSON-shaped text.
 FORM_BODY = f"email={ADMIN_EMAIL}&password={ADMIN_PASSWORD}"
 JSON_BODY = json.dumps({"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
 USERS_AND_SESSIONS = text(
     "SELECT (SELECT count(*) FROM app_user), (SELECT count(*) FROM app_session)"
+)
+RESULTS_AND_MESSAGES = text(
+    "SELECT (SELECT count(*) FROM job_result), (SELECT count(*) FROM raw_message)"
 )
 
 
@@ -61,7 +73,9 @@ def unsafe_routes() -> list[tuple[str, str]]:
 
 
 UNSAFE_ROUTES = unsafe_routes()
-STATE_CHANGING = [route for route in UNSAFE_ROUTES if route not in CSRF_EXEMPT]
+STATE_CHANGING = [
+    route for route in UNSAFE_ROUTES if route not in CSRF_EXEMPT | TOKEN_ROUTES
+]
 
 
 def concrete(path: str) -> str:
@@ -71,6 +85,7 @@ def concrete(path: str) -> str:
 
 def test_the_route_list_is_complete() -> None:
     assert CSRF_EXEMPT <= set(UNSAFE_ROUTES)
+    assert TOKEN_ROUTES <= set(UNSAFE_ROUTES)
     assert set(STATE_CHANGING) >= {
         ("POST", "/api/v1/auth/logout"),
         ("POST", "/api/v1/users"),
@@ -93,6 +108,7 @@ def test_the_route_list_is_complete() -> None:
         ("PATCH", "/api/v1/inboxes/{inbox_id}"),
         ("DELETE", "/api/v1/inboxes/{inbox_id}"),
         ("POST", "/api/v1/inboxes/{inbox_id}/token"),
+        ("POST", "/api/v1/messages/upload"),
     }
 
 
@@ -169,3 +185,22 @@ async def test_the_exempt_routes_need_no_session(
         method, path, json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}
     )
     assert response.status_code != 403
+
+
+@pytest.mark.parametrize(("method", "path"), sorted(TOKEN_ROUTES))
+async def test_a_session_cookie_gives_the_token_routes_nothing(
+    client: httpx.AsyncClient,
+    admin: AppUser,
+    db_engine: AsyncEngine,
+    method: str,
+    path: str,
+) -> None:
+    """Signed in, with the CSRF token even: without a Bearer token or a known
+    ping token nothing is written."""
+    csrf = await sign_in(client, ADMIN_EMAIL, ADMIN_PASSWORD)
+    url = concrete(path.replace("{ping_token}", "A" * 24).replace("{signal}", "start"))
+    response = await client.request(method, url, headers={CSRF_HEADER: csrf}, json={})
+    assert response.status_code == (404 if "/ping/" in path else 401)
+    async with db_engine.connect() as connection:
+        written = await connection.execute(RESULTS_AND_MESSAGES)
+    assert tuple(written.one()) == (0, 0)

@@ -179,6 +179,46 @@ async def test_imap_secrets_never_come_back(
     assert CANARY not in caplog.text
 
 
+async def test_a_new_imap_server_needs_the_password_again(
+    client: httpx.AsyncClient,
+    csrf: str,
+    technician: AppUser,
+    db_engine: AsyncEngine,
+) -> None:
+    """The stored password is never sent to a server it was not given for."""
+    inbox = await create(client, csrf, kind="imap", label="Mailbox", imap=IMAP)
+    path = f"/api/v1/inboxes/{inbox['id']}"
+    query = text("SELECT imap_password_enc, imap_host FROM inbox")
+    async with db_engine.connect() as connection:
+        before = tuple((await connection.execute(query)).one())
+    tech_csrf = await sign_in(client, TECHNICIAN_EMAIL, TECHNICIAN_PASSWORD)
+    headers = {CSRF_HEADER: tech_csrf}
+    for target in (
+        {"host": "imap.attacker.test"},
+        {"port": 143},
+        {"tls": False},
+        {"username": "other@example.com"},
+    ):
+        refused = await client.patch(path, json={"imap": target}, headers=headers)
+        assert refused.status_code == 422, target
+        assert refused.json()["title"] == "IMAP password required"
+    async with db_engine.connect() as connection:
+        assert tuple((await connection.execute(query)).one()) == before
+    # Other settings keep the stored password; a new server with it is fine.
+    kept = await client.patch(
+        path, json={"imap": {"poll_seconds": 600}}, headers=headers
+    )
+    assert kept.status_code == 200
+    assert kept.json()["imap"]["secret_hint"] == CANARY_HINT
+    moved = await client.patch(
+        path,
+        json={"imap": {"host": "mail.example.net", "password": "New-" + CANARY}},
+        headers=headers,
+    )
+    assert moved.status_code == 200
+    assert moved.json()["imap"]["host"] == "mail.example.net"
+
+
 async def test_a_refused_imap_form_does_not_echo_the_password(
     client: httpx.AsyncClient, csrf: str
 ) -> None:

@@ -1,5 +1,7 @@
 """Reading hostile mail: headers, Message-ID, content hash and text."""
 
+import pytest
+
 from app.ingest import mime
 
 
@@ -21,6 +23,34 @@ def test_header_count_and_length_are_capped() -> None:
     assert len(headers) == mime.MAX_HEADERS
     raw = b"X-Long: " + b"a" * 9000 + b"\r\n\r\nbody"
     assert len(headers_of(raw)[0][1]) == mime.MAX_HEADER_VALUE
+
+
+def test_a_value_is_cut_before_it_is_decoded(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[int] = []
+    decode = mime.decode_header
+
+    def measured(value: str) -> list[tuple[bytes | str, str | None]]:
+        seen.append(len(value))
+        return decode(value)
+
+    monkeypatch.setattr(mime, "decode_header", measured)
+    decoded = mime.header_value("=?utf-8?q?a?= " * 50_000)
+    assert seen == [mime.MAX_DECODED_INPUT]
+    # The cut may split the last encoded word; the ones before it decode.
+    assert decoded.startswith("aaaa") and len(decoded) <= mime.MAX_DECODED_INPUT
+
+
+def test_a_raw_value_is_unfolded_never_decoded_and_never_cut() -> None:
+    value = "a=?utf-8?q?x=3B_y?=\r\n\tb\x00"
+    assert mime.raw_header_value(value) == "a=?utf-8?q?x=3B_y?= b"
+    assert mime.raw_header_value("z" * mime.MAX_DECODED_INPUT) is not None
+    assert mime.raw_header_value("z" * (mime.MAX_DECODED_INPUT + 1)) is None
+
+
+def test_header_bytes_ends_at_the_first_blank_line() -> None:
+    assert mime.header_bytes(b"A: 1\r\n\r\nbody\r\n\r\n") == 4
+    assert mime.header_bytes(b"A: 1\n\nbody") == 4
+    assert mime.header_bytes(b"A: 1\r\nB: 2") == 10
 
 
 def test_a_broken_encoded_word_is_kept_as_sent() -> None:
@@ -93,9 +123,17 @@ def test_text_prefers_plain_and_skips_attachments() -> None:
     assert not truncated
 
 
-def test_an_html_only_message_gives_its_source_as_text() -> None:
-    raw = b"Content-Type: text/html\r\n\r\n<p onclick=x>Backup failed</p>"
-    assert mime.message_text(raw) == ("<p onclick=x>Backup failed</p>", False)
+def test_an_html_only_message_gives_its_visible_text() -> None:
+    raw = (
+        b"Content-Type: text/html; charset=utf-8\r\n\r\n"
+        b"<html><head><style>p {color: red}</style></head><body>"
+        b"<p onclick=x>Backup failed</p><script>alert(1)</script>"
+        b"<p>&lt;script&gt; is shown as text</p></body></html>"
+    )
+    text, truncated = mime.message_text(raw)
+    assert text == "Backup failed\n\n<script> is shown as text"
+    assert "alert" not in text and "color" not in text and "onclick" not in text
+    assert not truncated
 
 
 def test_text_with_an_unknown_charset_or_no_text_part() -> None:

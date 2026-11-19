@@ -992,6 +992,30 @@ export interface paths {
         };
       };
     };
+    post: {
+      /** Create Result */
+      parameters: {
+        query: never;
+        path: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": components["schemas"]["NewResult"];
+        };
+      };
+      responses: {
+        "202": {
+          content: {
+            "application/json": components["schemas"]["ResultAccepted"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
   };
   "/api/v1/jobs/{job_id}/results": {
     get: {
@@ -1011,6 +1035,154 @@ export interface paths {
         "200": {
           content: {
             "application/json": components["schemas"]["ResultPage"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/ingest/email/{inbox_code}": {
+    post: {
+      /** Ingest Email */
+      parameters: {
+        query: never;
+        path: {
+          inbox_code: string;
+        };
+      };
+      requestBody: {
+        content: {
+          "message/rfc822": string;
+        };
+      };
+      responses: {
+        "202": {
+          content: {
+            "application/json": components["schemas"]["MessageAccepted"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/ping/{ping_token}": {
+    get: {
+      /** Ping Success */
+      parameters: {
+        query: never;
+        path: {
+          ping_token: string;
+        };
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "text/plain": string;
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+    post: {
+      /** Ping Success */
+      parameters: {
+        query: never;
+        path: {
+          ping_token: string;
+        };
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "text/plain": string;
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/ping/{ping_token}/{signal}": {
+    get: {
+      /** Ping Signal */
+      parameters: {
+        query: never;
+        path: {
+          ping_token: string;
+          signal: "start" | "fail";
+        };
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "text/plain": string;
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+    post: {
+      /** Ping Signal */
+      parameters: {
+        query: never;
+        path: {
+          ping_token: string;
+          signal: "start" | "fail";
+        };
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "text/plain": string;
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/messages/upload": {
+    post: {
+      /** Upload Message */
+      parameters: {
+        query: never;
+        path: never;
+      };
+      requestBody: {
+        content: {
+          "multipart/form-data": components["schemas"]["Body_upload_message_api_v1_messages_upload_post"];
+        };
+      };
+      responses: {
+        "202": {
+          content: {
+            "application/json": components["schemas"]["MessageAccepted"];
           };
         };
         "4XX": {
@@ -1050,6 +1222,11 @@ export interface components {
     Body_import_jobs_api_v1_jobs_import_csv_post: {
       /** The CSV file (UTF-8). */
       file: string;
+    };
+    Body_upload_message_api_v1_messages_upload_post: {
+      /** The message as an .eml file. */
+      file: string;
+      inbox_id: string;
     };
     ClientOut: {
       id: string;
@@ -1248,6 +1425,12 @@ export interface components {
       role: "admin" | "technician";
       csrf_token: string;
     };
+    /** The stored message, or for a duplicate the earlier one; the worker
+parses it (parse_state pending). */
+    MessageAccepted: {
+      message_id: string;
+      duplicate: boolean;
+    };
     MessageDetail: {
       id: string;
       inbox_id: string | null;
@@ -1311,6 +1494,19 @@ export interface components {
       name: string;
       enabled?: boolean;
     };
+    /** A run reported by a script (POST results). The job is named by job_id,
+by ping_token, or by client_hint and job_name for the matcher. */
+    NewResult: {
+      status: "success" | "warning" | "failed" | "started" | "unknown";
+      job_id?: string | null;
+      ping_token?: string | null;
+      job_name?: string | null;
+      client_hint?: string | null;
+      started_at?: string | null;
+      finished_at?: string | null;
+      run_id?: string | null;
+      details?: Record<string, unknown>;
+    };
     NewToken: {
       label: string;
       scope: "ingest" | "read";
@@ -1336,6 +1532,11 @@ export interface components {
     };
     QueueStatus: {
       pending_messages: number;
+    };
+    /** The stored result; job_id is null until the matcher binds it. */
+    ResultAccepted: {
+      result_id: string;
+      job_id: string | null;
     };
     ResultOut: {
       id: string;
@@ -1466,6 +1667,13 @@ export type operations = {
   list_messages_api_v1_messages_get: paths["/api/v1/messages"]["get"];
   get_message_api_v1_messages__message_id__get: paths["/api/v1/messages/{message_id}"]["get"];
   list_results_api_v1_results_get: paths["/api/v1/results"]["get"];
+  create_result_api_v1_results_post: paths["/api/v1/results"]["post"];
   list_job_results_api_v1_jobs__job_id__results_get: paths["/api/v1/jobs/{job_id}/results"]["get"];
+  ingest_email_api_v1_ingest_email__inbox_code__post: paths["/api/v1/ingest/email/{inbox_code}"]["post"];
+  ping_success_api_v1_ping__ping_token__get: paths["/api/v1/ping/{ping_token}"]["get"];
+  ping_success_api_v1_ping__ping_token__post: paths["/api/v1/ping/{ping_token}"]["post"];
+  ping_signal_api_v1_ping__ping_token___signal__get: paths["/api/v1/ping/{ping_token}/{signal}"]["get"];
+  ping_signal_api_v1_ping__ping_token___signal__post: paths["/api/v1/ping/{ping_token}/{signal}"]["post"];
+  upload_message_api_v1_messages_upload_post: paths["/api/v1/messages/upload"]["post"];
   system_status_api_v1_system_status_get: paths["/api/v1/system/status"]["get"];
 };

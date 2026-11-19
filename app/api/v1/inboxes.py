@@ -47,6 +47,9 @@ from app.security.crypto import MASK, SecretBox, SecretBoxError, mask_hint
 router = APIRouter(prefix="/inboxes", tags=["inboxes"])
 
 KindQuery = Annotated[InboxKind | None, Query()]
+# Where the poller sends the stored password. Changing one of them without
+# sending the password again would deliver the stored one to a new server.
+PASSWORD_TARGET = frozenset({"imap_host", "imap_port", "imap_username", "imap_tls"})
 
 
 def inbox_not_found() -> ProblemError:
@@ -192,7 +195,8 @@ async def update_inbox(
 ) -> InboxOut:
     """Change the label, the sender allowlist, the Authentication-Results rule
     or (IMAP inboxes) the IMAP settings. A password sent replaces the stored
-    one; none sent keeps it."""
+    one; none sent keeps it, except that a new host, port, TLS setting or user
+    name needs the password again (422)."""
     inboxes = InboxRepository(db, services.policy)
     inbox = await inboxes.get(context.principal, inbox_id, for_update=True)
     if inbox is None:
@@ -212,6 +216,18 @@ async def update_inbox(
         for field, value in changes.items()
         if field == "imap_password_enc" or getattr(inbox, field) != value
     }
+    retargeted = PASSWORD_TARGET & set(changes)
+    if (
+        retargeted
+        and inbox.imap_password_enc is not None
+        and "imap_password_enc" not in changes
+    ):
+        raise ProblemError(
+            422,
+            "IMAP password required",
+            "Send the IMAP password again to change the host, port, TLS setting"
+            " or user name.",
+        )
     if changes:
         await inboxes.update(
             context.principal, inbox, now=services.clock.now(), **changes

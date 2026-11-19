@@ -6,12 +6,13 @@ refuses to start. Error messages name the variable and never include a value.
 
 import base64
 import binascii
+import os
 import re
 from functools import lru_cache
-from typing import Any, Literal
+from typing import Any, Literal, Self
 from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr, ValidationError, field_validator
+from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
@@ -27,6 +28,10 @@ LogLevel = Literal["critical", "error", "warning", "info", "debug"]
 
 class SettingsError(ValueError):
     """The environment does not describe a valid configuration."""
+
+
+def _readable(path: str) -> bool:
+    return os.path.isfile(path) and os.access(path, os.R_OK)
 
 
 class Settings(BaseSettings):
@@ -45,6 +50,10 @@ class Settings(BaseSettings):
     # The domain of the inbox addresses (code@MAIL_DOMAIN); empty means the
     # host name of BASE_URL.
     mail_domain: str = Field(default="", max_length=253)
+    # STARTTLS on the SMTP listener: the PEM certificate chain and key mounted
+    # into the container. Both empty (the default) means no STARTTLS.
+    smtp_tls_cert_file: str = ""
+    smtp_tls_key_file: str = ""
     log_level: LogLevel = "info"
     # The commit the image was built from (Dockerfile ARG REVISION).
     revision: str = ""
@@ -94,6 +103,22 @@ class Settings(BaseSettings):
         if value and not re.fullmatch(MAIL_DOMAIN_PATTERN, value):
             raise ValueError("must be a domain name such as mail.example.com")
         return value
+
+    @model_validator(mode="after")
+    def _smtp_tls_pair(self) -> Self:
+        if bool(self.smtp_tls_cert_file) != bool(self.smtp_tls_key_file):
+            raise ValueError(
+                "SMTP_TLS_CERT_FILE and SMTP_TLS_KEY_FILE must be set together"
+            )
+        # The worker starts the SMTP listener: a missing file would leave port
+        # 2525 closed while the process runs, so it refuses to start instead.
+        files = (self.smtp_tls_cert_file, self.smtp_tls_key_file)
+        worker = self.role != "web"
+        if worker and files[0] and not all(map(_readable, files)):
+            raise ValueError(
+                "SMTP_TLS_CERT_FILE and SMTP_TLS_KEY_FILE must name readable files"
+            )
+        return self
 
     @property
     def inbox_domain(self) -> str:

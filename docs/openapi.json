@@ -1716,7 +1716,7 @@
           "inboxes"
         ],
         "summary": "Update Inbox",
-        "description": "Change the label, the sender allowlist, the Authentication-Results rule\nor (IMAP inboxes) the IMAP settings. A password sent replaces the stored\none; none sent keeps it.",
+        "description": "Change the label, the sender allowlist, the Authentication-Results rule\nor (IMAP inboxes) the IMAP settings. A password sent replaces the stored\none; none sent keeps it, except that a new host, port, TLS setting or user\nname needs the password again (422).",
         "operationId": "update_inbox_api_v1_inboxes__inbox_id__patch",
         "parameters": [
           {
@@ -2090,6 +2090,46 @@
             }
           }
         }
+      },
+      "post": {
+        "tags": [
+          "ingest"
+        ],
+        "summary": "Create Result",
+        "description": "Record a run. With job_id or ping_token the result belongs to that job\n(404 when there is none); with client_hint and job_name it waits for the\nmatcher.",
+        "operationId": "create_result_api_v1_results_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewResult"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResultAccepted"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/jobs/{job_id}/results": {
@@ -2188,6 +2228,305 @@
         }
       }
     },
+    "/api/v1/ingest/email/{inbox_code}": {
+      "post": {
+        "tags": [
+          "ingest"
+        ],
+        "summary": "Ingest Email",
+        "description": "Store one raw message (RFC 822 bytes as the body) in an smtp or webhook\ninbox; the same message twice is stored once (duplicate true).",
+        "operationId": "ingest_email_api_v1_ingest_email__inbox_code__post",
+        "parameters": [
+          {
+            "name": "inbox_code",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "title": "Inbox Code"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageAccepted"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "message/rfc822": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ping/{ping_token}": {
+      "post": {
+        "tags": [
+          "ingest"
+        ],
+        "summary": "Ping Success",
+        "description": "The job's run ended well; answers OK.",
+        "operationId": "ping_success_api_v1_ping__ping_token__post",
+        "parameters": [
+          {
+            "name": "ping_token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9]+$",
+              "title": "Ping Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK: the result was recorded.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "ingest"
+        ],
+        "summary": "Ping Success",
+        "description": "The job's run ended well; answers OK.",
+        "operationId": "ping_success_api_v1_ping__ping_token__get",
+        "parameters": [
+          {
+            "name": "ping_token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9]+$",
+              "title": "Ping Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK: the result was recorded.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ping/{ping_token}/{signal}": {
+      "post": {
+        "tags": [
+          "ingest"
+        ],
+        "summary": "Ping Signal",
+        "description": "start: the job's run began; fail: it failed. Answers OK.",
+        "operationId": "ping_signal_api_v1_ping__ping_token___signal__post",
+        "parameters": [
+          {
+            "name": "ping_token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9]+$",
+              "title": "Ping Token"
+            }
+          },
+          {
+            "name": "signal",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "start",
+                "fail"
+              ],
+              "type": "string",
+              "title": "Signal"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK: the result was recorded.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "ingest"
+        ],
+        "summary": "Ping Signal",
+        "description": "start: the job's run began; fail: it failed. Answers OK.",
+        "operationId": "ping_signal_api_v1_ping__ping_token___signal__get",
+        "parameters": [
+          {
+            "name": "ping_token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9]+$",
+              "title": "Ping Token"
+            }
+          },
+          {
+            "name": "signal",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "start",
+                "fail"
+              ],
+              "type": "string",
+              "title": "Signal"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK: the result was recorded.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/messages/upload": {
+      "post": {
+        "tags": [
+          "ingest"
+        ],
+        "summary": "Upload Message",
+        "description": "Store an uploaded .eml file in an inbox, as if it had been received.",
+        "operationId": "upload_message_api_v1_messages_upload_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_message_api_v1_messages_upload_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageAccepted"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/system/status": {
       "get": {
         "tags": [
@@ -2237,6 +2576,27 @@
           "file"
         ],
         "title": "Body_import_jobs_api_v1_jobs_import_csv_post"
+      },
+      "Body_upload_message_api_v1_messages_upload_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "description": "The message as an .eml file."
+          },
+          "inbox_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Inbox Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file",
+          "inbox_id"
+        ],
+        "title": "Body_upload_message_api_v1_messages_upload_post"
       },
       "ClientOut": {
         "properties": {
@@ -3740,6 +4100,26 @@
         ],
         "title": "Me"
       },
+      "MessageAccepted": {
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Message Id"
+          },
+          "duplicate": {
+            "type": "boolean",
+            "title": "Duplicate"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message_id",
+          "duplicate"
+        ],
+        "title": "MessageAccepted",
+        "description": "The stored message, or for a duplicate the earlier one; the worker\nparses it (parse_state pending)."
+      },
       "MessageDetail": {
         "properties": {
           "id": {
@@ -4231,6 +4611,123 @@
         ],
         "title": "NewJob"
       },
+      "NewResult": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "success",
+              "warning",
+              "failed",
+              "started",
+              "unknown"
+            ],
+            "title": "Status"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "ping_token": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ping Token"
+          },
+          "job_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Name"
+          },
+          "client_hint": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Hint"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "details": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Details",
+            "default": {}
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "NewResult",
+        "description": "A run reported by a script (POST results). The job is named by job_id,\nby ping_token, or by client_hint and job_name for the matcher."
+      },
       "NewToken": {
         "properties": {
           "label": {
@@ -4390,6 +4887,34 @@
           "pending_messages"
         ],
         "title": "QueueStatus"
+      },
+      "ResultAccepted": {
+        "properties": {
+          "result_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Result Id"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "result_id",
+          "job_id"
+        ],
+        "title": "ResultAccepted",
+        "description": "The stored result; job_id is null until the matcher binds it."
       },
       "ResultOut": {
         "properties": {

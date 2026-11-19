@@ -7,7 +7,8 @@ class and stack frames (app/logging.py drops the text) and answered with a 500
 problem document; it is not re-raised, so the server never logs it again.
 Request bodies under /api/ are limited to 64 KiB (413): sign-in and first run
 are anonymous and would otherwise read any body into memory. The CSV import
-takes up to 1 MiB of file (BODY_LIMITS).
+takes up to 1 MiB of file, raw mail and the .eml upload up to 5 MiB
+(BODY_LIMITS, BODY_LIMIT_PREFIXES).
 """
 
 import logging
@@ -20,6 +21,7 @@ from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.api.problems import problem_response
+from app.ingest.store import MAX_MESSAGE_BYTES
 from app.logging import request_id_var
 from app.security.headers import SECURITY_HEADERS
 
@@ -28,7 +30,13 @@ logger = logging.getLogger("app.http")
 REQUEST_ID_HEADER = b"x-request-id"
 MAX_API_BODY = 64 * 1024
 # Routes that take more: the file plus room for the multipart framing.
-BODY_LIMITS = {"/api/v1/jobs/import.csv": 1024 * 1024 + 16 * 1024}
+BODY_LIMITS = {
+    "/api/v1/jobs/import.csv": 1024 * 1024 + 16 * 1024,
+    "/api/v1/messages/upload": MAX_MESSAGE_BYTES + 16 * 1024,
+}
+# Routes with a path parameter, by prefix: POST ingest/email takes the message
+# itself as the body.
+BODY_LIMIT_PREFIXES = (("/api/v1/ingest/email/", MAX_MESSAGE_BYTES),)
 # Sent only when BASE_URL is https: a plain-http install must not pin HTTPS.
 HSTS_HEADER = (b"strict-transport-security", b"max-age=31536000")
 # A request id from the proxy is kept when it looks like one; else a new one.
@@ -67,6 +75,16 @@ def _content_length(scope: Scope) -> int:
     return -1
 
 
+def body_limit(path: str, default: int) -> int:
+    """The largest request body the path takes."""
+    if path in BODY_LIMITS:
+        return BODY_LIMITS[path]
+    for prefix, limit in BODY_LIMIT_PREFIXES:
+        if path.startswith(prefix):
+            return limit
+    return default
+
+
 def _route_template(scope: Scope) -> str:
     """The path with every path parameter replaced by its name, never its value;
     "static" for the web app files, "unmatched" when no route matched."""
@@ -98,7 +116,7 @@ class RequestContextMiddleware:
         response_started = False
         path = str(scope.get("path", ""))
         api = path.startswith("/api/")
-        max_body = BODY_LIMITS.get(path, self.max_body)
+        max_body = body_limit(path, self.max_body)
         received = 0
 
         async def limited_receive() -> Message:

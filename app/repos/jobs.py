@@ -164,6 +164,13 @@ class JobRepository(Repository):
         query = self.policy.scope(principal, self.resource, query)
         return (await self.db.scalars(query)).one_or_none()
 
+    @guarded("read")
+    async def find_by_ping_token(self, principal: Principal, token: str) -> Job | None:
+        """The job whose ping URL ends in this token (compared exactly)."""
+        query = select(Job).where(Job.ping_token == token)
+        query = self.policy.scope(principal, self.resource, query)
+        return (await self.db.scalars(query)).one_or_none()
+
     @guarded("list")
     async def for_clients(
         self, principal: Principal, client_ids: Sequence[uuid.UUID]
