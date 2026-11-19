@@ -25,6 +25,8 @@ A job says when it should report: a schedule kind, an expression and an IANA tim
 
 An hour range such as `0-23` counts as a fixed hour (docs/spikes.md). The rule depends only on the wall time and the zone, so a restart or a different query window never changes the times. croniter is only asked which wall-clock times match an expression (`app/schedule/_cron.py`); turning them into instants is `app/schedule/_wall.py`.
 
+Open question for phase C7 (code review of THE-1997, L1): the gap rule also applies to a cron with a `*` or `*/n` hour whose minutes exclude 0. `30 * * * *` in Europe/Lisbon on 28 March 2027 is expected at 00:30Z, 01:00Z (the skipped 01:30 moved to the end of the gap) and 01:30Z, while cron runs such a job only on the new time. The evaluator must not raise a missed alert for that extra time until the policy is decided.
+
 ## Next times
 
 `next_n` (the preview and the check on save) walks the wall-clock times from the given moment and stops once the n-th time is settled, so its cost grows with n and not with how dense the schedule is: `* * * 1-3 *` asked in November costs about as much as a daily job. It looks ten years ahead (`NEXT_HORIZON`). `occurrences` lists a whole window and refuses one with more than 100000 times.
