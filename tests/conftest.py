@@ -37,6 +37,7 @@ OPTIONAL_VARIABLES = (
     "ROLE",
     "PORT",
     "SMTP_PORT",
+    "MAIL_DOMAIN",
     "BASE_URL",
     "LOG_LEVEL",
     "DEV_SEED",
@@ -45,7 +46,18 @@ OPTIONAL_VARIABLES = (
     "DEV_SEED_PASSWORD_TECHNICIAN",
 )
 # Emptied before each database test; settings keeps its single row.
-TABLES = ("job", "client", "app_session", "api_token", "audit_event", "app_user")
+TABLES = (
+    "worker_heartbeat",
+    "job_result",
+    "raw_message",
+    "inbox",
+    "job",
+    "client",
+    "app_session",
+    "api_token",
+    "audit_event",
+    "app_user",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -74,7 +86,7 @@ def migrated() -> None:
 
 @pytest.fixture
 async def db_engine(migrated: None) -> AsyncIterator[AsyncEngine]:
-    """An engine on the migrated test database with the C1 tables emptied."""
+    """An engine on the migrated test database with the tables emptied."""
     engine = create_async_engine(DATABASE_URL, poolclass=NullPool)
     async with engine.begin() as connection:
         await connection.execute(text(f"TRUNCATE {', '.join(TABLES)} CASCADE"))
