@@ -75,7 +75,7 @@ _CELLS: Final = frozenset({"td", "th"})
 # Whitespace in the source is one space, as a browser shows it; only <pre>
 # keeps its line breaks.
 _WHITESPACE = re.compile(r"\s+")
-_SPACES = re.compile(r"[ \f\v\r ]+")
+_SPACES = re.compile(r"[ \f\v\r\xa0]+")
 _BLANK_LINES = re.compile(r"\n{3,}")
 
 
