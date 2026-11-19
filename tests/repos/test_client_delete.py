@@ -76,9 +76,7 @@ async def rows_of(engine: AsyncEngine, client_id: uuid.UUID) -> dict[str, int]:
     async with engine.connect() as connection:
         for step in CLIENT_DELETE_MAP:
             query = (
-                select(func.count())
-                .select_from(step.model)
-                .where(step.rows(client_id))
+                select(func.count()).select_from(step.model).where(step.rows(client_id))
             )
             counts[step.model.__table__.name] = int(
                 (await connection.execute(query)).scalar_one()

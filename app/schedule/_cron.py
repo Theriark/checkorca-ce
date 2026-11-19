@@ -36,11 +36,25 @@ _FIELD = re.compile(r"[0-9A-Za-z*/,?#-]+")
 # Hashed (H) and random (R) values of croniter: a schedule must be readable.
 _HASHED_OR_RANDOM = re.compile(r"[HR](\(.*\))?(/\d+)?", re.IGNORECASE)
 _WILDCARD_HOUR = re.compile(r"\*(/\d+)?")
+# A range from a value to itself; croniter reads "0-0" as a full cycle.
+_SINGLE_RANGE = re.compile(r"(\w+)-(\w+)(/\d+)?")
 _CHECK_START = datetime(2000, 1, 1, tzinfo=UTC)
 
 
 class CronSyntaxError(ValueError):
     """An expression croniter (or the rules here) refuses; the text is for users."""
+
+
+def _single_ranges(field: str) -> str:
+    """The field with every range "a-a" (or "a-a/n") written as the value a."""
+    items: list[str] = []
+    for item in field.split(","):
+        match = _SINGLE_RANGE.fullmatch(item)
+        if match is not None and match.group(1).lower() == match.group(2).lower():
+            items.append(match.group(1))
+        else:
+            items.append(item)
+    return ",".join(items)
 
 
 def normalise(expr: str) -> str:
@@ -50,8 +64,7 @@ def normalise(expr: str) -> str:
         macro = MACROS.get(text.lower())
         if macro is None:
             raise CronSyntaxError(
-                "Unknown cron macro; use @hourly, @daily, @weekly, @monthly or "
-                "@yearly."
+                "Unknown cron macro; use @hourly, @daily, @weekly, @monthly or @yearly."
             )
         return macro
     fields = text.split()
@@ -67,7 +80,7 @@ def normalise(expr: str) -> str:
             raise CronSyntaxError(
                 "Not a valid cron expression: check each of the five fields."
             )
-    line = " ".join(fields)
+    line = " ".join(_single_ranges(field) for field in fields)
     try:
         _CRONITER(line, _CHECK_START, max_years_between_matches=1)
     except (ArithmeticError, LookupError, TypeError, ValueError):

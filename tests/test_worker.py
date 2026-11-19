@@ -26,4 +26,6 @@ async def test_worker_returns_at_once_when_already_stopped() -> None:
 @pytest.mark.parametrize("name", ["app.schedule", "app.evaluator", "app.parsers"])
 def test_core_packages_exist_for_the_strict_gates(name: str) -> None:
     # mypy strict and the 95 percent coverage gate apply to these packages.
-    assert importlib.import_module(name).__all__ == []
+    exported = importlib.import_module(name).__all__
+    # The schedule library is built (phase C3); the others are still empty.
+    assert bool(exported) == (name == "app.schedule")

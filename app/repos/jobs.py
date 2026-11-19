@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Final, Literal
 
-from sqlalchemy import ColumnElement, false, not_, or_, select, tuple_
+from sqlalchemy import ColumnElement, and_, false, not_, or_, select, tuple_
 
 from app.access import Principal
 from app.db.models import Client, Job, name_key
@@ -72,7 +72,9 @@ def is_paused(job: Job, now: datetime) -> bool:
 
 
 def paused_clause(now: datetime) -> ColumnElement[bool]:
-    return or_(Job.enabled.is_(False), Job.paused_until > now)
+    """is_paused in SQL; never NULL, so its negation is safe."""
+    until_later = and_(Job.paused_until.is_not(None), Job.paused_until > now)
+    return or_(Job.enabled.is_(False), until_later)
 
 
 def job_state(job: Job, now: datetime) -> JobState:
