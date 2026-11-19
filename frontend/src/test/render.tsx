@@ -59,6 +59,25 @@ export function stubFetch(routes: Record<string, FetchAnswer>) {
   return { fetchMock, calls };
 }
 
+/** Holds every request whose URL contains `fragment` until the returned
+ *  function is called, so a loading state can be asserted. Call after
+ *  stubFetch; vi.unstubAllGlobals() removes it. */
+export function holdFetch(fragment: string): () => void {
+  const inner = globalThis.fetch;
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.includes(fragment)) {
+      await gate;
+    }
+    return inner(input, init);
+  });
+  return release;
+}
+
 // Fixtures typed against the generated API schema (api/schema.d.ts): a
 // renamed field in docs/openapi.json fails the typecheck here.
 export const ADMIN = {

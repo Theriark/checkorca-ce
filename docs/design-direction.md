@@ -81,7 +81,21 @@ Widths: 1440, 768 and 390 px are the reference widths; nothing overflows horizon
 
 The FastAPI app answers every path that no route matched and that is not a built file, outside `/api/`, with HTTP 200 and `index.html` (`app/web.py`, phase C3-B), so a deep link such as `/login` or `/clients/ID` boots the app and the router renders the right screen (or its own 404 page). Unknown paths under `/api/` answer 404 as `application/problem+json`, never HTML. The `404.html` second entry of phase C2 is gone; the build has one entry, `index.html`.
 
-## 8. What later phases keep
+## 8. Clients and jobs (phase C3-F)
+
+The first working screens follow the same frame: a page header (icon, title, one line with the count, actions on the right), a DataTable with its filters in the toolbar, designed loading, empty and error states, and dialogs or a drawer for the work.
+
+- **/clients**: name with aliases under it, job count, the worst state as a SeverityBadge (icon plus word), notes and creation date; search (sent to the server after 300 ms), a worst-state filter (applied to the loaded rows: the API lists by name) and the archived switch. A row or the name link opens the client.
+- **/clients/:id**: crumbs back to the list, the name with its worst-state badge and an Archived chip, actions (Edit, Export jobs, Archive or Restore, Delete, New job), a summary card (jobs, worst state, counts by state, created, aliases, notes), then tabs: Jobs, plus whatever plugins add to `clientTabs` (empty in CE). Archive asks once; Delete asks for the typed name and sends it as `confirm_name`; the button refuses locally what the server would refuse (runs of spaces collapse, case stays).
+- **/jobs**: job and client, kind, the schedule as kind plus a mono expression with the zone under it, the state badge with "until …" for a timed pause and an Archived chip, last success ("Not yet" until the evaluator of C7 fills it), and a row action menu (Edit, Pause or Resume, Copy ping URL, Archive or Restore). Filters by client, kind and state, search, the archived switch; Import CSV and Export CSV in the header.
+- **Job drawer** (create and edit): a right-anchored panel, 640 px, 880 px from 1024 px so the schedule fields and the **live preview** sit side by side; full width on a phone. Sections Job, Schedule, Deadlines, Alerts, Ping URL. The schedule editor offers Daily (a list of native time inputs), Cron and Interval (a mono expression) and an IANA zone with the browser's list as suggestions. The preview asks `schedule/preview` 400 ms after the last change, keeps the last good answer on screen while the next loads, and shows an unusable schedule as the server's own sentence under the field it names and in the panel. The ping URL is a read-only mono field with a copy button; a null value (API tokens) is explained, never an empty field.
+- **Pause** is a small dialog with an optional native datetime-local input (local time, must be in the future); **Archive** a confirm. Resume and Restore act at once; every outcome is a toast with a word and an icon.
+- **CSV import** happens in two steps inside one dialog: Check the file (a dry run) shows the counts and the rows left out, by row number with the server's message; Import N rows then saves the rows that passed. An unusable file is an alert; a changed file has to be checked again.
+- **Tables under 768 px** keep a minimum width and scroll sideways inside their wrap, so a name never breaks into one letter per line; under 360 px the toolbar stacks and every control takes a full line.
+
+New controls in `components/ui`: Alert (icon plus coloured edge), Switch (a native checkbox over a drawn track), Tabs (the tablist pattern with arrow, Home and End), Drawer (Radix Dialog as a side panel), CopyField, FileField (a native file input drawn as a button), ActionMenu (Radix DropdownMenu), Textarea. Native date, time and datetime inputs keep the field look and follow the theme through `color-scheme`, so the picker is never light on light in dark. Their value is written by the browser in its own locale (an en-US browser shows 11:00 PM where the preview and the tables show 23:00); that is browser behaviour, not a defect, and the server always receives the ISO value.
+
+## 9. What later phases keep
 
 - Red stays rare. If a page has more than the morning line, failed counts and destructive buttons in red, something is wrong.
 - Numbers first, then the ribbon, then lists. The morning check (C8) opens with five stat cards and the coverage ring above the fold at 1440 px.

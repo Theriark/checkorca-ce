@@ -2,6 +2,7 @@ import {
   AlertTriangle,
   CircleCheck,
   CircleDashed,
+  CircleEllipsis,
   CircleX,
   Clock,
   HelpCircle,
@@ -12,7 +13,8 @@ import {
 
 import { strings } from '../../strings';
 
-/** The job and result states of rnd-report-2 5.5 plus the queue states. */
+/** The job and result states of rnd-report-2 5.5 plus the queue states and
+ *  'unknown' (a job that has not reported yet, before the evaluator runs). */
 export type Severity =
   | 'verified'
   | 'warning'
@@ -22,7 +24,8 @@ export type Severity =
   | 'silent'
   | 'unmatched'
   | 'paused'
-  | 'maintenance';
+  | 'maintenance'
+  | 'unknown';
 
 export type SeverityTone = 'success' | 'warning' | 'danger' | 'muted' | 'info';
 
@@ -42,6 +45,7 @@ export const SEVERITY_STYLES: Record<Severity, SeverityStyle> = {
   unmatched: { tone: 'info', icon: HelpCircle },
   paused: { tone: 'muted', icon: PauseCircle },
   maintenance: { tone: 'muted', icon: Wrench },
+  unknown: { tone: 'muted', icon: CircleEllipsis },
 };
 
 export const SEVERITIES = Object.keys(SEVERITY_STYLES) as readonly Severity[];

@@ -48,6 +48,9 @@ export interface DataTableProps<Row> {
   /** Rows the skeleton shows while loading. */
   readonly skeletonRows?: number;
   readonly onRowClick?: (row: Row) => void;
+  /** The table's minimum width in pixels: below it the wrap scrolls
+   *  sideways instead of squeezing the columns to one word per line. */
+  readonly minWidth?: number;
   readonly className?: string;
 }
 
@@ -68,6 +71,7 @@ export function DataTable<Row>({
   toolbar,
   skeletonRows = 6,
   onRowClick,
+  minWidth,
   className,
 }: DataTableProps<Row>) {
   const [sortColumn, setSortColumn] = useState<string | null>(defaultSort?.column ?? null);
@@ -194,7 +198,7 @@ export function DataTable<Row>({
       </div>
 
       <div className="co-table__scroll">
-        <table className="co-table">
+        <table className="co-table" style={minWidth ? { minWidth } : undefined}>
           <caption className="sr-only">{caption}</caption>
           <thead className="co-table__head">
             <tr>

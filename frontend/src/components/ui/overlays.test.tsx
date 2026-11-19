@@ -113,6 +113,38 @@ describe('CommandSearch', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
+  it('moves up with wrap-around, and jumps with Home and End', async () => {
+    const user = userEvent.setup();
+    render(<SearchHost />);
+    const input = await screen.findByRole('combobox', { name: strings.search.label });
+    const selected = () => screen.getAllByRole('option').find((option) => option.getAttribute('aria-selected') === 'true')?.textContent;
+    expect(selected()).toBe('Clients');
+    // ArrowUp from the first item wraps to the last.
+    await user.keyboard('{ArrowUp}');
+    expect(selected()).toBe('Switch to dark theme');
+    await user.keyboard('{ArrowUp}');
+    expect(selected()).toBe('Jobs');
+    await user.keyboard('{Home}');
+    expect(selected()).toBe('Clients');
+    await user.keyboard('{End}');
+    expect(selected()).toBe('Switch to dark theme');
+    expect(input.getAttribute('aria-activedescendant')).toBe(screen.getByRole('option', { name: 'Switch to dark theme' }).id);
+    // ArrowDown from the last wraps to the first; Enter runs it.
+    await user.keyboard('{ArrowDown}');
+    expect(selected()).toBe('Clients');
+    await user.keyboard('{Enter}');
+    expect(ITEMS[0]?.run).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps Home and End harmless with no results', async () => {
+    const user = userEvent.setup();
+    render(<SearchHost />);
+    await user.type(await screen.findByRole('combobox'), 'zzz');
+    await user.keyboard('{Home}{End}{ArrowUp}{ArrowDown}{Enter}');
+    expect(screen.queryAllByRole('option')).toHaveLength(0);
+    expect(screen.getByRole('dialog')).toBeTruthy();
+  });
+
   it('shows the no-results message', async () => {
     const user = userEvent.setup();
     render(<SearchHost />);

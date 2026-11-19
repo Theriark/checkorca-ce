@@ -174,11 +174,11 @@ describe('shell', () => {
 
   it('hides Settings from the technician', async () => {
     stubFetch({ 'GET /api/v1/auth/me': { status: 200, body: TECHNICIAN } });
-    renderApp('/clients');
+    renderApp('/unmatched');
     const nav = await screen.findByRole('navigation', { name: strings.nav.primary });
     expect(within(nav).queryByRole('link', { name: strings.nav.settings })).toBeNull();
-    expect(screen.getByRole('heading', { level: 1, name: strings.nav.clients })).toBeTruthy();
-    expect(screen.getByText(new RegExp(`${strings.placeholder.arrives} C3`))).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: strings.nav.unmatched })).toBeTruthy();
+    expect(screen.getByText(new RegExp(`${strings.placeholder.arrives} C5`))).toBeTruthy();
   });
 
   it('opens the command search with Ctrl K and navigates', async () => {
@@ -275,8 +275,19 @@ describe('404', () => {
 
   it('is also what the shell gives for an unknown path when signed in', async () => {
     stubFetch({ 'GET /api/v1/auth/me': { status: 200, body: ADMIN } });
-    renderApp('/clients/does-not-exist');
+    renderApp('/jobs/does-not-exist');
     expect(await screen.findByRole('heading', { level: 1, name: strings.notFound.title })).toBeTruthy();
     expect(screen.getByRole('link', { name: strings.notFound.toHome })).toBeTruthy();
+  });
+
+  it('gives a client address that the server does not know its own not-found state, inside the shell', async () => {
+    stubFetch({
+      'GET /api/v1/auth/me': { status: 200, body: ADMIN },
+      'GET /api/v1/clients/does-not-exist': { status: 404, body: { title: 'Client not found', status: 404 } },
+    });
+    renderApp('/clients/does-not-exist');
+    expect(await screen.findByRole('heading', { level: 1, name: strings.clients.detail.notFoundTitle })).toBeTruthy();
+    expect(screen.getByRole('navigation', { name: strings.nav.primary })).toBeTruthy();
+    expect(screen.getByRole('link', { name: strings.clients.detail.back })).toBeTruthy();
   });
 });

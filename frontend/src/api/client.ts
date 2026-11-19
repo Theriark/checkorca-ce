@@ -68,11 +68,13 @@ export function getCsrfToken(): string | null {
 
 export interface RequestOptions {
   readonly body?: unknown;
+  /** A multipart body (file upload); the browser sets the content type. */
+  readonly form?: FormData;
   readonly query?: Record<string, string | number | boolean | null | undefined>;
   readonly signal?: AbortSignal;
 }
 
-function buildUrl(path: string, query: RequestOptions['query']): string {
+export function buildUrl(path: string, query: RequestOptions['query']): string {
   const url = path.startsWith('/') ? `${API_BASE}${path}` : `${API_BASE}/${path}`;
   if (!query) {
     return url;
@@ -126,7 +128,9 @@ export async function problemFromResponse(response: Response): Promise<ApiError>
 export async function request<T>(method: HttpMethod, path: string, options: RequestOptions = {}): Promise<T> {
   const headers = new Headers({ Accept: 'application/json, application/problem+json' });
   const init: RequestInit = { method, headers, credentials: 'same-origin', signal: options.signal ?? null };
-  if (options.body !== undefined) {
+  if (options.form !== undefined) {
+    init.body = options.form;
+  } else if (options.body !== undefined) {
     headers.set('Content-Type', 'application/json');
     init.body = JSON.stringify(options.body);
   }
@@ -164,6 +168,31 @@ export const api = {
   put: <T>(path: string, options?: RequestOptions) => request<T>('PUT', path, options),
   delete: <T>(path: string, options?: RequestOptions) => request<T>('DELETE', path, options),
 };
+
+/**
+ * Fetch a file (a CSV export) as a Blob with the session cookie. Errors are
+ * problem details like everywhere else; the caller saves the Blob.
+ */
+export async function requestBlob(path: string, options: Pick<RequestOptions, 'query' | 'signal'> = {}): Promise<Blob> {
+  let response: Response;
+  try {
+    response = await fetch(buildUrl(path, options.query), {
+      method: 'GET',
+      credentials: 'same-origin',
+      signal: options.signal ?? null,
+      headers: { Accept: 'text/csv, application/problem+json' },
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw error;
+    }
+    throw new ApiError(networkProblem('The request did not reach the server.'));
+  }
+  if (!response.ok) {
+    throw await problemFromResponse(response);
+  }
+  return response.blob();
+}
 
 /** Narrow an unknown thrown value to ApiError, wrapping anything else. */
 export function toApiError(error: unknown): ApiError {

@@ -142,7 +142,9 @@
     --focus: #f7f7f5;
     --focus-halo: rgba(247, 247, 245, 0.22);
     --danger-fill: #d0202a;
-    --danger-fill-hover: #e3303a;
+    /* The hover lightens the fill, but no further than white text at 4.5:1
+       allows (#e3303a read 4.42:1; #d9262f reads 4.92:1). */
+    --danger-fill-hover: #d9262f;
     --danger-fill-text: #ffffff;
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.45);
@@ -188,7 +190,7 @@
   --focus: #f7f7f5;
   --focus-halo: rgba(247, 247, 245, 0.22);
   --danger-fill: #d0202a;
-  --danger-fill-hover: #e3303a;
+  --danger-fill-hover: #d9262f;
   --danger-fill-text: #ffffff;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.45);

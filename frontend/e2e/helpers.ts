@@ -40,11 +40,14 @@ const PROBLEM_HEADERS = { 'content-type': 'application/problem+json', 'x-request
 const EXPECTED_CONSOLE = [/Failed to load resource: the server responded with a status of 401/];
 
 /** Collects console errors and page errors from now on; call the result to
- *  read them. Use on every flow: the product must stay silent. */
-export function watchConsole(page: Page): () => readonly string[] {
+ *  read them. Use on every flow: the product must stay silent. A flow that
+ *  provokes an error answer on purpose (a 409 for a taken name) lists the
+ *  statuses it expects; the browser logs those as failed resources. */
+export function watchConsole(page: Page, expectedStatuses: readonly number[] = []): () => readonly string[] {
   const errors: string[] = [];
+  const expected = [...EXPECTED_CONSOLE, ...expectedStatuses.map((status) => new RegExp(`Failed to load resource: the server responded with a status of ${status}`))];
   page.on('console', (message) => {
-    if (message.type() === 'error' && !EXPECTED_CONSOLE.some((pattern) => pattern.test(message.text()))) {
+    if (message.type() === 'error' && !expected.some((pattern) => pattern.test(message.text()))) {
       errors.push(message.text());
     }
   });

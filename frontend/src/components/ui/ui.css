@@ -145,6 +145,46 @@
   opacity: 0.8;
 }
 
+/* Native date, time and datetime pickers: the control keeps the field look
+   and the browser's picker follows the theme (color-scheme from tokens.css),
+   so the calendar icon and the popup are never light-on-light in dark. */
+.co-input[type='date'],
+.co-input[type='time'],
+.co-input[type='datetime-local'] {
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  color-scheme: inherit;
+  min-width: 0;
+}
+
+.co-input[type='date']::-webkit-calendar-picker-indicator,
+.co-input[type='time']::-webkit-calendar-picker-indicator,
+.co-input[type='datetime-local']::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.7;
+  border-radius: var(--radius-sm);
+  padding: 2px;
+}
+
+.co-input[type='date']::-webkit-calendar-picker-indicator:hover,
+.co-input[type='time']::-webkit-calendar-picker-indicator:hover,
+.co-input[type='datetime-local']::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+  background: var(--surface-hover);
+}
+
+.co-input[type='number'] {
+  font-variant-numeric: tabular-nums;
+}
+
+.co-textarea {
+  height: auto;
+  min-height: calc(var(--control-height) * 2);
+  padding: var(--space-2) var(--space-3);
+  line-height: var(--leading-normal);
+  resize: vertical;
+}
+
 .co-input:hover {
   border-color: var(--text-secondary);
 }
@@ -379,9 +419,23 @@
 }
 
 .co-dialog__footer {
+  position: sticky;
+  bottom: 0;
   display: flex;
   justify-content: flex-end;
   gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+
+/* A form inside a dialog that owns its buttons (so Enter submits). */
+.co-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin: var(--space-2) calc(-1 * var(--space-5)) calc(-1 * var(--space-5));
   padding: var(--space-4) var(--space-5);
   border-top: 1px solid var(--border);
   background: var(--surface);
@@ -878,6 +932,49 @@
   align-items: center;
   gap: var(--space-2);
   flex-wrap: wrap;
+  min-width: 0;
+}
+
+.co-table__toolbar-start {
+  flex: 1 1 320px;
+}
+
+/* Under 360 px the toolbar cannot hold two groups side by side: every
+   control takes its own full-width line and the segmented control shares
+   the line equally, so the toolbar never crosses the viewport. */
+@media (max-width: 359px) {
+  .co-table__toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  /* In the column layout the row rule's 320 px flex-basis would become a
+     height: the groups take the height of their content. */
+  .co-table__toolbar-start,
+  .co-table__toolbar-end {
+    flex: 0 0 auto;
+    width: 100%;
+  }
+
+  .co-table__toolbar-start > *,
+  .co-table__toolbar-end > * {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .co-table__toolbar .co-select {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .co-table__toolbar .co-segmented {
+    display: flex;
+  }
+
+  .co-table__toolbar .co-segmented__option {
+    flex: 1 1 0;
+    min-width: 0;
+  }
 }
 
 .co-table__scroll {
@@ -1145,4 +1242,463 @@
 
 .co-alert__title {
   font-weight: 600;
+}
+
+
+/* ---------- Alert body ---------- */
+
+.co-alert__body {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.co-alert--success {
+  --alert-colour: var(--status-success);
+}
+
+/* ---------- Switch ---------- */
+
+.co-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-height-sm);
+  cursor: pointer;
+  font-size: var(--text-14);
+  font-weight: 500;
+  user-select: none;
+}
+
+/* The native checkbox lies over the track, transparent: it stays the real
+   control (clickable, focusable, read by assistive technology) and the track
+   under it is the drawing. */
+.co-switch__input {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 36px;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+  z-index: 1;
+}
+
+.co-switch__track {
+  position: relative;
+  display: inline-block;
+  pointer-events: none;
+  flex: none;
+  width: 36px;
+  height: 20px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--bg-sunken);
+  transition: background-color var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out);
+}
+
+.co-switch__thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  transition: transform var(--duration-fast) var(--ease-out), background-color var(--duration-fast) var(--ease-out);
+}
+
+.co-switch__input:checked + .co-switch__track {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.co-switch__input:checked + .co-switch__track .co-switch__thumb {
+  background: var(--primary-text);
+  transform: translateX(16px);
+}
+
+.co-switch__input:focus-visible + .co-switch__track {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px var(--focus-halo);
+}
+
+.co-switch__input:disabled ~ * {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ---------- Tabs ---------- */
+
+.co-tabs {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.co-tabs__list {
+  display: flex;
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+.co-tabs__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 40px;
+  margin-bottom: -1px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--text-14);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.co-tabs__tab:hover {
+  color: var(--text);
+}
+
+.co-tabs__tab--active {
+  color: var(--text);
+  font-weight: 600;
+  border-bottom-color: var(--primary);
+}
+
+.co-tabs__tab:focus-visible {
+  outline-offset: -2px;
+  border-radius: var(--radius-sm);
+}
+
+.co-tabs__badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-sunken);
+  font-size: var(--text-12);
+  font-weight: 600;
+}
+
+.co-tabs__panel {
+  min-width: 0;
+  border-radius: var(--radius-sm);
+}
+
+/* ---------- Drawer ---------- */
+
+.co-drawer {
+  position: fixed;
+  z-index: var(--z-dialog);
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  width: min(100vw, 640px);
+  max-height: 100vh;
+  max-height: 100dvh;
+  border-left: 1px solid var(--border);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-lg);
+  animation: co-drawer-in var(--duration-base) var(--ease-out);
+}
+
+.co-drawer:focus {
+  outline: none;
+}
+
+.co-drawer__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-6);
+  border-bottom: 1px solid var(--border);
+}
+
+.co-drawer__heading {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.co-drawer__title {
+  margin: 0;
+  font-size: var(--text-20);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.co-drawer__description {
+  margin: 0;
+  font-size: var(--text-14);
+  color: var(--text-secondary);
+}
+
+.co-drawer__body {
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-5) var(--space-6) var(--space-8);
+}
+
+.co-drawer__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-6);
+  padding-bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+@media (min-width: 1024px) {
+  .co-drawer--wide {
+    width: min(100vw, 880px);
+  }
+}
+
+@keyframes co-drawer-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (max-width: 639px) {
+  .co-drawer {
+    width: 100vw;
+    border-left: 0;
+  }
+
+  .co-drawer__header,
+  .co-drawer__footer {
+    padding-left: var(--space-4);
+    padding-right: var(--space-4);
+  }
+
+  .co-drawer__body {
+    padding: var(--space-4) var(--space-4) var(--space-6);
+  }
+
+  .co-drawer__footer {
+    flex-wrap: wrap;
+  }
+
+  .co-drawer__footer .co-button {
+    flex: 1 1 auto;
+  }
+}
+
+/* ---------- Form layout inside dialogs and drawers ---------- */
+
+.co-form {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.co-form__section {
+  display: grid;
+  gap: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+
+.co-form__section:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.co-form__section-title {
+  font-size: var(--text-12);
+  font-weight: 600;
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.co-form__row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-4);
+}
+
+.co-form__row--3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (max-width: 479px) {
+  .co-form__row--3 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- Copy field ---------- */
+
+.co-copyfield__row {
+  display: flex;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.co-copyfield__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--text-14);
+  text-overflow: ellipsis;
+}
+
+.co-copyfield__unavailable {
+  padding: var(--space-3);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  font-size: var(--text-14);
+  color: var(--text-secondary);
+}
+
+/* ---------- File field ---------- */
+
+.co-filefield__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+/* The native input stays in the tab order (it is the labelled control) but
+   is drawn by the button next to it. */
+.co-filefield__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.co-filefield {
+  position: relative;
+}
+
+.co-filefield__input:focus-visible + .co-button {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px var(--focus-halo);
+}
+
+.co-filefield__name {
+  font-size: var(--text-14);
+  overflow-wrap: anywhere;
+}
+
+.co-filefield__name--empty {
+  color: var(--text-secondary);
+}
+
+/* ---------- Action menu ---------- */
+
+.co-actionmenu {
+  z-index: var(--z-dialog);
+  min-width: 200px;
+  padding: var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-md);
+}
+
+.co-actionmenu__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 36px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-14);
+  cursor: pointer;
+  outline: none;
+  user-select: none;
+}
+
+.co-actionmenu__item[data-highlighted] {
+  background: var(--surface-hover);
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.co-actionmenu__item[data-disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.co-actionmenu__item--danger {
+  color: var(--status-danger);
+}
+
+.co-actionmenu__icon {
+  display: inline-flex;
+  color: var(--text-secondary);
+}
+
+.co-actionmenu__item--danger .co-actionmenu__icon {
+  color: var(--status-danger);
+}
+
+.co-actionmenu__separator {
+  height: 1px;
+  margin: var(--space-1) 0;
+  background: var(--border);
+}
+
+/* ---------- Key and value list (summary cards) ---------- */
+
+.co-kv {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-4);
+  margin: 0;
+}
+
+.co-kv__item {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.co-kv__label {
+  font-size: var(--text-12);
+  font-weight: 600;
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.co-kv__value {
+  margin: 0;
+  font-size: var(--text-16);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.co-kv__value--big {
+  font-size: var(--text-24);
+  font-weight: 600;
+  line-height: 1.1;
 }
