@@ -2,14 +2,25 @@
 /**
  * After a product build (npm run build, no VITE_GALLERY), proves that the
  * component gallery is not in the bundle: no gallery page, demo rows, words
- * or stylesheet in any file under dist/. Exits 1 with the offending file and
- * marker otherwise. The Docker image build runs it (Dockerfile: npm run build).
+ * or stylesheet in any file under dist/. Also proves that no asset was inlined
+ * as a data: URL: the server's Content Security Policy allows fonts and images
+ * from 'self' only, so an inlined font subset is blocked on the live site.
+ * Exits 1 with the offending file and marker otherwise. The Docker image build
+ * runs it (Dockerfile: npm run build).
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 
 const DIST = resolve(process.argv[2] ?? 'dist');
-const MARKERS = ['Component gallery', 'co-gallery', 'Harbourside Dental', 'Test build only'];
+const MARKERS = [
+  'Component gallery',
+  'co-gallery',
+  'Harbourside Dental',
+  'Test build only',
+  'data:font/',
+  'data:application/font',
+  'data:application/x-font',
+];
 
 function files(folder) {
   return readdirSync(folder).flatMap((name) => {
@@ -35,10 +46,10 @@ if (checked === 0) {
   process.exit(1);
 }
 if (offenders.length > 0) {
-  console.error('check-product-bundle: the gallery leaked into the product bundle:');
+  console.error('check-product-bundle: gallery marker or inlined data: asset in the product bundle:');
   for (const line of offenders) {
     console.error(`  ${line}`);
   }
   process.exit(1);
 }
-console.log(`check-product-bundle: ${checked} built files, no gallery marker.`);
+console.log(`check-product-bundle: ${checked} built files, no gallery marker, no inlined data: asset.`);

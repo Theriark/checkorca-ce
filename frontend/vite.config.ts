@@ -8,6 +8,11 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
+    // Never inline an asset as a data: URL. The server sends a Content Security
+    // Policy with font-src 'self' (and no data:), so an inlined font subset is
+    // blocked with a console error on the live site. Every font and image is a
+    // file under dist/assets instead; check-product-bundle.mjs enforces it.
+    assetsInlineLimit: 0,
     rollupOptions: {
       // 404.html is the same app: StaticFiles(html=True) serves it for deep
       // links (see 404.html).
