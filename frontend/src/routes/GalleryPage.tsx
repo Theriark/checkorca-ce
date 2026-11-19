@@ -6,19 +6,24 @@
  * (scripts/check-product-bundle.mjs). Its own words therefore live here, not
  * in strings.ts.
  */
-import { Bell, Plus, Trash2 } from 'lucide-react';
+import { Archive, Bell, Pause, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 
 import { ApiError } from '../api/client';
 import { Sparkline } from '../charts/Sparkline';
 import {
+  ActionMenu,
+  Alert,
   Button,
   CommandSearch,
+  CopyField,
   CoverageRing,
   DataTable,
   Dialog,
+  Drawer,
   EmptyState,
   ErrorState,
+  FileField,
   Input,
   SEVERITIES,
   Select,
@@ -27,6 +32,9 @@ import {
   SkeletonGroup,
   SkeletonText,
   StatCard,
+  Switch,
+  Tabs,
+  Textarea,
   useToast,
   type CommandItem,
   type DataTableColumn,
@@ -110,6 +118,10 @@ export function GalleryPage() {
   const [dangerOpen, setDangerOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [selectValue, setSelectValue] = useState<string | undefined>('cron');
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [switchOn, setSwitchOn] = useState(true);
+  const [tab, setTab] = useState('jobs');
+  const [file, setFile] = useState<File | null>(null);
   const commands: readonly CommandItem[] = [
     { id: 'clients', label: 'Clients', group: 'sections', run: () => undefined },
     { id: 'jobs', label: 'Jobs', group: 'sections', run: () => undefined },
@@ -358,6 +370,73 @@ export function GalleryPage() {
           <Case title="CommandSearch">
             <Button onClick={() => setSearchOpen(true)}>Open command search</Button>
             <CommandSearch items={commands} open={searchOpen} onOpenChange={setSearchOpen} />
+          </Case>
+        </Section>
+
+        <Section id="panels" title="Switch, Tabs, Alert, CopyField, FileField, ActionMenu, Drawer" wide>
+          <Case title="Switch and Textarea">
+            <Switch label="Show archived" checked={switchOn} onCheckedChange={setSwitchOn} />
+            <Switch label="Disabled" checked={false} onCheckedChange={() => undefined} disabled />
+            <Textarea label="Notes" optionalLabel={strings.common.optional} defaultValue="Contract renews in March. Call before 09:00." hint="Anything the technician should know." />
+          </Case>
+          <Case title="Tabs">
+            <Tabs
+              label="Client tabs"
+              value={tab}
+              onValueChange={setTab}
+              items={[
+                { id: 'jobs', label: 'Jobs', badge: 4, content: <p>Four jobs expected tonight.</p> },
+                { id: 'history', label: 'History', content: <p>Thirty nights on the ribbon.</p> },
+              ]}
+            />
+          </Case>
+          <Case title="Alerts">
+            <Alert tone="danger" title="The file cannot be read">Missing column: timezone.</Alert>
+            <Alert tone="warning" title="The schedule cannot be used">30 February never comes.</Alert>
+            <Alert tone="success">Every row can be imported.</Alert>
+            <Alert tone="info">Checked by the server as you type.</Alert>
+          </Case>
+          <Case title="CopyField: value and unavailable">
+            <CopyField label="Ping URL" value="https://ce-dev.example.com/api/v1/ping/abc123def456ghi789jkl012" unavailable="Not shown to API tokens." />
+            <CopyField label="Ping URL" value={null} unavailable="The ping URL is only shown to signed-in users." />
+          </Case>
+          <Case title="FileField">
+            <FileField label="CSV file" file={file} onFileChange={setFile} accept=".csv" hint="UTF-8, up to 1 MB." />
+            <FileField label="CSV file with an error" file={null} onFileChange={() => undefined} error="Choose a CSV file first." />
+          </Case>
+          <Case title="ActionMenu and Drawer">
+            <div className="co-gallery__row">
+              <ActionMenu
+                label="Actions for Veeam nightly"
+                items={[
+                  { id: 'edit', label: 'Edit', icon: <Pencil size={16} />, onSelect: () => undefined },
+                  { id: 'pause', label: 'Pause', icon: <Pause size={16} />, onSelect: () => undefined },
+                  { id: 'archive', label: 'Archive', icon: <Archive size={16} />, onSelect: () => undefined, separatorBefore: true, tone: 'danger' },
+                ]}
+              />
+              <Button onClick={() => setDrawerOpen(true)}>Open drawer</Button>
+            </div>
+            <Drawer
+              open={drawerOpen}
+              onOpenChange={setDrawerOpen}
+              title="Edit job"
+              description="Changes apply to the next expected run."
+              footer={
+                <>
+                  <Button variant="ghost" onClick={() => setDrawerOpen(false)}>
+                    {strings.common.cancel}
+                  </Button>
+                  <Button variant="primary" onClick={() => setDrawerOpen(false)}>
+                    {strings.common.save}
+                  </Button>
+                </>
+              }
+            >
+              <div className="co-form">
+                <Input label="Name" defaultValue="Veeam nightly" />
+                <Input label="Until" type="datetime-local" optionalLabel={strings.common.optional} />
+              </div>
+            </Drawer>
           </Case>
         </Section>
 
