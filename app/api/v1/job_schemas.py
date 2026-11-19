@@ -136,8 +136,7 @@ class NewJob(JobSettings):
 
 
 class JobPatch(Body):
-    """Only the fields sent change; send null to clear parser_pack_id or
-    match_key. A changed schedule is checked as a whole."""
+    """Only the fields sent change; null clears parser_pack_id and match_key."""
 
     client_id: uuid.UUID | None = None
     name: Name | None = None
@@ -158,8 +157,7 @@ class JobPatch(Body):
 
 
 class JobOut(BaseModel):
-    """A job. state is paused or unknown until the evaluator (phase C7) keeps
-    the job state; state_since and last_success_at are null until then."""
+    """A job; its state is paused or unknown until the evaluator keeps it (C7)."""
 
     model_config = ConfigDict(from_attributes=True)
 
