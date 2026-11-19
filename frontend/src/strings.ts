@@ -42,6 +42,7 @@ export const strings = {
     role: { admin: 'Admin', technician: 'Technician' },
     signOut: 'Sign out',
     signingOut: 'Signing out',
+    signOutFailed: 'Sign out did not reach the server. You are still signed in; try again.',
   },
 
   search: {
@@ -65,7 +66,10 @@ export const strings = {
     submit: 'Sign in',
     submitting: 'Signing in',
     wrongCredentials: 'That e-mail address and password do not match.',
-    locked: 'This account is locked after five failed sign-ins. Try again in five minutes.',
+    locked: 'This account is locked after five failed sign-ins.',
+    lockedRetryMinutes: 'Try again in {minutes} minutes.',
+    lockedRetryMinute: 'Try again in a minute.',
+    lockedRetryLater: 'Try again later.',
     tooMany: 'Too many attempts from this address. Wait a minute and try again.',
     offline: 'The server did not answer. Check the connection and try again.',
     required: 'Enter your e-mail address and password.',
@@ -95,6 +99,7 @@ export const strings = {
     pathLabel: 'Address',
     toHome: 'Go to the morning check',
     toLogin: 'Go to sign in',
+    adminOnly: 'This section is for admins.',
   },
 
   states: {
@@ -171,6 +176,7 @@ export const strings = {
     sortBy: 'Sort by',
     views: 'Saved views',
     saveView: 'Save view',
+    saveViewLead: 'Keeps the current sort and density under a name on this browser.',
     viewName: 'View name',
     defaultView: 'Default',
     deleteView: 'Delete view',
@@ -197,6 +203,12 @@ export const strings = {
     sparkLabel: 'last 14 days',
   },
 
+  chart: {
+    point: 'point',
+    points: 'points',
+    last: 'last',
+  },
+
   coverage: {
     label: 'Coverage',
     lead: 'Verified share of the runs expected in the last 24 hours',
@@ -206,17 +218,12 @@ export const strings = {
   },
 
   dialog: { close: 'Close' },
-  toast: { dismiss: 'Dismiss' },
+  toast: { dismiss: 'Dismiss', done: 'Done', failed: 'Failed', note: 'Note' },
   common: {
     cancel: 'Cancel',
     save: 'Save',
     confirm: 'Confirm',
     delete: 'Delete',
     optional: 'optional',
-  },
-
-  gallery: {
-    title: 'Component gallery',
-    lead: 'Every component in every state. Test build only; not part of the product.',
   },
 } as const;

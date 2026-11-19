@@ -33,4 +33,25 @@ describe('strings', () => {
   it('uses the full product name', () => {
     expect(PRODUCT_NAME).toBe('Checkorca-CE');
   });
+
+  it('keeps 404.html equal to index.html apart from its explanatory comment', () => {
+    const root = resolve(SRC, '..');
+    const index = readFileSync(join(root, 'index.html'), 'utf8');
+    const notFound = readFileSync(join(root, '404.html'), 'utf8').replace(/<!--[\s\S]*?-->\n/, '');
+    expect(notFound).toBe(index);
+    // The product name reaches these two files and the manifest from this constant.
+    expect(index).toContain(`<title>${PRODUCT_NAME}</title>`);
+    expect(JSON.parse(readFileSync(join(root, 'public', 'manifest.webmanifest'), 'utf8')).name).toBe(PRODUCT_NAME);
+  });
+
+  it('keeps the gallery out of the product bundle: no static import, no gallery words in strings.ts', () => {
+    const router = readFileSync(join(SRC, 'router.tsx'), 'utf8');
+    expect(router).not.toMatch(/^import .*GalleryPage/m);
+    const galleryRoute = readFileSync(join(SRC, 'routes', 'GalleryRoute.tsx'), 'utf8');
+    expect(galleryRoute).not.toMatch(/^import .*GalleryPage/m);
+    expect(galleryRoute).toContain("import('./GalleryPage')");
+    const stringsSource = readFileSync(join(SRC, 'strings.ts'), 'utf8');
+    expect(stringsSource).not.toContain('gallery');
+    expect(readFileSync(join(SRC, 'routes', 'routes.css'), 'utf8')).not.toContain('co-gallery');
+  });
 });

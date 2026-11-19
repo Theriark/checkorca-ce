@@ -3,30 +3,59 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type Page } from '@playwright/test';
 
+import type { components } from '../src/api/schema';
+
+type Me = components['schemas']['Me'];
+type SignedIn = components['schemas']['SignedIn'];
+
 export const WIDTHS = [1440, 768, 390] as const;
 export const SCHEMES = ['light', 'dark'] as const;
 export type Scheme = (typeof SCHEMES)[number];
 
+// Fixtures typed against the generated API schema: a renamed field in
+// docs/openapi.json fails the typecheck here, not silently in the browser.
 export const ADMIN = {
   id: '11111111-1111-4111-8111-111111111111',
   email: 'checkorca.admin@example.com',
   role: 'admin',
   csrf_token: 'csrf-admin',
-};
+} satisfies Me;
 
 export const TECHNICIAN = {
   id: '22222222-2222-4222-8222-222222222222',
   email: 'checkorca.technician@example.com',
   role: 'technician',
   csrf_token: 'csrf-technician',
-};
+} satisfies Me;
+
+const SIGNED_IN_ADMIN = {
+  user: { id: ADMIN.id, email: ADMIN.email, role: ADMIN.role, disabled: false, locked_until: null, created_at: '2026-11-18T00:00:00Z' },
+  csrf_token: 'csrf-login',
+} satisfies SignedIn;
 
 const PROBLEM_HEADERS = { 'content-type': 'application/problem+json', 'x-request-id': 'req-e2e' };
+
+// The session probe of an anonymous page answers 401 by design; the browser
+// logs it as a failed resource. Everything else on the console is an error.
+const EXPECTED_CONSOLE = [/Failed to load resource: the server responded with a status of 401/];
+
+/** Collects console errors and page errors from now on; call the result to
+ *  read them. Use on every flow: the product must stay silent. */
+export function watchConsole(page: Page): () => readonly string[] {
+  const errors: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error' && !EXPECTED_CONSOLE.some((pattern) => pattern.test(message.text()))) {
+      errors.push(message.text());
+    }
+  });
+  page.on('pageerror', (error) => errors.push(error.message));
+  return () => errors;
+}
 
 /** Stub the auth routes: me (session), setup-state and login. */
 export async function stubApi(
   page: Page,
-  options: { readonly me?: typeof ADMIN | null; readonly needsFirstRun?: boolean; readonly loginStatus?: number } = {},
+  options: { readonly me?: Me | null; readonly needsFirstRun?: boolean; readonly loginStatus?: number } = {},
 ) {
   const me = options.me ?? null;
   await page.route('**/api/v1/auth/me', (route) => {
@@ -41,11 +70,7 @@ export async function stubApi(
   await page.route('**/api/v1/auth/login', (route) => {
     const status = options.loginStatus ?? 401;
     if (status === 200) {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ user: { ...ADMIN, disabled: false, locked_until: null, created_at: '2026-11-18T00:00:00Z' }, csrf_token: 'csrf-login' }),
-      });
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(SIGNED_IN_ADMIN) });
     }
     return route.fulfill({ status, headers: PROBLEM_HEADERS, body: JSON.stringify({ title: 'Unauthorized', status, request_id: 'req-e2e' }) });
   });
@@ -74,6 +99,48 @@ export async function expectNoHorizontalOverflow(page: Page) {
     return { overflow, offenders };
   });
   expect(report.overflow, report.offenders.join('\n')).toBeLessThanOrEqual(0);
+}
+
+/** Nothing inside the matched boxes is wider than the box itself (a card
+ *  whose sparkline or skeleton crosses its border fails here, even when the
+ *  page as a whole does not overflow the viewport). Content inside a
+ *  scrolling region (the table wrap, overflow auto or scroll) is clipped and
+ *  scrolled by design, so it is not an offender. */
+export async function expectNoContainerOverflow(page: Page, selectors: readonly string[]) {
+  const offenders = await page.evaluate((list) => {
+    const found: string[] = [];
+    const scrolls = (element: HTMLElement) => /auto|scroll/.test(getComputedStyle(element).overflowX);
+    const insideScrollRegion = (child: HTMLElement, box: HTMLElement) => {
+      for (let node = child.parentElement; node && node !== box; node = node.parentElement) {
+        if (scrolls(node)) {
+          return true;
+        }
+      }
+      return false;
+    };
+    for (const selector of list) {
+      for (const box of Array.from(document.querySelectorAll<HTMLElement>(selector))) {
+        const rect = box.getBoundingClientRect();
+        const horizontal = box.scrollWidth - box.clientWidth;
+        const children = Array.from(box.querySelectorAll<HTMLElement>('*')).filter((child) => {
+          if (insideScrollRegion(child, box)) {
+            return false;
+          }
+          const childRect = child.getBoundingClientRect();
+          return childRect.width > 0 && (childRect.right > rect.right + 1 || childRect.left < rect.left - 1);
+        });
+        if (horizontal > 1 || children.length > 0) {
+          const first = children[0];
+          found.push(
+            `${selector} (${Math.round(rect.width)} px wide): scroll +${horizontal}` +
+              (first ? `, ${first.tagName.toLowerCase()}.${Array.from(first.classList).join('.')} right=${Math.round(first.getBoundingClientRect().right)} box right=${Math.round(rect.right)}` : ''),
+          );
+        }
+      }
+    }
+    return found;
+  }, selectors);
+  expect(offenders, offenders.join('\n')).toEqual([]);
 }
 
 /** The brand file really loaded (not a broken image) and is wide enough. */

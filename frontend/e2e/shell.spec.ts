@@ -1,12 +1,13 @@
 import { expect, test } from '@playwright/test';
 
-import { ADMIN, SCHEMES, TECHNICIAN, WIDTHS, expectAccessible, expectLogo, expectNoHorizontalOverflow, setView, shot, stubApi } from './helpers';
+import { ADMIN, SCHEMES, TECHNICIAN, WIDTHS, expectAccessible, expectLogo, expectNoHorizontalOverflow, setView, shot, stubApi, watchConsole } from './helpers';
 
 const SECTIONS = ['Morning check', 'Clients', 'Jobs', 'Unmatched', 'Inboxes', 'Parsers', 'Notifications', 'System', 'Settings'];
 
 for (const scheme of SCHEMES) {
   for (const width of WIDTHS) {
     test(`shell as admin at ${width} px, ${scheme}`, async ({ page }) => {
+      const errors = watchConsole(page);
       await stubApi(page, { me: ADMIN });
       await setView(page, width, scheme);
       await page.goto('/');
@@ -22,6 +23,11 @@ for (const scheme of SCHEMES) {
         await expect(bottom).toBeVisible();
         await expect(bottom.getByRole('link')).toHaveCount(4);
         await expect(bottom.getByRole('button', { name: 'More' })).toBeVisible();
+        // Every bottom bar label fits on one line.
+        for (const label of await bottom.locator('.co-nav__label').all()) {
+          const [height, lineHeight] = await label.evaluate((element) => [element.getBoundingClientRect().height, parseFloat(getComputedStyle(element).lineHeight)]);
+          expect(height).toBeLessThan(lineHeight * 1.5);
+        }
       } else {
         await expect(bottom).toBeHidden();
         await expect(sidebar).toBeVisible();
@@ -33,9 +39,11 @@ for (const scheme of SCHEMES) {
       await expectNoHorizontalOverflow(page);
       await expectAccessible(page);
       await page.screenshot({ path: shot('shell-admin', width, scheme), fullPage: true });
+      expect(errors()).toEqual([]);
     });
 
     test(`shell as technician at ${width} px, ${scheme}`, async ({ page }) => {
+      const errors = watchConsole(page);
       await stubApi(page, { me: TECHNICIAN });
       await setView(page, width, scheme);
       await page.goto('/jobs');
@@ -49,6 +57,7 @@ for (const scheme of SCHEMES) {
       await expectNoHorizontalOverflow(page);
       await expectAccessible(page);
       await page.screenshot({ path: shot('shell-technician', width, scheme), fullPage: true });
+      expect(errors()).toEqual([]);
     });
   }
 }
@@ -112,19 +121,27 @@ test('shell: Ctrl K opens the command search and goes to Clients', async ({ page
   await expect(page.getByRole('heading', { level: 1, name: 'Clients' })).toBeVisible();
 });
 
-test('shell: no console errors while signed in', async ({ page }) => {
-  const errors: string[] = [];
-  page.on('console', (message) => {
-    if (message.type() === 'error') {
-      errors.push(message.text());
-    }
-  });
-  page.on('pageerror', (error) => errors.push(error.message));
+test('shell: no console errors while signed in and moving between sections', async ({ page }) => {
+  const errors = watchConsole(page);
   await stubApi(page, { me: ADMIN });
   await setView(page, 1440, 'light');
   await page.goto('/');
   await expect(page.getByRole('heading', { level: 1, name: 'Morning check' })).toBeVisible();
   await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Clients' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Clients' })).toBeVisible();
-  expect(errors).toEqual([]);
+  expect(errors()).toEqual([]);
+});
+
+test('shell: a failed sign-out keeps the session and says so', async ({ page }) => {
+  await stubApi(page, { me: ADMIN });
+  await page.route('**/api/v1/auth/logout', (route) =>
+    route.fulfill({ status: 503, headers: { 'content-type': 'application/problem+json' }, body: JSON.stringify({ title: 'Service Unavailable', status: 503 }) }),
+  );
+  await setView(page, 1440, 'light');
+  await page.goto('/');
+  await page.getByRole('button', { name: /Account menu/ }).click();
+  await page.getByRole('menu').getByRole('menuitem', { name: 'Sign out' }).click();
+  await expect(page.locator('.co-toast--danger')).toContainText('still signed in');
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole('heading', { level: 1, name: 'Morning check' })).toBeVisible();
 });

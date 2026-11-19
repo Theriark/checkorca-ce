@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { ThemeProvider } from './ThemeProvider';
-import { THEME_STORAGE_KEY, resolveTheme } from './context';
+import { THEME_STORAGE_KEY, applyStoredTheme, resolveTheme } from './context';
 import { useTheme } from './useTheme';
 
 function Probe() {
@@ -47,6 +47,15 @@ describe('theme', () => {
     await user.click(screen.getByText('system'));
     expect(document.documentElement.getAttribute('data-theme')).toBeNull();
     expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBeNull();
+  });
+
+  it('applies a stored preference before any render (main.tsx), and clears it when none is stored', () => {
+    window.localStorage.setItem(THEME_STORAGE_KEY, 'dark');
+    applyStoredTheme();
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    window.localStorage.removeItem(THEME_STORAGE_KEY);
+    applyStoredTheme();
+    expect(document.documentElement.getAttribute('data-theme')).toBeNull();
   });
 
   it('reads a stored preference on start', () => {

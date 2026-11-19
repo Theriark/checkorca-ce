@@ -1,11 +1,16 @@
 import { expect, test } from '@playwright/test';
 
-import { SCHEMES, WIDTHS, expectAccessible, expectNoHorizontalOverflow, setView, shot, stubApi } from './helpers';
+import { SCHEMES, WIDTHS, expectAccessible, expectNoContainerOverflow, expectNoHorizontalOverflow, setView, shot, stubApi, watchConsole } from './helpers';
 
 // The component gallery exists in the test build only (VITE_GALLERY=1).
+// Every card and case must contain its content: a stat card, a ring or a
+// gallery case whose child crosses its border fails, whatever the viewport.
+const BOXES = ['.co-gallery__case', '.co-stat', '.co-ring', '.co-empty', '.co-error'];
+
 for (const scheme of SCHEMES) {
   for (const width of WIDTHS) {
-    test(`gallery at ${width} px, ${scheme}: every component state passes axe`, async ({ page }) => {
+    test(`gallery at ${width} px, ${scheme}: every component state passes axe and stays in its box`, async ({ page }) => {
+      const errors = watchConsole(page);
       await stubApi(page);
       await setView(page, width, scheme);
       await page.goto('/_gallery');
@@ -17,14 +22,28 @@ for (const scheme of SCHEMES) {
       // Status badges: icon plus word, all nine states.
       await expect(page.locator('#badges .co-badge')).toHaveCount(12);
       await expect(page.locator('#badges .co-badge svg')).toHaveCount(12);
+      // Sparklines are drawn at the width of their box (fluid, never clipped):
+      // four ready cards carry one each; the loading card shows a skeleton.
+      const sparks = page.locator('#stats .co-stat .co-sparkline');
+      await expect(sparks).toHaveCount(4);
+      for (const spark of await sparks.all()) {
+        const [svgWidth, boxWidth] = await spark.evaluate((element) => [
+          element.getBoundingClientRect().width,
+          (element.parentElement as HTMLElement).getBoundingClientRect().width,
+        ]);
+        expect(svgWidth).toBeLessThanOrEqual(boxWidth + 0.5);
+      }
       await expectNoHorizontalOverflow(page);
+      await expectNoContainerOverflow(page, BOXES);
       await expectAccessible(page);
       await page.screenshot({ path: shot('gallery', width, scheme), fullPage: true });
+      expect(errors()).toEqual([]);
     });
   }
 }
 
 test('gallery overlays: dialog traps focus, toast announces, command search filters', async ({ page }) => {
+  const errors = watchConsole(page);
   await stubApi(page);
   await setView(page, 1440, 'light');
   await page.goto('/_gallery');
@@ -50,6 +69,7 @@ test('gallery overlays: dialog traps focus, toast announces, command search filt
   await expect(page.getByRole('option')).toHaveCount(1);
   await expectAccessible(page);
   await page.screenshot({ path: 'screenshots/gallery-command-1440-light.png' });
+  expect(errors()).toEqual([]);
 });
 
 test('gallery table: sort, density and a saved view', async ({ page }) => {

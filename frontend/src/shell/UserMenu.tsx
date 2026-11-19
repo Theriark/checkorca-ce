@@ -23,7 +23,7 @@ export function UserMenu({ user }: { readonly user: Me }) {
       await signOut();
       await navigate({ to: '/login' });
     } catch (error) {
-      toast({ tone: 'danger', title: strings.user.signOut, description: error instanceof Error ? error.message : undefined });
+      toast({ tone: 'danger', title: strings.user.signOutFailed, description: error instanceof Error ? error.message : undefined });
     } finally {
       setBusy(false);
     }

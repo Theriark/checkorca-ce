@@ -5,10 +5,10 @@ import { render, type RenderOptions } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { vi } from 'vitest';
 
+import type { Me } from '../api/auth';
 import type { FrontendPlugin } from '../plugins/index';
 import { createAppRouter } from '../router';
 import { Providers } from './Providers';
-
 
 export function renderWithProviders(ui: ReactElement, options?: RenderOptions) {
   return render(ui, { wrapper: Providers, ...options });
@@ -59,18 +59,20 @@ export function stubFetch(routes: Record<string, FetchAnswer>) {
   return { fetchMock, calls };
 }
 
+// Fixtures typed against the generated API schema (api/schema.d.ts): a
+// renamed field in docs/openapi.json fails the typecheck here.
 export const ADMIN = {
   id: '11111111-1111-4111-8111-111111111111',
   email: 'checkorca.admin@example.com',
-  role: 'admin' as const,
+  role: 'admin',
   csrf_token: 'csrf-admin',
-};
+} satisfies Me;
 
 export const TECHNICIAN = {
   id: '22222222-2222-4222-8222-222222222222',
   email: 'checkorca.technician@example.com',
-  role: 'technician' as const,
+  role: 'technician',
   csrf_token: 'csrf-tech',
-};
+} satisfies Me;
 
 export const UNAUTHENTICATED = { status: 401, body: { title: 'Unauthorized', status: 401 } };

@@ -1,12 +1,13 @@
 import { expect, test } from '@playwright/test';
 
-import { SCHEMES, WIDTHS, expectAccessible, expectLogo, expectNoHorizontalOverflow, setView, shot, stubApi } from './helpers';
+import { SCHEMES, WIDTHS, expectAccessible, expectLogo, expectNoHorizontalOverflow, setView, shot, stubApi, watchConsole } from './helpers';
 
 // First run is open only while no account exists; the test build stubs the
 // setup state. On Development the seed closes it, so the same URL is a 404.
 for (const scheme of SCHEMES) {
   for (const width of WIDTHS) {
     test(`first run (open) at ${width} px, ${scheme}`, async ({ page }) => {
+      const errors = watchConsole(page);
       await stubApi(page, { needsFirstRun: true });
       await setView(page, width, scheme);
       await page.goto('/first-run');
@@ -16,6 +17,7 @@ for (const scheme of SCHEMES) {
       await expectNoHorizontalOverflow(page);
       await expectAccessible(page);
       await page.screenshot({ path: shot('first-run', width, scheme), fullPage: true });
+      expect(errors()).toEqual([]);
     });
   }
 }

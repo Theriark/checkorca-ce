@@ -12,6 +12,7 @@ import { useAuth } from '../auth/useAuth';
 import { Button } from '../components/ui/Button';
 import { CommandSearch, type CommandItem } from '../components/ui/CommandSearch';
 import { Dialog } from '../components/ui/Dialog';
+import { useToast } from '../components/ui/useToast';
 import { usePluginSlot } from '../plugins/slots';
 import { APP_VERSION, PRODUCT_NAME, strings } from '../strings';
 import { useTheme } from '../theme/useTheme';
@@ -53,9 +54,21 @@ export function AppShell({ user }: { readonly user: Me }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const { toggle, theme } = useTheme();
   const { signOut } = useAuth();
+  const { toast } = useToast();
   const pluginMenu = usePluginSlot('menu');
   const [searchOpen, setSearchOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+
+  // Sign out from the command search or the More sheet: a failed logout keeps
+  // the session (AuthProvider) and is reported, never swallowed.
+  const onSignOut = useCallback(async () => {
+    try {
+      await signOut();
+      await navigate({ to: '/login' });
+    } catch (error) {
+      toast({ tone: 'danger', title: strings.user.signOutFailed, description: error instanceof Error ? error.message : undefined });
+    }
+  }, [navigate, signOut, toast]);
 
   const items = navItemsFor(user.role);
   const primary = items.filter((item) => item.primary);
@@ -101,13 +114,11 @@ export function AppShell({ user }: { readonly user: Me }) {
         group: 'actions',
         icon: <LogOut size={16} />,
         keywords: ['logout'],
-        run: () => {
-          void signOut().then(() => navigate({ to: '/login' }));
-        },
+        run: () => void onSignOut(),
       },
     ];
     return [...sections, ...actions];
-  }, [items, navigate, pluginMenu, signOut, theme, toggle]);
+  }, [items, navigate, onSignOut, pluginMenu, theme, toggle]);
 
   return (
     <div className="co-shell">
@@ -192,7 +203,7 @@ export function AppShell({ user }: { readonly user: Me }) {
             iconStart={<LogOut size={16} />}
             onClick={() => {
               closeMore();
-              void signOut().then(() => navigate({ to: '/login' }));
+              void onSignOut();
             }}
           >
             {strings.user.signOut}

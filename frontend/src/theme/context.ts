@@ -33,3 +33,20 @@ export function readStoredPreference(): ThemePreference {
 export function readSystemTheme(): Theme {
   return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
+
+/** Writes the preference as data-theme on the html element ('system' removes
+ *  it, so tokens.css follows prefers-color-scheme). */
+export function applyThemePreference(preference: ThemePreference): void {
+  const root = document.documentElement;
+  if (preference === 'system') {
+    root.removeAttribute('data-theme');
+  } else {
+    root.setAttribute('data-theme', preference);
+  }
+}
+
+/** Called from main.tsx before the first render, so a stored choice is in
+ *  effect before anything paints (no flash of the system theme). */
+export function applyStoredTheme(): void {
+  applyThemePreference(readStoredPreference());
+}

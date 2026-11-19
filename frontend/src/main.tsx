@@ -7,8 +7,12 @@ import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
 
 import { App } from './App';
+import { applyStoredTheme } from './theme/context';
 import './styles/tokens.css';
 import './styles/base.css';
+
+// A stored theme choice takes effect before anything renders.
+applyStoredTheme();
 
 const root = document.getElementById('root');
 if (!root) {

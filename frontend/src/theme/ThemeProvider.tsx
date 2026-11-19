@@ -2,14 +2,16 @@
  * Theme: light or dark, following the system until the user chooses.
  *
  * The choice is stored in localStorage and written as data-theme on the html
- * element so tokens.css switches without a flash on the next load: the CSS
- * follows prefers-color-scheme when no attribute is set.
+ * element; the CSS follows prefers-color-scheme when no attribute is set.
+ * main.tsx applies the stored choice before the first render (no flash on
+ * load); this provider keeps the attribute in step with later changes.
  */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import {
   THEME_STORAGE_KEY,
   ThemeContext,
+  applyThemePreference,
   readStoredPreference,
   readSystemTheme,
   resolveTheme,
@@ -35,12 +37,7 @@ export function ThemeProvider({ children }: { readonly children: ReactNode }) {
   const theme = resolveTheme(preference, system);
 
   useEffect(() => {
-    const root = document.documentElement;
-    if (preference === 'system') {
-      root.removeAttribute('data-theme');
-    } else {
-      root.setAttribute('data-theme', preference);
-    }
+    applyThemePreference(preference);
   }, [preference]);
 
   const setPreference = useCallback((next: ThemePreference) => {
