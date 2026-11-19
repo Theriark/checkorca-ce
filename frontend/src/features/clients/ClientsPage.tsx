@@ -93,7 +93,13 @@ export function ClientsPage() {
   ];
 
   const count = clients.length;
-  const lead = list.isSuccess ? (count === 1 ? strings.clients.countOne : fill(strings.clients.count, { count })) : strings.clients.lead;
+  const lead = list.isSuccess
+    ? list.hasNextPage
+      ? fill(strings.clients.countMore, { count })
+      : count === 1
+        ? strings.clients.countOne
+        : fill(strings.clients.count, { count })
+    : strings.clients.lead;
 
   return (
     <div className="co-page">

@@ -129,8 +129,15 @@ export function JobDrawer({ open, onOpenChange, job, presetClientId = null, onSa
             onValueChange={(value) => set('clientId', value)}
             placeholder={clients.isPending ? strings.jobs.loadingClients : strings.jobForm.clientPlaceholder}
             disabled={busy || clients.isPending}
-            error={errors.clientId}
+            error={errors.clientId ?? (clients.isError ? errorSentence(clients.error) : undefined)}
           />
+          {clients.isError && (
+            <div>
+              <Button size="sm" variant="secondary" onClick={() => void clients.refetch()} disabled={busy}>
+                {strings.states.retry}
+              </Button>
+            </div>
+          )}
           <Input
             ref={nameRef}
             label={strings.jobForm.name}
@@ -170,7 +177,7 @@ export function JobDrawer({ open, onOpenChange, job, presetClientId = null, onSa
               max={MAX_MINUTES}
               value={state.maxRuntime}
               disabled={busy}
-              hint={`${strings.jobForm.maxRuntimeHint} ${strings.common.minutes}.`}
+              hint={strings.jobForm.maxRuntimeHint}
               error={errors.maxRuntime}
               onChange={(event) => set('maxRuntime', event.target.value)}
             />

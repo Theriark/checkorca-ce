@@ -70,7 +70,13 @@ export function JobsPage() {
   };
 
   const count = jobs.length;
-  const lead = list.isSuccess ? (count === 1 ? strings.jobs.countOne : fill(strings.jobs.count, { count })) : strings.jobs.lead;
+  const lead = list.isSuccess
+    ? list.hasNextPage
+      ? fill(strings.jobs.countMore, { count })
+      : count === 1
+        ? strings.jobs.countOne
+        : fill(strings.jobs.count, { count })
+    : strings.jobs.lead;
 
   return (
     <div className="co-page">

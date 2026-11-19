@@ -31,8 +31,8 @@ function Counts({ result, checked }: { readonly result: ImportResult; readonly c
     <dl className="co-import__counts">
       {labels.map((label, index) => (
         <div key={label} className="co-import__count">
-          <dd className="co-import__count-value tabular">{values[index]}</dd>
           <dt className="co-import__count-label">{label}</dt>
+          <dd className="co-import__count-value tabular">{values[index]}</dd>
         </div>
       ))}
     </dl>
@@ -143,7 +143,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
                   {strings.importCsv.recheck}
                 </Button>
                 <Button variant="primary" onClick={() => void run()} disabled={importable === 0 || busy} loading={importing} loadingLabel={strings.importCsv.importing}>
-                  {fill(strings.importCsv.importCount, { count: importable })}
+                  {importable === 1 ? strings.importCsv.importCountOne : fill(strings.importCsv.importCount, { count: importable })}
                 </Button>
               </>
             ) : (
@@ -187,7 +187,16 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
             {checked.errors.length === 0 ? (
               <Alert tone="success">{strings.importCsv.allGood}</Alert>
             ) : (
-              <Alert tone="warning" title={importable === 0 ? strings.importCsv.nothingToImport : fill(strings.importCsv.skippedNote, { count: checked.errors.length })}>
+              <Alert
+                tone="warning"
+                title={
+                  importable === 0
+                    ? strings.importCsv.nothingToImport
+                    : checked.errors.length === 1
+                      ? strings.importCsv.skippedNoteOne
+                      : fill(strings.importCsv.skippedNote, { count: checked.errors.length })
+                }
+              >
                 {strings.importCsv.errorsLead}
               </Alert>
             )}
