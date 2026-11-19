@@ -6,6 +6,7 @@ from typing import Any
 
 import httpx
 import pytest
+from fastapi import FastAPI
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -18,6 +19,7 @@ from helpers import (
     TECHNICIAN_EMAIL,
     TECHNICIAN_PASSWORD,
     FakeClock,
+    another_browser,
     make_client,
     make_job,
     sign_in,
@@ -67,6 +69,73 @@ async def test_a_new_job_takes_the_plan_defaults(
     )
     fetched = await client.get(f"/api/v1/jobs/{job['id']}")
     assert fetched.json() == job
+
+
+async def test_a_read_token_never_sees_the_ping_url(
+    app: FastAPI, client: httpx.AsyncClient, csrf: str, dental: dict[str, Any]
+) -> None:
+    """Code review M2: the ping token alone reports results (C4), so a read
+    scope must not turn into a way to forge them."""
+    job = await make_job(client, csrf, dental["id"], "Nightly server backup")
+    token = await client.post(
+        "/api/v1/tokens",
+        json={"label": "synthetic dashboard", "scope": "read"},
+        headers={CSRF_HEADER: csrf},
+    )
+    reader = {"Authorization": f"Bearer {token.json()['token']}"}
+    async with another_browser(app) as script:
+        listed = await script.get("/api/v1/jobs", headers=reader)
+        one = await script.get(f"/api/v1/jobs/{job['id']}", headers=reader)
+    assert listed.status_code == 200 and one.status_code == 200
+    assert [item["ping_url"] for item in listed.json()["items"]] == [None]
+    assert one.json()["ping_url"] is None
+    secret = job["ping_url"].rsplit("/", 1)[1]
+    assert secret not in listed.text and secret not in one.text
+    signed_in = await client.get(f"/api/v1/jobs/{job['id']}")
+    assert signed_in.json()["ping_url"] == job["ping_url"]
+
+
+async def test_every_minute_of_a_few_months_can_be_saved(
+    client: httpx.AsyncClient, csrf: str, dental: dict[str, Any]
+) -> None:
+    """Code review M1: from January the checks of March to May answered 500."""
+    job = await make_job(
+        client,
+        csrf,
+        dental["id"],
+        "Spring archive sync",
+        schedule_kind="cron",
+        schedule_expr="* * * 3-5 *",
+    )
+    changed = await client.patch(
+        f"/api/v1/jobs/{job['id']}",
+        json={"schedule_expr": "* * * 3,4 *"},
+        headers={CSRF_HEADER: csrf},
+    )
+    assert changed.status_code == 200
+    assert changed.json()["schedule_expr"] == "* * * 3,4 *"
+
+
+@pytest.mark.parametrize("name", ["ß" * 101, "x" * 150 + "ﬃ" * 20])
+async def test_a_name_too_long_once_case_folded_is_refused(
+    client: httpx.AsyncClient, csrf: str, dental: dict[str, Any], name: str
+) -> None:
+    """Code review L2: ß folds to ss, so the name key outgrew its column."""
+    assert len(name) <= 200
+    headers = {CSRF_HEADER: csrf}
+    as_client = await client.post(
+        "/api/v1/clients", json={"name": name}, headers=headers
+    )
+    assert as_client.status_code == 422
+    body = {
+        "client_id": dental["id"],
+        "name": name,
+        "schedule_kind": "daily",
+        "schedule_expr": "23:00",
+        "timezone": "UTC",
+    }
+    as_job = await client.post("/api/v1/jobs", json=body, headers=headers)
+    assert as_job.status_code == 422
 
 
 async def test_ping_tokens_differ(
