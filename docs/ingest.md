@@ -19,7 +19,7 @@ Phase C4-B built the store, the worker loop and the read API. Phase C4-I (Integr
 - `smtp` inbox: address `code@MAIL_DOMAIN`. `MAIL_DOMAIN` is a setting (code default empty: the host of `BASE_URL`, so Development uses `code@ce-dev-checkorca.theriark.dev`). `Settings.inbox_domain` gives the domain.
 - `smtp` and `webhook` inboxes: ingest URL `BASE_URL/api/v1/ingest/email/{code}`.
 - `webhook` inbox: a token `chki_` plus 24 random bytes (URL-safe base64), returned once by `POST /inboxes` (`webhook_token`) and by `POST /inboxes/{id}/token` (rotation), stored as SHA-256. The API answers only `webhook_token_set`.
-- `imap` inbox: host, port (993), username, folder (`INBOX`), poll_seconds (60 to 86400, default 300), tls (true). The password is write-only: the API stores `SecretBox.encrypt(password)` and answers `secret_set` plus a masked hint (`****` and the last four characters, or `****` for short ones).
+- `imap` inbox: host, port (993), username, folder (`INBOX`), poll_seconds (60 to 86400, default 300), tls (true). The password is write-only: the API stores `SecretBox.encrypt(password)` and answers `secret_set` plus a masked hint (`****` and the last four characters, or `****` for passwords under 12 characters). The hint is the C1 helper (`mask_hint`) that the settings secrets already use, so a technician can tell which password is stored; decision recorded on THE-2008.
 - `upload` inbox: the target of `.eml` uploads; no address and no URL.
 - Deleting an inbox stops its address, URL and token at once; its messages stay with `inbox_id` NULL until the purge.
 
@@ -54,7 +54,7 @@ await db.commit()
 ```
 
 - `len(raw) > MAX_MESSAGE_BYTES` (5 MiB) raises `MessageTooLarge` before anything is read or written. The SMTP listener also refuses oversize DATA itself (SIZE and a `handle_DATA` length check).
-- Duplicates: the same `Message-ID` header, or the same `body_sha256`, in the same inbox, stores nothing and returns `StoredRaw(id=<earlier row>, duplicate=True)`. Two unique constraints decide, so two deliveries at the same moment still store one row (the second waits for the first transaction). `body_sha256` is SHA-256 of the `Date` header and the body with line endings normalised: a forwarded copy with a new Message-ID is a duplicate, while a script that mails the same words every day is not.
+- Duplicates: the same `Message-ID` header, or the same `body_sha256`, in the same inbox, stores nothing and returns `StoredRaw(id=<earlier row>, duplicate=True)`. Two unique constraints decide, so two deliveries at the same moment still store one row (the second waits for the first transaction). `body_sha256` is SHA-256 of the `Date`, `From`, `To` and `Subject` headers and the body with line endings normalised: a forwarded copy with a new Message-ID is a duplicate, while two alerts that differ only in the Subject, or the same words on another day, are not. A message without a `Date` header gets a key of its own, so only its Message-ID can make it a duplicate (the SMTP listener and the HTTP route do not add a Date).
 - A stored message gets `sha256`, `size`, decoded headers (at most 200, values at most 4,000 characters, RFC 2047 decoded, invalid bytes replaced, NUL removed), `body_zlib`, `parse_state` `pending` and `purge_after = received_at + settings.retention_raw_days`; the inbox's `last_message_at` moves forward.
 - Duplicates are counted once: a receiver answers success for a duplicate (250, 202) and records nothing else.
 - The parser (C5-B) reads `parse_state = 'pending'` rows with SKIP LOCKED; `app.ingest.store.raw_bytes(body_zlib)` decompresses with the same 5 MiB cap; `app.ingest.mime.message_text(raw)` gives the text (C4-I's `html_text.py` should replace the HTML branch).
@@ -86,7 +86,7 @@ await db.commit()
 ```
 
 - `ParsedResult` fields follow the Interfaces chapter: `status` (`success`, `warning`, `failed`, `started`, `unknown`), `job_name`, `client_hint`, `started_at`, `finished_at` (aware datetimes), `run_id`, `details` (JSON object), `spans` (test bench only, not stored).
-- `ResultRejected` (a `ValueError`; its text names the field, never the value) for an unknown status, a name, hint or run id over 200 characters, a naive datetime, details that are not JSON, contain NUL or exceed 16 KiB. Routes answer 422 with it.
+- `ResultRejected` (a `ValueError`; its text names the field, never the value) for an unknown status, a name, hint or run id over 200 characters, a naive datetime, details that are not JSON, hold a NUL character or a lone surrogate, or exceed 16 KiB. Routes answer 422 with it.
 - Never commits; never changes `parse_state` (C5-B does).
 
 ## Worker: lock, heartbeat, tick hooks, receivers
@@ -115,7 +115,7 @@ type ReceiverFactory = Callable[[WorkerContext], Receiver]
 RECEIVERS: tuple[ReceiverFactory, ...] = ()
 ```
 
-`WorkerContext` carries `settings` (`smtp_port` 2525, `inbox_domain`), `engine`, `sessionmaker`, `clock`, `policy` (CE: AllowAllPolicy) and `secret_box`. Receivers run only while the worker holds the lock, so exactly one SMTP listener and one IMAP poller exist per installation. A receiver that fails to start is logged and skipped; the worker keeps ticking. C4-I's SMTP abstraction (aiosmtpd or the own fallback receiver) implements this `Receiver`.
+`WorkerContext` carries `settings` (`smtp_port` 2525, `inbox_domain`), `engine`, `sessionmaker`, `clock`, `policy` (CE: AllowAllPolicy) and `secret_box`. Receivers run only while the worker holds the lock, so one SMTP listener and one IMAP poller run per installation. Between ticks the holder checks its lock every 15 seconds: after a lost lock session the old and the new holder's receivers can overlap for about that long, and the duplicate keys of the store keep one row per message. A receiver that fails to start is logged and skipped; the worker keeps ticking. C4-I's SMTP abstraction (aiosmtpd or the own fallback receiver) implements this `Receiver`.
 
 IMAP: decrypt with `context.secret_box.decrypt(inbox.imap_password_enc)` only inside the poller, build `app.ext.ingest.MailboxAccount` (its repr hides the password), and acknowledge (Seen) only after `store_raw` committed. `MailboxConnector` and `ResultSource` (`app/ext/ingest.py`) are the seams EE implements later.
 

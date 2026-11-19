@@ -279,7 +279,7 @@ class RawMessage(Base):
     """One received message, compressed, kept until purge_after (5.4).
 
     A message is stored once per inbox: the same Message-ID, or the same
-    content hash (Date header and body), is a duplicate. inbox_id becomes NULL
+    content hash (app/ingest/mime.py), is a duplicate. inbox_id becomes NULL
     when the inbox is deleted, so job history keeps its evidence until the
     purge. client_id is set by the matcher (phase C5) when every result of the
     message belongs to one client, so deleting that client deletes the message.
