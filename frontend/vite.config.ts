@@ -1,5 +1,3 @@
-import { resolve } from 'node:path';
-
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 
@@ -13,14 +11,8 @@ export default defineConfig({
     // blocked with a console error on the live site. Every font and image is a
     // file under dist/assets instead; check-product-bundle.mjs enforces it.
     assetsInlineLimit: 0,
-    rollupOptions: {
-      // 404.html is the same app: StaticFiles(html=True) serves it for deep
-      // links (see 404.html).
-      input: {
-        main: resolve(__dirname, 'index.html'),
-        notFound: resolve(__dirname, '404.html'),
-      },
-    },
+    // One entry, index.html. The backend answers every path outside /api/ that
+    // is not a built file with it (app/web.py), so deep links boot the app.
   },
   preview: {
     host: '127.0.0.1',

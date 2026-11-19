@@ -78,6 +78,17 @@ def test_the_route_list_is_complete() -> None:
         ("DELETE", "/api/v1/users/{user_id}"),
         ("POST", "/api/v1/tokens"),
         ("DELETE", "/api/v1/tokens/{token_id}"),
+        ("POST", "/api/v1/clients"),
+        ("PATCH", "/api/v1/clients/{client_id}"),
+        ("POST", "/api/v1/clients/{client_id}/archive"),
+        ("DELETE", "/api/v1/clients/{client_id}"),
+        ("POST", "/api/v1/jobs"),
+        ("PATCH", "/api/v1/jobs/{job_id}"),
+        ("POST", "/api/v1/jobs/{job_id}/pause"),
+        ("POST", "/api/v1/jobs/{job_id}/resume"),
+        ("POST", "/api/v1/jobs/{job_id}/archive"),
+        ("POST", "/api/v1/jobs/import.csv"),
+        ("POST", "/api/v1/schedule/preview"),
     }
 
 
