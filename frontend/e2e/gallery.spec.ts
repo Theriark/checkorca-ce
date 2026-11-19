@@ -16,12 +16,12 @@ for (const scheme of SCHEMES) {
       await page.goto('/_gallery');
       await expect(page.getByRole('heading', { level: 1, name: 'Component gallery' })).toBeVisible();
       // Every section rendered.
-      for (const id of ['buttons', 'fields', 'badges', 'stats', 'coverage', 'skeleton', 'states', 'table', 'overlays', 'ribbon']) {
+      for (const id of ['buttons', 'fields', 'badges', 'stats', 'coverage', 'skeleton', 'states', 'table', 'overlays', 'panels', 'ribbon']) {
         await expect(page.locator(`#${id}`)).toBeVisible();
       }
-      // Status badges: icon plus word, all nine states.
-      await expect(page.locator('#badges .co-badge')).toHaveCount(12);
-      await expect(page.locator('#badges .co-badge svg')).toHaveCount(12);
+      // Status badges: icon plus word, all ten states plus three small ones.
+      await expect(page.locator('#badges .co-badge')).toHaveCount(13);
+      await expect(page.locator('#badges .co-badge svg')).toHaveCount(13);
       // Sparklines are drawn at the width of their box (fluid, never clipped):
       // four ready cards carry one each; the loading card shows a skeleton.
       const sparks = page.locator('#stats .co-stat .co-sparkline');
@@ -87,4 +87,23 @@ test('gallery table: sort, density and a saved view', async ({ page }) => {
   await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
   await expect(table.getByRole('combobox', { name: 'Saved views' }).first()).toContainText('Fewest runs');
   await page.screenshot({ path: 'screenshots/gallery-table-1440-dark.png' });
+});
+
+test('gallery panels: drawer traps focus and the native datetime input keeps the field look', async ({ page }) => {
+  await stubApi(page);
+  await setView(page, 1440, 'dark');
+  await page.goto('/_gallery');
+  await page.getByRole('button', { name: 'Open drawer' }).click();
+  const drawer = page.getByRole('dialog', { name: 'Edit job' });
+  await expect(drawer).toBeVisible();
+  await expect(drawer.getByLabel('Name')).toBeFocused();
+  const until = drawer.getByLabel('Until');
+  await expect(until).toHaveAttribute('type', 'datetime-local');
+  const [height, scheme] = await until.evaluate((element) => [element.getBoundingClientRect().height, getComputedStyle(element).colorScheme]);
+  expect(height).toBe(40);
+  expect(scheme).toBe('dark');
+  await expectAccessible(page);
+  await page.screenshot({ path: 'screenshots/gallery-drawer-1440-dark.png' });
+  await page.keyboard.press('Escape');
+  await expect(drawer).toBeHidden();
 });

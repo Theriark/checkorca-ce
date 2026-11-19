@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 
+import { installFakeApi } from './fakeApi';
 import { SCHEMES, WIDTHS, expectAccessible, expectLogo, expectNoHorizontalOverflow, setView, shot, stubApi, watchConsole } from './helpers';
 
 for (const scheme of SCHEMES) {
@@ -96,6 +97,7 @@ test('login succeeds and lands on the morning check', async ({ page }) => {
 test('a deep link survives sign-in: /jobs anonymous becomes /login?redirect=/jobs and lands on /jobs', async ({ page }) => {
   const errors = watchConsole(page);
   await stubApi(page, { loginStatus: 200 });
+  await installFakeApi(page);
   await setView(page, 1440, 'light');
   await page.goto('/jobs');
   await expect(page).toHaveURL(/\/login\?redirect=%2Fjobs$/);

@@ -1,8 +1,11 @@
 import { expect, test } from '@playwright/test';
 
+import { installFakeApi } from './fakeApi';
 import { ADMIN, SCHEMES, TECHNICIAN, WIDTHS, expectAccessible, expectLogo, expectNoHorizontalOverflow, setView, shot, stubApi, watchConsole } from './helpers';
 
 const SECTIONS = ['Morning check', 'Clients', 'Jobs', 'Unmatched', 'Inboxes', 'Parsers', 'Notifications', 'System', 'Settings'];
+// Sections with a built page (C3); the others still show their placeholder.
+const BUILT = ['Clients', 'Jobs'];
 
 for (const scheme of SCHEMES) {
   for (const width of WIDTHS) {
@@ -45,10 +48,11 @@ for (const scheme of SCHEMES) {
     test(`shell as technician at ${width} px, ${scheme}`, async ({ page }) => {
       const errors = watchConsole(page);
       await stubApi(page, { me: TECHNICIAN });
+      await installFakeApi(page);
       await setView(page, width, scheme);
       await page.goto('/jobs');
       await expect(page.getByRole('heading', { level: 1, name: 'Jobs' })).toBeVisible();
-      await expect(page.getByText('Arrives in phase C3')).toBeVisible();
+      await expect(page.getByRole('table', { name: 'Jobs with their schedule and state' })).toBeVisible();
       if (width !== 390) {
         const sidebar = page.getByRole('navigation', { name: 'Main navigation' });
         await expect(sidebar.getByRole('link', { name: 'Settings' })).toHaveCount(0);
@@ -62,15 +66,20 @@ for (const scheme of SCHEMES) {
   }
 }
 
-test('shell: every section link opens a designed placeholder, not a blank page', async ({ page }) => {
+test('shell: every section link opens its page or a designed placeholder, never a blank page', async ({ page }) => {
   await stubApi(page, { me: ADMIN });
+  await installFakeApi(page);
   await setView(page, 1440, 'light');
   await page.goto('/');
   const sidebar = page.getByRole('navigation', { name: 'Main navigation' });
   for (const section of SECTIONS) {
     await sidebar.getByRole('link', { name: section }).click();
     await expect(page.getByRole('heading', { level: 1, name: section })).toBeVisible();
-    await expect(page.getByText(/Arrives in phase C\d+/)).toBeVisible();
+    if (BUILT.includes(section)) {
+      await expect(page.getByRole('table')).toBeVisible();
+    } else {
+      await expect(page.getByText(/Arrives in phase C\d+/)).toBeVisible();
+    }
   }
 });
 
@@ -109,6 +118,7 @@ test('shell: user menu shows the account and signs out; theme toggle switches', 
 
 test('shell: Ctrl K opens the command search and goes to Clients', async ({ page }) => {
   await stubApi(page, { me: ADMIN });
+  await installFakeApi(page);
   await setView(page, 1440, 'light');
   await page.goto('/');
   await expect(page.getByRole('heading', { level: 1, name: 'Morning check' })).toBeVisible();
@@ -124,6 +134,7 @@ test('shell: Ctrl K opens the command search and goes to Clients', async ({ page
 test('shell: no console errors while signed in and moving between sections', async ({ page }) => {
   const errors = watchConsole(page);
   await stubApi(page, { me: ADMIN });
+  await installFakeApi(page);
   await setView(page, 1440, 'light');
   await page.goto('/');
   await expect(page.getByRole('heading', { level: 1, name: 'Morning check' })).toBeVisible();

@@ -43,7 +43,7 @@ test('the product build has no gallery route', async ({ page }) => {
 test('404 while signed in links back to the morning check', async ({ page }) => {
   await stubApi(page, { me: ADMIN });
   await setView(page, 1440, 'light');
-  await page.goto('/clients/missing');
+  await page.goto('/jobs/missing');
   await expect(page.getByRole('heading', { level: 1, name: 'Page not found' })).toBeVisible();
   await page.getByRole('link', { name: 'Go to the morning check' }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Morning check' })).toBeVisible();
