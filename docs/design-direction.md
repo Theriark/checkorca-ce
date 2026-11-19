@@ -93,7 +93,7 @@ The first working screens follow the same frame: a page header (icon, title, one
 - **CSV import** happens in two steps inside one dialog: Check the file (a dry run) shows the counts and the rows left out, by row number with the server's message; Import N rows then saves the rows that passed. An unusable file is an alert; a changed file has to be checked again.
 - **Tables under 768 px** keep a minimum width and scroll sideways inside their wrap, so a name never breaks into one letter per line; under 360 px the toolbar stacks and every control takes a full line.
 
-New controls in `components/ui`: Alert (icon plus coloured edge), Switch (a native checkbox over a drawn track), Tabs (the tablist pattern with arrow, Home and End), Drawer (Radix Dialog as a side panel), CopyField, FileField (a native file input drawn as a button), ActionMenu (Radix DropdownMenu), Textarea. Native date, time and datetime inputs keep the field look and follow the theme through `color-scheme`, so the picker is never light on light in dark.
+New controls in `components/ui`: Alert (icon plus coloured edge), Switch (a native checkbox over a drawn track), Tabs (the tablist pattern with arrow, Home and End), Drawer (Radix Dialog as a side panel), CopyField, FileField (a native file input drawn as a button), ActionMenu (Radix DropdownMenu), Textarea. Native date, time and datetime inputs keep the field look and follow the theme through `color-scheme`, so the picker is never light on light in dark. Their value is written by the browser in its own locale (an en-US browser shows 11:00 PM where the preview and the tables show 23:00); that is browser behaviour, not a defect, and the server always receives the ISO value.
 
 ## 9. What later phases keep
 

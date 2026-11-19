@@ -19,7 +19,9 @@ for (const scheme of SCHEMES) {
       await expect(page.getByText('2 clients')).toBeVisible();
       await expectNoHorizontalOverflow(page);
       await expectAccessible(page);
-      await page.screenshot({ path: shot('clients', width, scheme), fullPage: true });
+      // Full page above the phone width; at 390 a full-page shot would paint
+      // the fixed bottom bar mid-page, so the viewport is captured instead.
+      await page.screenshot({ path: shot('clients', width, scheme), fullPage: width > 390 });
 
       await page.getByRole('link', { name: HARBOURSIDE.name }).click();
       await expect(page.getByRole('heading', { level: 1, name: HARBOURSIDE.name })).toBeVisible();
@@ -27,7 +29,7 @@ for (const scheme of SCHEMES) {
       await expect(page.getByRole('table', { name: 'Jobs with their schedule and state' }).locator('tbody tr')).toHaveCount(2);
       await expectNoHorizontalOverflow(page);
       await expectAccessible(page);
-      await page.screenshot({ path: shot('client-detail', width, scheme), fullPage: true });
+      await page.screenshot({ path: shot('client-detail', width, scheme), fullPage: width > 390 });
       expect(errors()).toEqual([]);
     });
   }
@@ -85,12 +87,18 @@ test('clients: search, status filter and the archived toggle', async ({ page }) 
   await expect(rows.first()).toContainText('Archived');
 });
 
-test('clients: create a client, archive it, then delete it with the typed name', async ({ page }) => {
+// The dialog flows run on a desktop in light and on a phone in dark, so both
+// themes of the create and delete dialogs are contrast-checked by axe.
+for (const [width, scheme] of [
+  [1440, 'light'],
+  [390, 'dark'],
+] as const) {
+test(`clients: create a client, archive it, then delete it with the typed name (${width} px, ${scheme})`, async ({ page }) => {
   // The taken name and the wrong typed name are refused with 409 on purpose.
   const errors = watchConsole(page, [409]);
   await stubApi(page, { me: ADMIN });
   const store = await installFakeApi(page);
-  await setView(page, 1440, 'light');
+  await setView(page, width, scheme);
   await page.goto('/clients');
   await page.getByRole('button', { name: 'New client' }).click();
   const dialog = page.getByRole('dialog', { name: 'New client' });
@@ -105,7 +113,8 @@ test('clients: create a client, archive it, then delete it with the typed name',
   await dialog.getByLabel('Name').fill('Blue Fern Studio (fictional)');
   await dialog.getByLabel(/Notes/).fill('Test client, synthetic.');
   await dialog.getByLabel(/Aliases/).fill('Blue Fern\nBFS');
-  await page.screenshot({ path: 'screenshots/client-create-1440-light.png' });
+  await expectAccessible(page);
+  await page.screenshot({ path: shot('client-create', width, scheme) });
   await dialog.getByRole('button', { name: 'Create' }).click();
   await expect(page.locator('.co-toast--success')).toContainText('Client created');
   // Lands on the new client's page.
@@ -130,7 +139,7 @@ test('clients: create a client, archive it, then delete it with the typed name',
   await confirm.getByRole('button', { name: 'Delete' }).click();
   await expect(confirm.getByRole('alert')).toContainText('The name does not match.');
   await expectAccessible(page);
-  await page.screenshot({ path: 'screenshots/client-delete-1440-light.png' });
+  await page.screenshot({ path: shot('client-delete', width, scheme) });
   await confirm.getByLabel('Client name').fill('Blue Fern Studio (fictional)');
   await confirm.getByRole('button', { name: 'Delete' }).click();
   await expect(page).toHaveURL(/\/clients$/);
@@ -140,6 +149,7 @@ test('clients: create a client, archive it, then delete it with the typed name',
   expect(store.clients.some((item) => item.name === 'Blue Fern Studio (fictional)')).toBe(false);
   expect(errors()).toEqual([]);
 });
+}
 
 test('clients: the technician has the same screens', async ({ page }) => {
   await stubApi(page, { me: TECHNICIAN });
@@ -171,6 +181,16 @@ test('clients at 320 px: the table toolbar stacks and nothing crosses the viewpo
   await page.goto('/clients');
   await expect(page.getByRole('table')).toBeVisible();
   await expectNoHorizontalOverflow(page);
+  // The stacked groups are as tall as their controls: no blank block between
+  // the filters and the table (the row layout's flex-basis must not become a height).
+  const start = page.locator('.co-table__toolbar-start');
+  const startBox = await start.boundingBox();
+  const filtersBox = await start.locator('> *').first().boundingBox();
+  expect(startBox).not.toBeNull();
+  expect(filtersBox).not.toBeNull();
+  expect((startBox?.height ?? 0) - (filtersBox?.height ?? 0)).toBeLessThanOrEqual(1);
+  const toolbarBox = await page.locator('.co-table__toolbar').boundingBox();
+  expect(toolbarBox?.height ?? 0).toBeLessThan(260);
   await page.screenshot({ path: 'screenshots/clients-toolbar-320-light.png', fullPage: true });
   expect(errors()).toEqual([]);
 });

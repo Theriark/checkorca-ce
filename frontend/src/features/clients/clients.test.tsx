@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { strings } from '../../strings';
 import { makeClient, makeJob } from '../../test/fixtures';
-import { ADMIN, TECHNICIAN, renderApp, stubFetch } from '../../test/render';
+import { ADMIN, TECHNICIAN, holdFetch, renderApp, stubFetch } from '../../test/render';
 
 const ME = { 'GET /api/v1/auth/me': { status: 200, body: ADMIN } };
 const NORTHWIND = makeClient({ id: 'c1000000-0000-4000-8000-000000000002', name: 'Northwind Legal (fictional)', aliases: [], notes: '', job_count: 1, status_counts: { paused: 1 }, worst_state: 'paused' });
@@ -155,6 +155,38 @@ describe('/clients/:id', () => {
     expect(within(table).queryByRole('columnheader', { name: strings.jobs.columns.client })).toBeNull();
     await user.click(within(tabs).getByRole('tab', { name: 'History' }));
     expect(screen.getByText(`History of ${client.id}`)).toBeTruthy();
+  });
+
+  it('shows a skeleton while the client loads, then a server error with the request id, and retries', async () => {
+    const user = userEvent.setup();
+    let attempts = 0;
+    stubFetch({
+      ...ME,
+      // The client query retries one 5xx by itself (queries.ts), so two
+      // failures are needed before the error state shows.
+      [`GET /api/v1/clients/${client.id}`]: () => {
+        attempts += 1;
+        return attempts <= 2
+          ? { status: 500, body: { title: 'Internal Server Error', status: 500, detail: 'The database did not answer in time.', request_id: 'req-11' } }
+          : { status: 200, body: client };
+      },
+      'GET /api/v1/jobs': { status: 200, body: { items: [], next_cursor: null } },
+    });
+    const release = holdFetch(`/clients/${client.id}`);
+    renderApp(`/clients/${client.id}`);
+    // Held request: the page is a skeleton that announces "Loading" once.
+    const skeleton = await screen.findByRole('status', { busy: true });
+    expect(skeleton.textContent).toContain(strings.states.loading);
+    expect(screen.queryByRole('alert')).toBeNull();
+    release();
+    const alert = await screen.findByRole('alert', {}, { timeout: 4000 });
+    expect(alert.textContent).toContain('The database did not answer in time.');
+    expect(alert.textContent).toContain('req-11');
+    expect(screen.getByRole('link', { name: strings.clients.detail.back })).toBeTruthy();
+    expect(attempts).toBe(2);
+    await user.click(within(alert).getByRole('button', { name: strings.states.retry }));
+    expect(await screen.findByRole('heading', { level: 1, name: client.name })).toBeTruthy();
+    expect(attempts).toBe(3);
   });
 
   it('shows the not-found state for an unknown id, inside the shell', async () => {
