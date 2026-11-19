@@ -1,0 +1,139 @@
+"""Units of the schedule library: normal forms, bounds and the guard rails."""
+
+from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
+
+import pytest
+
+from app.schedule import (
+    ScheduleError,
+    ScheduleSpec,
+    TooManyOccurrences,
+    check_timezone,
+    deadline,
+    next_n,
+    occurrences,
+    parse_spec,
+)
+from app.schedule._cron import has_wildcard_hour
+from app.schedule._wall import instants
+
+MONDAY = datetime(2027, 1, 4, 9, 0, tzinfo=UTC)
+LISBON = ZoneInfo("Europe/Lisbon")
+
+
+@pytest.mark.parametrize(
+    ("kind", "expr", "normal"),
+    [
+        ("cron", "  0   9 * *   1 ", "0 9 * * 1"),
+        ("cron", "@HOURLY", "0 * * * *"),
+        ("cron", "@weekly", "0 0 * * 0"),
+        ("cron", "0 9 * JAN-MAR MON-FRI", "0 9 * JAN-MAR MON-FRI"),
+        ("daily", "18:00, 6:00,06:00", "06:00,18:00"),
+        ("daily", "23:00", "23:00"),
+        ("interval", " 1H 30m ", "1h30m"),
+        ("interval", "1d", "1d"),
+    ],
+)
+def test_expressions_are_normalised(kind: str, expr: str, normal: str) -> None:
+    spec = parse_spec(kind, expr, "Europe/Lisbon", MONDAY)
+    assert spec.expr == normal
+    assert spec.zone == LISBON
+
+
+def test_only_an_interval_keeps_its_anchor() -> None:
+    assert parse_spec("cron", "0 9 * * *", "UTC", MONDAY).anchor is None
+    assert parse_spec("daily", "09:00", "UTC", MONDAY).anchor is None
+    interval = parse_spec("interval", "1h30m", "UTC", MONDAY)
+    assert interval.anchor == MONDAY
+    assert interval.interval == timedelta(minutes=90)
+
+
+def test_daily_times_are_hour_minute_pairs() -> None:
+    spec = parse_spec("daily", "23:00, 06:30", "UTC")
+    assert spec.daily_times == ((6, 30), (23, 0))
+
+
+def test_check_timezone_trims_and_refuses() -> None:
+    assert check_timezone(" Europe/Lisbon ") == "Europe/Lisbon"
+    with pytest.raises(ScheduleError) as raised:
+        check_timezone("x" * 65)
+    assert raised.value.field == "timezone"
+
+
+def test_the_wildcard_hour_rule() -> None:
+    assert has_wildcard_hour("0 * * * *")
+    assert has_wildcard_hour("0 */2 * * *")
+    assert not has_wildcard_hour("0 1 * * *")
+    assert not has_wildcard_hour("0 0-23 * * *")
+    assert not has_wildcard_hour("0 1,13 * * *")
+
+
+def test_wall_time_rules_in_lisbon() -> None:
+    # Normal, gap (spring) and repeated (autumn) wall times.
+    assert instants(datetime(2027, 1, 4, 23), LISBON, keep_repeat=False) == [
+        datetime(2027, 1, 4, 23, tzinfo=UTC)
+    ]
+    assert instants(datetime(2027, 3, 28, 1, 30), LISBON, keep_repeat=True) == [
+        datetime(2027, 3, 28, 1, tzinfo=UTC)
+    ]
+    repeated = datetime(2027, 10, 31, 1, 30)
+    assert instants(repeated, LISBON, keep_repeat=False) == [
+        datetime(2027, 10, 31, 0, 30, tzinfo=UTC)
+    ]
+    assert instants(repeated, LISBON, keep_repeat=True) == [
+        datetime(2027, 10, 31, 0, 30, tzinfo=UTC),
+        datetime(2027, 10, 31, 1, 30, tzinfo=UTC),
+    ]
+
+
+def test_times_must_be_aware() -> None:
+    spec = parse_spec("daily", "23:00", "UTC")
+    with pytest.raises(ValueError, match="start"):
+        occurrences(spec, datetime(2027, 1, 4), MONDAY)
+    with pytest.raises(ValueError, match="after"):
+        next_n(spec, datetime(2027, 1, 4), 1)
+    with pytest.raises(ValueError, match="scheduled_for"):
+        deadline(datetime(2027, 1, 4), 360, 120)
+
+
+def test_an_empty_or_reversed_window_has_no_times() -> None:
+    spec = parse_spec("cron", "* * * * *", "UTC")
+    assert occurrences(spec, MONDAY, MONDAY) == []
+    assert occurrences(spec, MONDAY, MONDAY - timedelta(hours=1)) == []
+    assert next_n(spec, MONDAY, 0) == []
+
+
+def test_offsets_other_than_utc_come_back_as_utc() -> None:
+    spec = parse_spec("daily", "23:00", "Europe/Lisbon")
+    start = datetime(2027, 7, 1, 12, tzinfo=LISBON)
+    found = occurrences(spec, start, start + timedelta(days=1))
+    assert found == [datetime(2027, 7, 1, 22, tzinfo=UTC)]
+    assert found[0].tzinfo is UTC
+
+
+def test_deadline_is_time_plus_runtime_plus_grace() -> None:
+    scheduled = datetime(2027, 1, 4, 23, tzinfo=UTC)
+    assert deadline(scheduled, 360, 120) == datetime(2027, 1, 5, 7, tzinfo=UTC)
+    assert deadline(scheduled, 0, 0) == scheduled
+    with pytest.raises(ValueError):
+        deadline(scheduled, -1, 0)
+
+
+def test_an_interval_spec_without_anchor_is_refused() -> None:
+    spec = ScheduleSpec(kind="interval", expr="1h", timezone="UTC")
+    with pytest.raises(ValueError, match="anchor"):
+        occurrences(spec, MONDAY, MONDAY + timedelta(hours=3))
+
+
+def test_a_huge_interval_window_is_refused_before_it_is_built() -> None:
+    spec = parse_spec("interval", "1m", "UTC", MONDAY)
+    with pytest.raises(TooManyOccurrences):
+        occurrences(spec, MONDAY, MONDAY + timedelta(days=80))
+
+
+def test_a_huge_cron_window_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.schedule.times.MAX_OCCURRENCES", 10)
+    spec = parse_spec("cron", "* * * * *", "UTC")
+    with pytest.raises(TooManyOccurrences):
+        occurrences(spec, MONDAY, MONDAY + timedelta(hours=1))
