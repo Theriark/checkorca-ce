@@ -6,6 +6,7 @@ refuses to start. Error messages name the variable and never include a value.
 
 import base64
 import binascii
+import os
 import re
 from functools import lru_cache
 from typing import Any, Literal, Self
@@ -27,6 +28,10 @@ LogLevel = Literal["critical", "error", "warning", "info", "debug"]
 
 class SettingsError(ValueError):
     """The environment does not describe a valid configuration."""
+
+
+def _readable(path: str) -> bool:
+    return os.path.isfile(path) and os.access(path, os.R_OK)
 
 
 class Settings(BaseSettings):
@@ -104,6 +109,14 @@ class Settings(BaseSettings):
         if bool(self.smtp_tls_cert_file) != bool(self.smtp_tls_key_file):
             raise ValueError(
                 "SMTP_TLS_CERT_FILE and SMTP_TLS_KEY_FILE must be set together"
+            )
+        # The worker starts the SMTP listener: a missing file would leave port
+        # 2525 closed while the process runs, so it refuses to start instead.
+        files = (self.smtp_tls_cert_file, self.smtp_tls_key_file)
+        worker = self.role != "web"
+        if worker and files[0] and not all(map(_readable, files)):
+            raise ValueError(
+                "SMTP_TLS_CERT_FILE and SMTP_TLS_KEY_FILE must name readable files"
             )
         return self
 

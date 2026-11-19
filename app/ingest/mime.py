@@ -22,8 +22,15 @@ from app.ingest.html_text import html_to_text
 MAX_HEADERS: Final = 200
 MAX_HEADER_NAME: Final = 200
 MAX_HEADER_VALUE: Final = 4000
+# RFC 2047 decoding (email.header.decode_header) is quadratic in its input, so
+# a value is cut to this many characters before it is decoded.
+MAX_DECODED_INPUT: Final = 2 * MAX_HEADER_VALUE
+# The header block of a message; a longer one is refused by every receiver.
+MAX_HEADER_BYTES: Final = 256 * 1024
 # The text a message detail shows; the parser engine caps its input at 256 KB.
 MAX_TEXT: Final = 256 * 1024
+# HTML given to the stripper; the visible text of more is not needed.
+MAX_HTML_INPUT: Final = 1024 * 1024
 # Besides the body, what tells one alert from another for the duplicate key.
 CONTENT_HEADERS: Final = ("Date", "From", "To", "Subject")
 
@@ -41,8 +48,9 @@ def clean_text(text: str) -> str:
 
 
 def header_value(value: object) -> str:
-    """A header value unfolded and decoded (RFC 2047 encoded words)."""
-    text = _FOLD.sub(" ", str(value))
+    """A header value unfolded and decoded (RFC 2047 encoded words), from at
+    most MAX_DECODED_INPUT characters of it."""
+    text = _FOLD.sub(" ", str(value))[:MAX_DECODED_INPUT]
     try:
         text = str(make_header(decode_header(text)))
     except (HeaderParseError, LookupError, UnicodeError, ValueError):
@@ -73,16 +81,28 @@ def message_id(message: Message) -> str | None:
     return found
 
 
-def body_of(raw: bytes) -> bytes:
-    """The bytes after the blank line that ends the headers."""
+def _header_end(raw: bytes) -> tuple[int, int] | None:
+    """Where the blank line that ends the headers starts, and its length."""
     ends = [
         (index, len(separator))
         for separator in (b"\r\n\r\n", b"\n\n")
         if (index := raw.find(separator)) >= 0
     ]
-    if not ends:
+    return min(ends) if ends else None
+
+
+def header_bytes(raw: bytes) -> int:
+    """The length of the header block; all of raw when no blank line ends it."""
+    end = _header_end(raw)
+    return len(raw) if end is None else end[0]
+
+
+def body_of(raw: bytes) -> bytes:
+    """The bytes after the blank line that ends the headers."""
+    end = _header_end(raw)
+    if end is None:
         return b""
-    index, length = min(ends)
+    index, length = end
     return raw[index + length :]
 
 
@@ -127,7 +147,8 @@ def message_text(raw: bytes) -> tuple[str, bool]:
     """The readable text of a message and whether it was cut at MAX_TEXT.
 
     An HTML-only message gives the visible text of its HTML part
-    (app/ingest/html_text.py), never the markup. Callers show it escaped.
+    (app/ingest/html_text.py, the first MAX_HTML_INPUT characters), never the
+    markup. Callers show it escaped.
     """
     part = _text_part(BytesParser(policy=compat32).parsebytes(raw))
     if part is None:
@@ -141,6 +162,6 @@ def message_text(raw: bytes) -> tuple[str, bool]:
     except LookupError:
         text = payload.decode("utf-8", "replace")
     if part.get_content_type() == "text/html":
-        text = html_to_text(text)
+        text = html_to_text(text[:MAX_HTML_INPUT])
     text = clean_text(text)
     return text[:MAX_TEXT], len(text) > MAX_TEXT

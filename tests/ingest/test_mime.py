@@ -1,5 +1,7 @@
 """Reading hostile mail: headers, Message-ID, content hash and text."""
 
+import pytest
+
 from app.ingest import mime
 
 
@@ -21,6 +23,27 @@ def test_header_count_and_length_are_capped() -> None:
     assert len(headers) == mime.MAX_HEADERS
     raw = b"X-Long: " + b"a" * 9000 + b"\r\n\r\nbody"
     assert len(headers_of(raw)[0][1]) == mime.MAX_HEADER_VALUE
+
+
+def test_a_value_is_cut_before_it_is_decoded(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[int] = []
+    decode = mime.decode_header
+
+    def measured(value: str) -> list[tuple[bytes | str, str | None]]:
+        seen.append(len(value))
+        return decode(value)
+
+    monkeypatch.setattr(mime, "decode_header", measured)
+    decoded = mime.header_value("=?utf-8?q?a?= " * 50_000)
+    assert seen == [mime.MAX_DECODED_INPUT]
+    # The cut may split the last encoded word; the ones before it decode.
+    assert decoded.startswith("aaaa") and len(decoded) <= mime.MAX_DECODED_INPUT
+
+
+def test_header_bytes_ends_at_the_first_blank_line() -> None:
+    assert mime.header_bytes(b"A: 1\r\n\r\nbody\r\n\r\n") == 4
+    assert mime.header_bytes(b"A: 1\n\nbody") == 4
+    assert mime.header_bytes(b"A: 1\r\nB: 2") == 10
 
 
 def test_a_broken_encoded_word_is_kept_as_sent() -> None:

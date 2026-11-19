@@ -60,6 +60,18 @@ def test_markup_is_gone_and_escaped_characters_stay_text() -> None:
     assert "onclick" not in text and "javascript" not in text
 
 
+@pytest.mark.parametrize(
+    "html",
+    [
+        # The head end tag is optional; the body still has the text.
+        "<html><head><meta charset=utf-8><body><p>Backup failed</p></body></html>",
+        "<head><title>Report</title><p>Backup failed",
+    ],
+)
+def test_an_unclosed_head_keeps_the_body_text(html: str) -> None:
+    assert html_to_text(html) == "Backup failed"
+
+
 def test_broken_markup_and_plain_text() -> None:
     assert html_to_text("no markup at all") == "no markup at all"
     assert html_to_text("<p>open <b>never closed") == "open never closed"

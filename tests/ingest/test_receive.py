@@ -2,9 +2,12 @@
 Authentication-Results dkim=pass, and what counts as an e-mail message.
 Addresses are synthetic (R-11: example.com, example.net, .test)."""
 
+import time
+
 import pytest
 
 from app.db.models import Inbox
+from app.ingest import mime
 from app.ingest.receive import MessageRefused, check_message, is_mail
 from app.ingest.store import MAX_MESSAGE_BYTES, MessageTooLarge
 
@@ -64,6 +67,12 @@ BY_I = "mx.example.org; dkim=pass (good key) header.i=@example.com"
 TWO = "mx.example.org; dkim=pass header.d=attacker.test; dkim=pass header.d=example.com"
 SPF = "mx.example.org; spf=pass smtp.mailfrom=example.com"
 FORGED = "forged.test; dkim=pass header.d=example.com"
+# An AUID with a local part: the domain is after the @.
+AUID = "mx.example.org; dkim=pass header.i=alerts@example.com"
+# The signer chose a local part that looks like the From domain.
+LOCAL_PART = "mx.example.org; dkim=pass header.i=example.com@attacker.test"
+# header.d wins over header.i, whatever their order.
+I_THEN_D = "mx.example.org; dkim=pass header.i=@attacker.test header.d=example.com"
 
 
 @pytest.mark.parametrize(
@@ -73,6 +82,9 @@ FORGED = "forged.test; dkim=pass header.d=example.com"
         ("a@mail.example.com", [PASS], True),
         ("a@example.com", [BY_I], True),
         ("a@example.com", [TWO], True),
+        ("a@example.com", [AUID], True),
+        ("a@example.com", [LOCAL_PART], False),
+        ("a@example.com", [I_THEN_D], True),
         ("a@example.com", [FAIL], False),
         ("a@example.com", [OTHER], False),
         ("a@example.com", [SPF], False),
@@ -100,6 +112,34 @@ def test_both_rules_together_name_the_first_that_fails() -> None:
 def test_the_size_cap_comes_first() -> None:
     with pytest.raises(MessageTooLarge):
         check_message(inbox(), b"x" * (MAX_MESSAGE_BYTES + 1))
+
+
+def test_a_header_block_over_256_kb_is_too_large() -> None:
+    headers = b"X-Filler: " + b"y" * mime.MAX_HEADER_BYTES + b"\r\n"
+    with pytest.raises(MessageTooLarge, match="headers"):
+        check_message(inbox(), headers + b"\r\nbody")
+    # Without a blank line every byte is a header byte.
+    with pytest.raises(MessageTooLarge, match="headers"):
+        check_message(inbox(), b"Subject: x\r\n" + b"z" * mime.MAX_HEADER_BYTES)
+    small = b"Subject: x\r\n\r\n" + b"z" * mime.MAX_HEADER_BYTES
+    check_message(inbox(), small)
+
+
+def test_encoded_word_headers_are_read_in_bounded_time() -> None:
+    """RFC 2047 decoding is quadratic: values are cut before it runs."""
+    word = b"=?utf-8?q?a?= "
+    # Just under the 256 KB header limit, every value far over the cut.
+    flood = word * (150_000 // len(word))
+    raw = b"From: " + flood + b"<a@example.com>\r\nSubject: " + flood[:90_000]
+    raw += b"\r\nDate: Mon, 4 Jan 2027 06:29:00 +0000\r\n\r\nbody"
+    assert mime.header_bytes(raw) <= mime.MAX_HEADER_BYTES
+    started = time.perf_counter()
+    with pytest.raises(MessageRefused):
+        check_message(inbox(["@example.net"], require_auth=True), raw)
+    headers = mime.parse_headers(raw)
+    mime.header_list(headers)
+    mime.content_hash(raw, headers)
+    assert time.perf_counter() - started < 2
 
 
 def test_the_refusal_text_names_no_address() -> None:

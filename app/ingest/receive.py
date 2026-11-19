@@ -3,7 +3,7 @@
 The SMTP listener, the IMAP poller, POST ingest/email and the .eml upload all
 call accept_message, so the same rules hold on every channel:
 
-1. At most 5 MB (store_raw raises MessageTooLarge).
+1. At most 5 MB, of which at most 256 KB of headers (MessageTooLarge).
 2. The inbox's sender allowlist: when it is not empty, every address of the
    From header must be listed, as itself (alerts@example.com) or by its domain
    (@example.com). A message without a From address is refused.
@@ -15,9 +15,12 @@ call accept_message, so the same rules hold on every channel:
 4. store_raw in the caller's transaction; duplicates are stored once.
 
 A refused message raises MessageRefused and stores nothing. Its reason is a
-fixed word for logs and answers, never an address.
+fixed word for logs and answers, never an address. Steps 1 to 3 parse
+untrusted headers, so accept_message runs them in a thread: the event loop
+keeps serving the other senders meanwhile.
 """
 
+import asyncio
 import re
 from datetime import datetime
 from email.message import Message
@@ -36,7 +39,9 @@ RefusalReason = Literal["sender", "authentication"]
 # An RFC 8601 comment: (anything without parentheses).
 _COMMENT = re.compile(r"\([^()]*\)")
 _DKIM_PASS = re.compile(r"^\s*dkim\s*=\s*pass\b", re.IGNORECASE)
-_DKIM_DOMAIN = re.compile(r"\bheader\.[di]\s*=\s*\"?@?([A-Za-z0-9.-]+)", re.IGNORECASE)
+# header.d (the signing domain) and header.i (the AUID, local part optional).
+_DKIM_PROPERTY = re.compile(r"\bheader\.([di])\s*=\s*\"?([^\s;\"]+)", re.IGNORECASE)
+_DOMAIN = re.compile(r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*")
 MAIL_HEADERS: Final = ("From", "Subject", "Date", "Message-ID")
 REFUSAL_TEXT: Final[dict[RefusalReason, str]] = {
     "sender": "The sender is not on the inbox's sender allowlist.",
@@ -78,6 +83,19 @@ def _aligned(signer: str, domain: str) -> bool:
     return domain == signer or domain.endswith("." + signer)
 
 
+def dkim_signer(result: str) -> str | None:
+    """The signing domain of one dkim=pass result: header.d, else the domain
+    of header.i (after its last @, never its local part)."""
+    properties: dict[str, str] = {}
+    for name, value in _DKIM_PROPERTY.findall(result):
+        properties.setdefault(name.lower(), value)
+    found = properties.get("d") or properties.get("i")
+    if found is None:
+        return None
+    domain = found.rpartition("@")[2]
+    return domain if _DOMAIN.fullmatch(domain) else None
+
+
 def dkim_passed(headers: Message, addresses: list[str]) -> bool:
     """The topmost Authentication-Results reports dkim=pass for a domain the
     From addresses belong to (relaxed alignment, RFC 7489 3.1.1)."""
@@ -88,8 +106,8 @@ def dkim_passed(headers: Message, addresses: list[str]) -> bool:
     # The first item is the authserv-id; the results follow, one per ";".
     signers = []
     for item in value.split(";")[1:]:
-        if _DKIM_PASS.match(item) and (found := _DKIM_DOMAIN.search(item)):
-            signers.append(found.group(1))
+        if _DKIM_PASS.match(item) and (signer := dkim_signer(item)):
+            signers.append(signer)
     domains = {address.rpartition("@")[2] for address in addresses}
     return all(
         any(_aligned(signer, domain) for signer in signers) for domain in domains
@@ -104,19 +122,33 @@ def is_mail(raw: bytes) -> bool:
     return any(headers.get(name) for name in MAIL_HEADERS)
 
 
-def check_message(inbox: Inbox, raw: bytes) -> None:
-    """Raise MessageTooLarge or MessageRefused when the inbox must not take
-    the message."""
+def check_size(raw: bytes) -> None:
+    """Raise MessageTooLarge above 5 MB, or above 256 KB of headers."""
     if len(raw) > MAX_MESSAGE_BYTES:
         raise MessageTooLarge(f"a message may have at most {MAX_MESSAGE_BYTES} bytes")
-    if not inbox.sender_allowlist and not inbox.require_auth_results:
+    if mime.header_bytes(raw) > mime.MAX_HEADER_BYTES:
+        raise MessageTooLarge(
+            f"the headers may have at most {mime.MAX_HEADER_BYTES} bytes"
+        )
+
+
+def check_rules(raw: bytes, allowlist: list[str], require_auth_results: bool) -> None:
+    """check_message with the inbox's rules as plain values (thread-safe)."""
+    check_size(raw)
+    if not allowlist and not require_auth_results:
         return
     headers = mime.parse_headers(raw)
     addresses = from_addresses(headers)
-    if not sender_allowed(list(inbox.sender_allowlist), addresses):
+    if not sender_allowed(allowlist, addresses):
         raise MessageRefused("sender")
-    if inbox.require_auth_results and not dkim_passed(headers, addresses):
+    if require_auth_results and not dkim_passed(headers, addresses):
         raise MessageRefused("authentication")
+
+
+def check_message(inbox: Inbox, raw: bytes) -> None:
+    """Raise MessageTooLarge or MessageRefused when the inbox must not take
+    the message."""
+    check_rules(raw, list(inbox.sender_allowlist), inbox.require_auth_results)
 
 
 async def accept_message(
@@ -130,7 +162,9 @@ async def accept_message(
 ) -> StoredRaw:
     """Check the message against the inbox's rules and store it. Does not
     commit; raises MessageTooLarge or MessageRefused."""
-    check_message(inbox, raw)
+    # The rules are read here: the ORM object stays on the event loop.
+    allowlist = list(inbox.sender_allowlist)
+    await asyncio.to_thread(check_rules, raw, allowlist, inbox.require_auth_results)
     return await store_raw(
         db, policy, principal, inbox_id=inbox.id, raw=raw, received_at=received_at
     )

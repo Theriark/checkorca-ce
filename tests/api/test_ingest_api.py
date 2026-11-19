@@ -176,6 +176,27 @@ async def test_size_empty_and_non_mail_bodies_are_refused(
     assert await message_rows(db_engine) == 0
 
 
+async def test_a_header_block_over_256_kb_is_413(
+    client: httpx.AsyncClient, csrf: str, db_engine: AsyncEngine
+) -> None:
+    token = await new_token(client, csrf, "ingest")
+    inbox = await new_inbox(client, csrf, "smtp")
+    filler = b"".join(b"X-Filler-%d: %s\r\n" % (n, b"y" * 960) for n in range(300))
+    response = await client.post(
+        ingest_path(inbox), content=filler + veeam_style(), headers=bearer(token)
+    )
+    assert response.status_code == 413
+    assert "headers" in response.json()["detail"]
+    upload = await client.post(
+        "/api/v1/messages/upload",
+        files={"file": ("big.eml", filler + veeam_style(), "message/rfc822")},
+        data={"inbox_id": inbox["id"]},
+        headers={CSRF_HEADER: csrf},
+    )
+    assert upload.status_code == 413
+    assert await message_rows(db_engine) == 0
+
+
 async def test_the_sender_allowlist_refuses_with_422(
     client: httpx.AsyncClient, csrf: str, db_engine: AsyncEngine
 ) -> None:
@@ -284,6 +305,9 @@ async def test_results_by_job_id_ping_token_or_names(
             "finished_at": "2027-01-04T05:41:07",
         },
         {"status": "success", "client_hint": DENTAL, "job_name": "j" * 201},
+        # Blank names would store a result the matcher can never bind.
+        {"status": "failed", "client_hint": " ", "job_name": " "},
+        {"status": "failed", "client_hint": DENTAL, "job_name": ""},
         {
             "status": "success",
             "client_hint": DENTAL,

@@ -8,12 +8,14 @@ authentication, because an inbox address is its secret (code@MAIL_DOMAIN,
 
 Limits, every one answered with an SMTP code the sender understands:
 - RCPT: an address that is not code@MAIL_DOMAIN of an smtp inbox gets 550;
-  past 20 recipients a message gets 452.
+  past 20 recipients a message gets 452; the 11th unknown address of a
+  connection gets 421 and the connection is closed.
 - MAIL: 60 messages a minute per source address (451 above that).
-- DATA: 5 MB, advertised as SIZE and checked again in handle_DATA (552); the
-  inbox's sender rules (app/ingest/receive.py) answer 550.
+- DATA: 5 MB, advertised as SIZE and checked again in handle_DATA, and at
+  most 256 KB of headers (552); the inbox's sender rules
+  (app/ingest/receive.py) answer 550.
 - 30 seconds without a command closes the connection; at most 20 connections
-  at a time (421 for the next one).
+  at a time and 3 per source address (421 for the next one).
 - STARTTLS when SMTP_TLS_CERT_FILE and SMTP_TLS_KEY_FILE name mounted PEM
   files; plain SMTP otherwise.
 
@@ -35,8 +37,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.access import SYSTEM
 from app.db.models import Inbox
-from app.ingest.receive import MessageRefused, accept_message
-from app.ingest.store import MAX_MESSAGE_BYTES
+from app.ingest.receive import MessageRefused, accept_message, check_size
+from app.ingest.store import MAX_MESSAGE_BYTES, MessageTooLarge
 from app.repos.inboxes import InboxRepository
 from app.security.ratelimit import RateLimiter
 from app.settings import Settings
@@ -49,6 +51,10 @@ MAX_RECIPIENTS: Final = 20
 # Messages a minute per source address.
 SOURCE_RATE: Final = (60, 60.0)
 MAX_SESSIONS: Final = 20
+# One source address may not hold every session.
+MAX_SESSIONS_PER_SOURCE: Final = 3
+# Unknown recipients a connection may try before it is closed.
+MAX_UNKNOWN_RECIPIENTS: Final = 10
 # The greeting names the product, not the library and its version.
 IDENT: Final = "Checkorca-CE ESMTP"
 STOP_SECONDS: Final = 5.0
@@ -124,6 +130,8 @@ class InboxHandler:
             logger.error("smtp inbox lookup failed", exc_info=error)
             return "451 4.3.0 Temporary failure, try again later"
         if inbox is None:
+            if isinstance(server, _Session) and server.unknown_recipient():
+                return "421 4.7.0 Too many unknown recipients, closing connection"
             return "550 5.1.1 No such inbox"
         envelope.rcpt_tos.append(address)
         envelope.rcpt_options.extend(rcpt_options)
@@ -133,7 +141,9 @@ class InboxHandler:
         self, server: SMTP, session: Session, envelope: Envelope
     ) -> str:
         raw = envelope.original_content or b""
-        if len(raw) > MAX_MESSAGE_BYTES:
+        try:
+            check_size(raw)
+        except MessageTooLarge:
             return "552 5.3.4 Message too big"
         received_at = self.context.clock.now()
         counts = {"stored": 0, "duplicates": 0, "refused": 0}
@@ -176,7 +186,8 @@ class InboxHandler:
 
 
 class _Session(SMTP):
-    """One SMTP connection; past max_sessions a new one gets 421 and is closed."""
+    """One SMTP connection; past max_sessions in all, or max_per_source from
+    its address, a new one gets 421 and is closed."""
 
     def __init__(
         self,
@@ -184,23 +195,51 @@ class _Session(SMTP):
         *,
         sessions: set["_Session"],
         max_sessions: int,
+        max_per_source: int,
         **options: Any,
     ) -> None:
         super().__init__(handler, **options)
         self._sessions = sessions
         self._max_sessions = max_sessions
+        self._max_per_source = max_per_source
         self._refused = False
+        self.source_ip = ""
+        self.unknown_recipients = 0
+
+    def _full(self) -> bool:
+        same_source = sum(
+            1 for other in self._sessions if other.source_ip == self.source_ip
+        )
+        return (
+            len(self._sessions) >= self._max_sessions
+            or same_source >= self._max_per_source
+        )
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
         # STARTTLS calls this again for the same session.
-        if self not in self._sessions and len(self._sessions) >= self._max_sessions:
-            self._refused = True
-            if isinstance(transport, asyncio.WriteTransport):
-                transport.write(b"421 4.7.0 Too many connections, try again later\r\n")
-            transport.close()
-            return
-        self._sessions.add(self)
+        if self not in self._sessions:
+            peer = transport.get_extra_info("peername")
+            self.source_ip = str(peer[0]) if isinstance(peer, tuple) and peer else ""
+            if self._full():
+                self._refused = True
+                if isinstance(transport, asyncio.WriteTransport):
+                    transport.write(
+                        b"421 4.7.0 Too many connections, try again later\r\n"
+                    )
+                transport.close()
+                return
+            self._sessions.add(self)
         super().connection_made(transport)
+
+    def unknown_recipient(self) -> bool:
+        """Count a refused RCPT; True (and the connection closes after the
+        answer) once there were more than MAX_UNKNOWN_RECIPIENTS."""
+        self.unknown_recipients += 1
+        if self.unknown_recipients <= MAX_UNKNOWN_RECIPIENTS:
+            return False
+        # Runs after aiosmtpd has written the 421: close() sends it first.
+        asyncio.get_running_loop().call_soon(self.close)
+        return True
 
     def connection_lost(self, error: Exception | None) -> None:
         self._sessions.discard(self)
@@ -230,11 +269,13 @@ class SmtpReceiver:
         port: int | None = None,
         timeout: float = TIMEOUT_SECONDS,
         max_sessions: int = MAX_SESSIONS,
+        max_per_source: int = MAX_SESSIONS_PER_SOURCE,
     ) -> None:
         self.host = host
         self.port = context.settings.smtp_port if port is None else port
         self.timeout = timeout
         self.max_sessions = max_sessions
+        self.max_per_source = max_per_source
         limiter = RateLimiter(*SOURCE_RATE, clock=context.clock)
         self.handler = InboxHandler(context, limiter)
         self._server: asyncio.Server | None = None
@@ -249,6 +290,7 @@ class SmtpReceiver:
                 self.handler,
                 sessions=self._sessions,
                 max_sessions=self.max_sessions,
+                max_per_source=self.max_per_source,
                 data_size_limit=MAX_MESSAGE_BYTES,
                 hostname=context.settings.inbox_domain,
                 ident=IDENT,

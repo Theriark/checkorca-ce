@@ -14,9 +14,10 @@ The token routes read no cookie: the credential is the Authorization header
 or the URL, which a cross-site form cannot send or does not know, so they
 need no CSRF token (tests/api/test_csrf_api.py, TOKEN_ROUTES). Each token
 has 120 requests a minute (the token limiter, per API token, webhook inbox
-and ping token). Every message goes through accept_message
-(app/ingest/receive.py): 5 MB, the inbox's sender rules, one row per
-duplicate. Answers are 202: the worker parses the message later.
+and ping URL; only a known credential spends a bucket). Every message goes
+through accept_message (app/ingest/receive.py): 5 MB with at most 256 KB of
+headers, the inbox's sender rules, one row per duplicate. Answers are 202:
+the worker parses the message later.
 """
 
 import uuid
@@ -39,7 +40,7 @@ from app.api.deps import (
 from app.api.problems import ProblemError
 from app.api.v1.ingest_schemas import MessageAccepted, NewResult, ResultAccepted
 from app.db.models import Inbox, Job
-from app.ingest.receive import MessageRefused, accept_message, is_mail
+from app.ingest.receive import MessageRefused, accept_message, check_size, is_mail
 from app.ingest.results import ParsedResult, ResultStatus
 from app.ingest.store import (
     MAX_MESSAGE_BYTES,
@@ -50,7 +51,7 @@ from app.ingest.store import (
 )
 from app.repos.inboxes import InboxRepository
 from app.repos.jobs import JobRepository
-from app.security.tokens import INBOX_TOKEN_PREFIX, sha256_hex
+from app.security.tokens import INBOX_TOKEN_PREFIX
 
 router = APIRouter(tags=["ingest"])
 
@@ -118,14 +119,13 @@ async def store_message(
     inbox: Inbox,
     raw: bytes,
 ) -> StoredRaw:
-    """accept_message with the HTTP answers: 413, or 422 for an empty body,
-    something that is no e-mail message, or the inbox's sender rules."""
-    if len(raw) > MAX_MESSAGE_BYTES:
-        raise ProblemError(
-            413,
-            "Message too large",
-            f"A message may have at most {MAX_MESSAGE_BYTES} bytes.",
-        )
+    """accept_message with the HTTP answers: 413 above 5 MB or 256 KB of
+    headers, or 422 for an empty body, something that is no e-mail message,
+    or the inbox's sender rules."""
+    try:
+        check_size(raw)
+    except MessageTooLarge as error:
+        raise ProblemError(413, "Message too large", f"{error}.") from None
     if not is_mail(raw):
         raise ProblemError(
             422,
@@ -202,11 +202,13 @@ async def create_result(
 async def ping(
     services: Services, db: AsyncSession, token: str, status: ResultStatus
 ) -> Response:
-    # Keyed by the token's hash: the limiter keeps no ping URL in memory.
-    enforce_rate_limit(services.token_limiter, f"ping:{sha256_hex(token)}")
     job = await JobRepository(db, services.policy).find_by_ping_token(SYSTEM, token)
     if job is None:
         raise ProblemError(404, "Ping URL not found")
+    # Only a known token spends a bucket, so unknown ones cannot push the
+    # buckets of real tokens out of the limiter. Keyed by the job: the
+    # limiter keeps no ping URL in memory.
+    enforce_rate_limit(services.token_limiter, f"ping:{job.id}")
     await record_result(
         db,
         services.policy,

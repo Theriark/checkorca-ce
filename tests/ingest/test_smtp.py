@@ -196,6 +196,24 @@ async def test_a_message_over_5_mb_gets_552(
     assert await rows(db_engine) == []
 
 
+async def test_a_header_block_over_256_kb_gets_552(
+    receiver: SmtpReceiver, context: WorkerContext, db_engine: AsyncEngine
+) -> None:
+    inbox = await add_inbox(context)
+    filler = b"".join(b"X-Filler-%d: %s\r\n" % (n, b"y" * 960) for n in range(300))
+    raw = filler + message(address(inbox))
+
+    def sent() -> int:
+        with client(receiver.port) as session:
+            session.mail(SENDER)
+            session.rcpt(address(inbox))
+            code, _ = session.data(raw)
+            return code
+
+    assert await blocking(sent) == 552
+    assert await rows(db_engine) == []
+
+
 async def test_handle_data_checks_the_length_itself(receiver: SmtpReceiver) -> None:
     envelope = Envelope()
     envelope.original_content = b"x" * (MAX_MESSAGE_BYTES + 1)
@@ -264,6 +282,39 @@ async def test_connections_past_the_cap_get_421(context: WorkerContext) -> None:
         first.close()
     finally:
         await receiver.stop()
+
+
+async def test_one_source_cannot_hold_every_session(context: WorkerContext) -> None:
+    receiver = await started(context, max_per_source=2)
+    try:
+        held = []
+        for _ in range(2):
+            reader, writer = await asyncio.open_connection("127.0.0.1", receiver.port)
+            assert (await asyncio.wait_for(reader.readline(), 5)).startswith(b"220 ")
+            held.append(writer)
+        reader, third = await asyncio.open_connection("127.0.0.1", receiver.port)
+        assert (await asyncio.wait_for(reader.readline(), 5)).startswith(b"421 ")
+        third.close()
+        for writer in held:
+            writer.close()
+    finally:
+        await receiver.stop()
+
+
+async def test_unknown_recipients_close_the_connection_after_ten(
+    receiver: SmtpReceiver,
+) -> None:
+    def rcpts() -> tuple[list[int], bool]:
+        with client(receiver.port) as session:
+            session.mail(SENDER)
+            codes = [session.rcpt(f"{n:024d}@{DOMAIN}")[0] for n in range(11)]
+            try:
+                session.noop()
+            except smtplib.SMTPServerDisconnected:
+                return codes, True
+            return codes, False
+
+    assert await blocking(rcpts) == ([550] * 10 + [421], True)
 
 
 async def test_the_greeting_names_the_product_not_the_library(
@@ -432,6 +483,20 @@ def test_the_certificate_settings_come_in_pairs() -> None:
     with pytest.raises(SettingsError, match="SMTP_TLS_KEY_FILE"):
         load_settings(smtp_tls_key_file="/run/secrets/smtp.key")
     assert isinstance(load_settings(), Settings)
+
+
+def test_the_worker_refuses_to_start_without_the_certificate_files(
+    tmp_path: Path,
+) -> None:
+    missing = {
+        "smtp_tls_cert_file": str(tmp_path / "missing.crt"),
+        "smtp_tls_key_file": str(tmp_path / "missing.key"),
+    }
+    for role in ("all", "worker"):
+        with pytest.raises(SettingsError, match="readable files"):
+            load_settings(role=role, **missing)
+    # The web role does not open port 2525.
+    assert load_settings(role="web", **missing).smtp_tls_cert_file
 
 
 async def test_logs_carry_counts_never_addresses_codes_or_content(

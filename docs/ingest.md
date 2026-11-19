@@ -121,12 +121,14 @@ IMAP: decrypt with `context.secret_box.decrypt(inbox.imap_password_enc)` only in
 
 ## Receivers (C4-I)
 
-Every channel calls `accept_message` (`app/ingest/receive.py`): the 5 MB cap, the inbox's sender rules, then `store_raw`. Its callers commit and only then answer 250, mark the mail Seen or answer 202. A duplicate (same Message-ID or content hash in the same inbox) counts as success and stores nothing.
+Every channel calls `accept_message` (`app/ingest/receive.py`): the 5 MB cap with at most 256 KB of headers, the inbox's sender rules, then `store_raw`. Its callers commit and only then answer 250, mark the mail Seen or answer 202. A duplicate (same Message-ID or content hash in the same inbox) counts as success and stores nothing.
+
+Untrusted headers cost bounded time: the size and sender checks run in a thread, off the event loop, and a header value is cut to 8,000 characters before RFC 2047 decoding (`mime.header_value`; Python's decoder is quadratic, so an uncut 5 MB header took minutes and froze the loop).
 
 ### Sender checks
 
 - `sender_allowlist` (empty: anyone): every address of the `From` header must be listed, as itself (`alerts@example.com`) or by its domain (`@example.com`). Subdomains are not included. A message without a From address is refused.
-- `require_auth_results`: the topmost `Authentication-Results` header must report `dkim=pass` with `header.d` (or `header.i`) equal to the From domain or a parent domain of it. The header is written by the mail server that received the message, so the check helps for an IMAP mailbox or a forwarder behind such a server. A sender that talks to the SMTP listener directly can write its own header: the inbox address (24 random characters) stays the real secret, and docs/security.md (C11) records this residual risk.
+- `require_auth_results`: the topmost `Authentication-Results` header must report `dkim=pass` with a signing domain equal to the From domain or a parent domain of it. The signing domain is `header.d`, else the domain of `header.i` (after its last `@`; a local part chosen by the signer never counts). The header is written by the mail server that received the message, so the check helps for an IMAP mailbox or a forwarder behind such a server. A sender that talks to the SMTP listener directly can write its own header: the inbox address (24 random characters) stays the real secret, and docs/security.md (C11) records this residual risk.
 - A refusal stores nothing. Its reason is a fixed text that names no address: SMTP `550 5.7.1`, HTTP 422 `Message refused`, IMAP marks the message Seen (it would be refused again) and counts it in the log.
 
 ### SMTP listener (`app/ingest/smtp.py`)
@@ -135,20 +137,21 @@ aiosmtpd 1.4.6 on the worker's event loop, port `SMTP_PORT` (2525) on all interf
 
 | Step | Rule | Answer |
 | --- | --- | --- |
-| connect | at most 20 connections at a time; greeting `Checkorca-CE ESMTP` (no library version) | `421 4.7.0` past 20 |
+| connect | at most 20 connections at a time and 3 per source IP address; greeting `Checkorca-CE ESMTP` (no library version) | `421 4.7.0` past either |
 | idle | 30 seconds without a command closes the connection (DATA included: a 5 MB message must arrive within 30 s of the DATA command) | connection closed |
 | MAIL | 60 messages a minute per source IP address (token bucket); `SIZE=` above 5 MB | `451 4.7.1`; `552` |
 | RCPT | `code@MAIL_DOMAIN` of an smtp inbox, code compared in lower case; anything else, a webhook inbox's code or another domain included | `550 5.1.1 No such inbox` |
 | RCPT | at most 20 recipients per message | `452 4.5.3` |
-| DATA | 5 MB (aiosmtpd's SIZE limit, and again in `handle_DATA`) | `552` |
+| RCPT | at most 10 unknown addresses per connection | `421 4.7.0` to the 11th, then the connection closes |
+| DATA | 5 MB (aiosmtpd's SIZE limit, and again in `handle_DATA`), of which at most 256 KB of headers | `552` |
 | DATA | stored once per inbox in one transaction, committed before the answer; sender rules per inbox | `250 2.0.0`; `550 5.7.1` when every inbox refuses |
 | any | a database error or an unexpected error | `451 4.3.0` (the sender retries; the duplicate keys keep one row) |
 
-STARTTLS is offered when `SMTP_TLS_CERT_FILE` and `SMTP_TLS_KEY_FILE` name PEM files mounted into the container (both or neither; TLS 1.2 or newer). Without them the listener speaks plain SMTP. Logs carry counts only; aiosmtpd's own logger (`mail.log`, which writes addresses) is kept at error level.
+STARTTLS is offered when `SMTP_TLS_CERT_FILE` and `SMTP_TLS_KEY_FILE` name PEM files mounted into the container (both or neither; TLS 1.2 or newer). With `ROLE` `worker` or `all` both files must exist and be readable, or the process refuses to start: a missing file would otherwise leave port 2525 closed while `/readyz` answers 200. Without them the listener speaks plain SMTP. Logs carry counts only; aiosmtpd's own logger (`mail.log`, which writes addresses) is kept at error level.
 
 ### IMAP poller (`app/ingest/imap.py`)
 
-Every 30 seconds the poller polls each imap inbox whose `poll_seconds` have passed, one inbox at a time, with imaplib in a thread (30 s socket timeout). TLS (port 993) verifies the server's certificate and name; `tls` false is plain IMAP for a server on the MSP's own network, and sends the password unencrypted. The IMAP host is set by an admin and is not filtered like outbound webhooks: MSPs read mailboxes on internal servers.
+Every 30 seconds the poller polls each imap inbox whose `poll_seconds` have passed, one inbox at a time, with imaplib in a thread (30 s socket timeout). TLS (port 993) verifies the server's certificate and name; `tls` false is plain IMAP for a server on the MSP's own network, and sends the password unencrypted. The IMAP host is set by a signed-in admin or technician and is not filtered like outbound webhooks: MSPs read mailboxes on internal servers. Because the poller signs in with the stored password, `PATCH /inboxes/{id}` refuses a new host, port, TLS setting or user name with 422 unless the password is sent again: the stored one never goes to a server it was not given for.
 
 1. Decrypt the password into a `MailboxAccount` (only here).
 2. `UID SEARCH UNSEEN`, at most 50 messages, sizes first; bodies with `BODY.PEEK[]`, so nothing becomes Seen by being read. A message over 5 MB is not downloaded: it is marked Seen and counted in a warning.
@@ -161,16 +164,16 @@ A failed login or a lost connection is logged with the inbox id and the error cl
 
 | Route | Auth | Contract |
 | --- | --- | --- |
-| `POST /api/v1/ingest/email/{inbox_code}` | `Authorization: Bearer` with an ingest-scope API token (any smtp or webhook inbox), or a webhook inbox's own `chki_` token (only its own inbox, else 403) | raw RFC 822 body (`message/rfc822`); 401 without a valid token, 403 for a read token; 404 for an unknown code or another kind; 413 above 5 MiB; 422 for an empty body, a body without From, Subject, Date or Message-ID headers, or the sender rules; 202 `{message_id, duplicate}` |
-| `POST /api/v1/results` | ingest-scope API token | `NewResult`: `status`, `job_id` or `ping_token` (404 when no job has it; not both), else `client_hint` and `job_name`; `started_at` and `finished_at` with a time zone; `run_id`; `details` (JSON object, at most 16 KiB); 422 for anything else; 202 `{result_id, job_id}` (`job_id` null until the matcher binds it) |
+| `POST /api/v1/ingest/email/{inbox_code}` | `Authorization: Bearer` with an ingest-scope API token (any smtp or webhook inbox), or a webhook inbox's own `chki_` token (only its own inbox, else 403) | raw RFC 822 body (`message/rfc822`); 401 without a valid token, 403 for a read token; 404 for an unknown code or another kind; 413 above 5 MiB or 256 KB of headers; 422 for an empty body, a body without From, Subject, Date or Message-ID headers, or the sender rules; 202 `{message_id, duplicate}` |
+| `POST /api/v1/results` | ingest-scope API token | `NewResult`: `status`, `job_id` or `ping_token` (404 when no job has it; not both), else `client_hint` and `job_name` (not blank); `started_at` and `finished_at` with a time zone; `run_id`; `details` (JSON object, at most 16 KiB); 422 for anything else; 202 `{result_id, job_id}` (`job_id` null until the matcher binds it) |
 | `GET` or `POST /api/v1/ping/{ping_token}`, `/ping/{ping_token}/start`, `/ping/{ping_token}/fail` | the ping token in the URL | records `success`, `started` or `failed` for the job with `details` `{"source": "ping"}`; 200 `text/plain` `OK`; 404 for an unknown token, 422 for a malformed one |
 | `POST /api/v1/messages/upload` | session with `X-CSRF-Token`, admin or technician | multipart `file` (the .eml, read up to 5 MiB) and `inbox_id` (any kind); 404 for an unknown inbox; the same 413 and 422 rules; audit event `message.upload`; 202 `{message_id, duplicate}` |
 
-Rate limits: 120 requests a minute per API token (all its routes), per webhook inbox token and per ping token, then 429 with `Retry-After`. Request bodies are capped by the middleware (`BODY_LIMITS`): 5 MiB for raw mail, 5 MiB plus 16 KiB of multipart framing for the upload, 64 KiB elsewhere.
+Rate limits: 120 requests a minute per API token (all its routes), per webhook inbox token and per ping URL, then 429 with `Retry-After`. Only a known credential spends a bucket, so unknown tokens cannot push real ones out of the limiter. Request bodies are capped by the middleware (`BODY_LIMITS`): 5 MiB for raw mail, 5 MiB plus 16 KiB of multipart framing for the upload, 64 KiB elsewhere.
 
 The token routes read no cookie, so they need no CSRF token: their credential is the Authorization header or the URL, which a cross-site form cannot send or does not know. `tests/api/test_csrf_api.py` lists them as `TOKEN_ROUTES` and checks that a signed-in browser without a token writes nothing. A ping URL records a result on GET too (curl, wget and schedulers use GET); treat the URL like a password.
 
-The read routes: `GET /inboxes`, `/inboxes/{id}`, `/messages`, `/messages/{id}`, `/results`, `/jobs/{id}/results`, `/system/status`. A message detail gives the visible text of an HTML-only mail (`app/ingest/html_text.py`: script, style, head and comments dropped, entities decoded); the web app shows it escaped.
+The read routes: `GET /inboxes`, `/inboxes/{id}`, `/messages`, `/messages/{id}`, `/results`, `/jobs/{id}/results`, `/system/status`. A message detail gives the visible text of an HTML-only mail (`app/ingest/html_text.py`, the first 1 MB of the HTML: script, style, title and comments dropped, entities decoded); the web app shows it escaped.
 
 ### Smoke test
 

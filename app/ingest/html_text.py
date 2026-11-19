@@ -2,7 +2,7 @@
 
 Alert mail is often HTML only. The parser engine and the message detail need
 its words, never its markup: the stripper keeps the text of the document,
-drops what a browser would not show as text (script, style, head, template,
+drops what a browser would not show as text (script, style, title, template,
 comments and the like) and turns block elements into line breaks so table rows
 and paragraphs stay apart. Entities are decoded, so an escaped "<script>" in
 the source comes out as those characters of text; callers always show the
@@ -17,10 +17,10 @@ import re
 from html.parser import HTMLParser
 from typing import Final
 
-# Their content is not text a reader sees.
+# Their content is not text a reader sees. head is not here: its end tag may
+# be left out, and its text-bearing children (title, style, script) are.
 _HIDDEN: Final = frozenset(
     {
-        "head",
         "iframe",
         "noscript",
         "object",

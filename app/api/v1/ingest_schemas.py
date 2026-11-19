@@ -214,7 +214,11 @@ class ResultPage(BaseModel):
 PingToken = Annotated[
     str, StringConstraints(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9]+$")
 ]
-ResultText = Annotated[str, StringConstraints(max_length=NAME_LENGTH)]
+# Blank text would store a result the matcher can never bind: 422 instead.
+ResultText = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=NAME_LENGTH),
+]
 
 
 class NewResult(Body):
