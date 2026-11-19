@@ -2016,7 +2016,14 @@
             "title": "Consecutive Failures To Alert"
           },
           "ping_url": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Ping Url"
           },
           "enabled": {
