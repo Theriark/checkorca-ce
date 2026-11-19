@@ -5,6 +5,7 @@ index.html for every other path outside /api/, so deep links work. Unknown
 paths under /api/ stay 404 problem documents.
 """
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -29,6 +30,7 @@ from app.security.passwords import PasswordService
 from app.security.ratelimit import RateLimiter
 from app.settings import Settings, get_settings
 from app.web import SinglePageApp
+from app.worker.heartbeat import read_heartbeat
 
 # Where the Dockerfile puts the Vite build (frontend/dist).
 DEFAULT_STATIC_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
@@ -37,6 +39,8 @@ DEFAULT_STATIC_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist
 LOGIN_RATE = (10, 60.0)
 # API tokens: 120 requests a minute per token (rnd-report-2 5.7).
 TOKEN_RATE = (120, 60.0)
+
+logger = logging.getLogger(__name__)
 
 
 def create_app(
@@ -107,11 +111,30 @@ def create_app(
 
     @app.get("/readyz")
     async def readyz() -> JSONResponse:
-        """Ready when the database answers (phase C4 adds the worker heartbeat)."""
-        if await check_database(engine):
-            return JSONResponse({"status": "ready", "database": "ok"})
+        """Ready when the database answers and the worker heartbeat is younger
+        than 3 minutes (ROLE=all runs the worker in this process)."""
+        if not await check_database(engine):
+            return JSONResponse(
+                {"status": "unavailable", "database": "unreachable"},
+                status_code=503,
+            )
+        try:
+            heartbeat = await read_heartbeat(
+                services.sessionmaker, services.policy, clock.now()
+            )
+        except Exception as error:  # a missing table or a refusing policy
+            logger.warning("heartbeat check failed: %s", type(error).__name__)
+            worker = "unknown"
+        else:
+            worker = "ok"
+            if heartbeat.at is None:
+                worker = "missing"
+            elif heartbeat.stale:
+                worker = "stale"
+        if worker == "ok":
+            return JSONResponse({"status": "ready", "database": "ok", "worker": "ok"})
         return JSONResponse(
-            {"status": "unavailable", "database": "unreachable"},
+            {"status": "unavailable", "database": "ok", "worker": worker},
             status_code=503,
         )
 

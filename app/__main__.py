@@ -77,7 +77,7 @@ async def serve(settings: Settings, with_worker: bool) -> None:
         await server.serve()
         return
     stop = asyncio.Event()
-    worker = asyncio.create_task(run_worker(stop))
+    worker = asyncio.create_task(run_worker(settings, stop))
     try:
         await server.serve()
     finally:
@@ -85,13 +85,13 @@ async def serve(settings: Settings, with_worker: bool) -> None:
         await worker
 
 
-async def work() -> None:
+async def work(settings: Settings) -> None:
     """Run the worker loop until SIGTERM or SIGINT."""
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for signum in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(signum, stop.set)
-    await run_worker(stop)
+    await run_worker(settings, stop)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -116,7 +116,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif name == "seed":
             seed(settings)
         elif name == "worker":
-            asyncio.run(work())
+            asyncio.run(work(settings))
         else:
             migrate(settings)
             seed(settings)
