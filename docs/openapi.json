@@ -1716,7 +1716,7 @@
           "inboxes"
         ],
         "summary": "Update Inbox",
-        "description": "Change the label, the sender allowlist, the Authentication-Results rule\nor (IMAP inboxes) the IMAP settings. A password sent replaces the stored\none; none sent keeps it.",
+        "description": "Change the label, the sender allowlist, the Authentication-Results rule\nor (IMAP inboxes) the IMAP settings. A password sent replaces the stored\none; none sent keeps it, except that a new host, port, TLS setting or user\nname needs the password again (422).",
         "operationId": "update_inbox_api_v1_inboxes__inbox_id__patch",
         "parameters": [
           {
@@ -4654,7 +4654,8 @@
             "anyOf": [
               {
                 "type": "string",
-                "maxLength": 200
+                "maxLength": 200,
+                "minLength": 1
               },
               {
                 "type": "null"
@@ -4666,7 +4667,8 @@
             "anyOf": [
               {
                 "type": "string",
-                "maxLength": 200
+                "maxLength": 200,
+                "minLength": 1
               },
               {
                 "type": "null"
@@ -4702,7 +4704,8 @@
             "anyOf": [
               {
                 "type": "string",
-                "maxLength": 200
+                "maxLength": 200,
+                "minLength": 1
               },
               {
                 "type": "null"
