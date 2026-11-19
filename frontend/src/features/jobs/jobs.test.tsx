@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { strings } from '../../strings';
 import { PREVIEW_OK, makeClient, makeJob } from '../../test/fixtures';
-import { ADMIN, renderApp, stubFetch } from '../../test/render';
+import { ADMIN, holdFetch, renderApp, stubFetch } from '../../test/render';
 
 const ME = { 'GET /api/v1/auth/me': { status: 200, body: ADMIN } };
 const CLIENTS = { 'GET /api/v1/clients': { status: 200, body: { items: [makeClient()], next_cursor: null } } };
@@ -15,10 +15,13 @@ afterEach(() => {
 });
 
 describe('/jobs', () => {
-  it('lists jobs with schedule, zone and state; a paused job says so in words', async () => {
+  it('shows a loading table, then the jobs with schedule, zone and state; a paused job says so in words', async () => {
     stubFetch({ ...ME, ...CLIENTS, 'GET /api/v1/jobs': { status: 200, body: { items: [makeJob(), PAUSED], next_cursor: null } } });
+    const release = holdFetch('/jobs?');
     renderApp('/jobs');
     const table = await screen.findByRole('table', { name: strings.jobs.tableCaption });
+    await waitFor(() => expect(table.querySelector('tbody[aria-busy="true"]')).toBeTruthy());
+    release();
     await within(table).findByText('Veeam nightly');
     expect(within(table).getAllByText('23:00')).toHaveLength(2);
     expect(within(table).getAllByText('Europe/Lisbon')).toHaveLength(2);
@@ -263,7 +266,7 @@ describe('job drawer', () => {
 
   it('edits a job: shows the ping URL with copy, prefills the schedule, sends only the changed fields', async () => {
     const user = userEvent.setup();
-    const job = makeJob({ schedule_expr: '06:00, 23:00' });
+    const job = makeJob({ schedule_expr: '06:00,23:00' });
     const { calls } = stubFetch({
       ...ME,
       ...CLIENTS,
@@ -282,8 +285,12 @@ describe('job drawer', () => {
     expect(within(drawer).getByRole('button', { name: strings.common.copy })).toBeTruthy();
     // The preview of an existing job passes its creation time as the anchor.
     await waitFor(() => expect(calls.some((call) => call.url.endsWith('/schedule/preview'))).toBe(true), { timeout: 3000 });
-    expect(JSON.parse(String(calls.find((call) => call.url.endsWith('/schedule/preview'))?.init?.body))).toMatchObject({ anchor: job.created_at, expr: '06:00, 23:00' });
+    expect(JSON.parse(String(calls.find((call) => call.url.endsWith('/schedule/preview'))?.init?.body))).toMatchObject({ anchor: job.created_at, expr: '06:00,23:00' });
+    // Rows have stable keys: removing the first time keeps the second row's input (no remount, focus stays put).
+    const secondInput = within(drawer).getByLabelText('Time 2');
     await user.click(within(drawer).getByRole('button', { name: 'Remove time 06:00' }));
+    expect(within(drawer).getByLabelText('Time 1')).toBe(secondInput);
+    expect((secondInput as HTMLInputElement).value).toBe('23:00');
     await user.clear(within(drawer).getByLabelText(strings.jobForm.grace));
     await user.type(within(drawer).getByLabelText(strings.jobForm.grace), '90');
     await user.click(within(drawer).getByRole('button', { name: strings.jobForm.save }));
@@ -371,7 +378,7 @@ describe('import dialog', () => {
     expect(dryRun?.init?.body).toBeInstanceOf(FormData);
     expect((dryRun?.init?.headers as Headers).get('X-CSRF-Token')).toBe(ADMIN.csrf_token);
     expect((dryRun?.init?.headers as Headers).get('Content-Type')).toBeNull();
-    await user.click(within(dialog).getByRole('button', { name: 'Import 1 rows' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Import 1 row' }));
     expect(await within(dialog).findByText(strings.importCsv.done)).toBeTruthy();
     const real = calls.filter((call) => call.url.includes('/import.csv'))[1];
     expect(real?.url).toContain('dry_run=false');

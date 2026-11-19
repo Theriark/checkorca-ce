@@ -24,7 +24,8 @@ for (const scheme of SCHEMES) {
       await expect(paused).toContainText('until resumed');
       await expectNoHorizontalOverflow(page);
       await expectAccessible(page);
-      await page.screenshot({ path: shot('jobs', width, scheme), fullPage: true });
+      // At 390 a full-page shot would paint the fixed bottom bar mid-page: viewport only.
+      await page.screenshot({ path: shot('jobs', width, scheme), fullPage: width > 390 });
 
       // The drawer with a daily 23:00 schedule: five times from the preview.
       await page.getByRole('button', { name: 'New job' }).first().click();
@@ -89,11 +90,16 @@ test('jobs: filters by client, kind and state, and the archived toggle', async (
   expect(store.calls.some((call) => call.url.includes('archived=true'))).toBe(true);
 });
 
-test('jobs: create a daily 23:00 Europe/Lisbon job, pause, resume and archive it', async ({ page }) => {
+// The pause dialog is axe-checked on a desktop in light and on a phone in dark.
+for (const [width, scheme] of [
+  [1440, 'light'],
+  [390, 'dark'],
+] as const) {
+test(`jobs: create a daily 23:00 Europe/Lisbon job, pause, resume and archive it (${width} px, ${scheme})`, async ({ page }) => {
   const errors = watchConsole(page);
   await stubApi(page, { me: ADMIN });
   const store = await installFakeApi(page);
-  await setView(page, 1440, 'light');
+  await setView(page, width, scheme);
   await page.goto('/jobs');
   await page.getByRole('button', { name: 'New job' }).first().click();
   const drawer = page.getByRole('dialog', { name: 'New job' });
@@ -128,7 +134,7 @@ test('jobs: create a daily 23:00 Europe/Lisbon job, pause, resume and archive it
   await expect(pause.getByLabel(/Until/)).toBeFocused();
   await pause.getByLabel(/Until/).fill('2027-01-05T09:30');
   await expectAccessible(page);
-  await page.screenshot({ path: 'screenshots/job-pause-1440-light.png' });
+  await page.screenshot({ path: shot('job-pause', width, scheme) });
   await pause.getByRole('button', { name: 'Pause' }).click();
   await expect(page.locator('.co-toast--success').last()).toContainText('Job paused');
   await expect(row).toContainText('Paused');
@@ -158,11 +164,16 @@ test('jobs: create a daily 23:00 Europe/Lisbon job, pause, resume and archive it
   await expect(page.getByRole('table').locator('tbody tr').filter({ hasText: 'Acronis cloud' })).toContainText('Archived');
   expect(errors()).toEqual([]);
 });
+}
 
-test('jobs: the preview shows the server error text for an unusable schedule, debounced', async ({ page }) => {
+for (const [width, scheme] of [
+  [768, 'light'],
+  [390, 'dark'],
+] as const) {
+test(`jobs: the preview shows the server error text for an unusable schedule, debounced (${width} px, ${scheme})`, async ({ page }) => {
   await stubApi(page, { me: ADMIN });
   const store = await installFakeApi(page);
-  await setView(page, 768, 'light');
+  await setView(page, width, scheme);
   await page.goto('/jobs');
   await page.getByRole('button', { name: 'New job' }).first().click();
   const drawer = page.getByRole('dialog', { name: 'New job' });
@@ -173,7 +184,7 @@ test('jobs: the preview shows the server error text for an unusable schedule, de
   await expect(drawer.locator('.co-field__error')).toContainText('A cron expression has five fields');
   await expect(drawer.getByRole('status').filter({ hasText: 'The schedule cannot be used' })).toContainText('A cron expression has five fields');
   await expectAccessible(page);
-  await page.screenshot({ path: 'screenshots/job-preview-error-768-light.png' });
+  await page.screenshot({ path: shot('job-preview-error', width, scheme) });
   await drawer.getByLabel('Expression').pressSequentially(' 1-5', { delay: 20 });
   await expect(drawer.locator('.co-preview__item')).toHaveCount(5);
   // Typing twelve characters asked the server a handful of times, not twelve.
@@ -183,6 +194,7 @@ test('jobs: the preview shows the server error text for an unusable schedule, de
   await drawer.getByLabel('Time zone').fill('Mars');
   await expect(drawer.locator('.co-field__error')).toContainText('Unknown time zone: Mars.');
 });
+}
 
 test('jobs: import with one bad row checks first, then imports the rest', async ({ page }) => {
   const errors = watchConsole(page);
