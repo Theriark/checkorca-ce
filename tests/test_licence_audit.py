@@ -211,11 +211,19 @@ def test_repository_exceptions_are_the_reviewed_set() -> None:
         ("npm", "axe-core", "MPL-2.0", "dev"),
         ("npm", "lightningcss", "MPL-2.0", "dev"),
         ("npm", "caniuse-lite", "CC-BY-4.0", "dev"),
+        ("npm", "@fontsource-variable/inter", "OFL-1.1", "runtime"),
+        ("npm", "@fontsource-variable/jetbrains-mono", "OFL-1.1", "runtime"),
     ):
         assert expected in found
-    # Only certifi and cffi may be shipped under an exception.
+    # Only certifi, cffi and the two OFL font packages (legal R-5, phase C2)
+    # may be shipped under an exception.
     runtime = sorted(entry.package for entry in entries if entry.scope == "runtime")
-    assert runtime == ["certifi", "cffi"]
+    assert runtime == [
+        "@fontsource-variable/inter",
+        "@fontsource-variable/jetbrains-mono",
+        "certifi",
+        "cffi",
+    ]
 
 
 def test_main_python_mode(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

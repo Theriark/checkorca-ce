@@ -1,0 +1,7 @@
+/** Two letters for the avatar, from the local part of the e-mail address. */
+export function initialsOf(email: string): string {
+  const local = email.split('@')[0] ?? email;
+  const parts = local.split(/[._-]+/).filter(Boolean);
+  const letters = parts.length >= 2 ? `${parts[0]?.[0] ?? ''}${parts[1]?.[0] ?? ''}` : local.slice(0, 2);
+  return letters.toUpperCase();
+}

@@ -1,0 +1,89 @@
+/* The component gallery (GalleryPage.tsx): test build only, loaded with the
+   page, never part of the product bundle (scripts/check-product-bundle.mjs). */
+
+.co-gallery {
+  min-height: 100vh;
+  background: var(--bg);
+}
+
+.co-gallery__header {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-shell);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.co-gallery__main {
+  display: grid;
+  gap: var(--space-10);
+  max-width: var(--content-max-width);
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-5) var(--space-16);
+}
+
+.co-gallery__section {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.co-gallery__section-title {
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-20);
+}
+
+.co-gallery__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-4);
+}
+
+.co-gallery__grid--wide {
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.co-gallery__case {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.co-gallery__case-title {
+  font-size: var(--text-12);
+  font-weight: 600;
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.co-gallery__case--wide {
+  grid-column: span 2;
+}
+
+.co-gallery__case--full {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 639px) {
+  .co-gallery__case--wide {
+    grid-column: auto;
+  }
+}
+
+.co-gallery__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}

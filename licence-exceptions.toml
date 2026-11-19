@@ -216,3 +216,21 @@ scope = "dev"
 reason = "Browser support data that the build tools read; never in the built web app (dev-work-plan C0-P1 step 5)."
 reviewer = "Platform and Release Engineer, THE-1909; reviewed in the pull request"
 date = 2026-11-18
+
+[[exception]]
+ecosystem = "npm"
+package = "@fontsource-variable/inter"
+licence = "OFL-1.1"
+scope = "runtime"
+reason = "SIL Open Font License 1.1 for the Inter font files, self-hosted through @fontsource instead of a CDN (dev-work-plan C2-F step 2, legal R-10; fonts are in the gate, legal R-5). The OFL permits bundling and web embedding; the font is shipped unmodified under its reserved name, and the OFL applies to the font files only, never to the application. LICENSE read in the package (fontsource mirrors Inter's OFL.txt) on 2026-11-19."
+reviewer = "Frontend Developer, THE-1986; reviewed in the pull request"
+date = 2026-11-19
+
+[[exception]]
+ecosystem = "npm"
+package = "@fontsource-variable/jetbrains-mono"
+licence = "OFL-1.1"
+scope = "runtime"
+reason = "SIL Open Font License 1.1 for the JetBrains Mono font files, self-hosted through @fontsource (dev-work-plan C2-F step 2, legal R-10 and R-5). Shipped unmodified under its reserved name; the OFL covers the font files only. LICENSE read in the package on 2026-11-19."
+reviewer = "Frontend Developer, THE-1986; reviewed in the pull request"
+date = 2026-11-19
