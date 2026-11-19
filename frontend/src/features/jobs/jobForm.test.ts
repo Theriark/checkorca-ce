@@ -15,7 +15,7 @@ const JOB: JobOut = {
   parser_pack_id: null,
   match_key: null,
   schedule_kind: 'daily',
-  schedule_expr: '06:00, 23:00',
+  schedule_expr: '06:00,23:00',
   timezone: 'Europe/Lisbon',
   max_runtime_minutes: 360,
   grace_minutes: 120,
@@ -41,10 +41,13 @@ function valid(): FormState {
 
 describe('scheduleValue', () => {
   it('splits a daily expression into times and joins them back, sorted by the server later', () => {
+    // The server stores comma-only; a hand-typed comma-space import is read the same way.
     const value = scheduleValueOf('daily', '06:00, 23:00', 'Europe/Lisbon');
     expect(value.times).toEqual(['06:00', '23:00']);
-    expect(scheduleExpression(value)).toBe('06:00, 23:00');
-    expect(scheduleExpression({ ...value, times: ['23:00', '', ' 06:00 '] })).toBe('23:00, 06:00');
+    expect(scheduleExpression(value)).toBe('06:00,23:00');
+    // Joined the way the server stores it (comma only), so an unchanged job sends no PATCH.
+    expect(scheduleExpression({ ...value, times: ['23:00', '', ' 06:00 '] })).toBe('23:00,06:00');
+    expect(scheduleExpression(scheduleValueOf('daily', '06:00,23:00', 'UTC'))).toBe('06:00,23:00');
     expect(scheduleValueOf('daily', '', 'UTC').times).toEqual(['']);
   });
 
