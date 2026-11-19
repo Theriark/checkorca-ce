@@ -211,6 +211,21 @@ async def test_import_reports_each_bad_row_by_number(
     assert [item["name"] for item in listed] == [DENTAL]
 
 
+async def test_rows_firing_every_minute_of_a_few_months_import(
+    client: httpx.AsyncClient, csrf: str
+) -> None:
+    """Code review M1: such a row made the whole import answer 500."""
+    text = (
+        "client,job,schedule_kind,schedule_expr,timezone\n"
+        f"{DENTAL},Spring archive sync,cron,* * * 3-5 *,Europe/Lisbon\n"
+        f"{DENTAL},Nightly server backup,daily,23:00,Europe/Lisbon\n"
+    )
+    response = await upload(client, csrf, text)
+    assert response.status_code == 200
+    assert response.json()["created"] == 2
+    assert response.json()["errors"] == []
+
+
 async def test_a_dry_run_saves_nothing(client: httpx.AsyncClient, csrf: str) -> None:
     text = (
         "client,job,schedule_kind,schedule_expr,timezone\n"
