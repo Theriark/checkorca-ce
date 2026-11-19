@@ -152,10 +152,31 @@ class Worker:
                 now = clock.monotonic()
                 # After a slow tick the next one starts at once; no catching up.
                 next_at = max(next_at, now)
-                if await wait_for_stop(stop, next_at - now):
+                if not await self._wait_holding(stop, lock, next_at - now):
                     return
         finally:
             await self._stop_receivers(running)
+
+    async def _wait_holding(
+        self, stop: asyncio.Event, lock: WorkerLock, seconds: float
+    ) -> bool:
+        """Wait for the next tick, checking the lock every lock_retry_seconds;
+        False when stop is set or the lock is lost.
+
+        A waiting worker takes a freed lock within lock_retry_seconds; the
+        holder notices the loss about as soon, so the receivers of two workers
+        overlap for seconds, not for a whole tick.
+        """
+        remaining = seconds
+        while True:
+            step = min(remaining, self.lock_retry_seconds)
+            if await wait_for_stop(stop, step):
+                return False
+            remaining -= step
+            if not await lock.still_held():
+                return False
+            if remaining <= 0:
+                return True
 
     async def tick(self) -> None:
         """Write the heartbeat, then run every hook once."""
