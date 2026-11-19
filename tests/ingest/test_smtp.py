@@ -186,11 +186,10 @@ async def test_a_message_over_5_mb_gets_552(
         with client(receiver.port) as session:
             session.mail(SENDER)
             session.rcpt(address(inbox))
-            try:
-                session.data(big)
-            except smtplib.SMTPDataError as error:
-                return error.smtp_code
-            return 250
+            # data() raises only when DATA itself is refused; the answer to the
+            # message comes back as the code.
+            code, _ = session.data(big)
+            return code
 
     assert await blocking(declared) == 552
     assert await blocking(sent) == 552
