@@ -7,8 +7,10 @@ import { APP_VERSION, strings } from '../strings';
 import './routes.css';
 
 /** The split layout of sign-in and first run: the Night Ribbon panel on the
- *  left from 1024 px, the stacked logo and the form in a card on the right. */
-export function AuthFrame({ children, lead }: { readonly children: ReactNode; readonly lead: string }) {
+ *  left from 1024 px; on the right the stacked logo on the page colour (the
+ *  brand file carries an opaque tile in that colour, so it must never sit on
+ *  a card) above a card with the title, the lead and the form. */
+export function AuthFrame({ children, title, lead }: { readonly children: ReactNode; readonly title: string; readonly lead: string }) {
   return (
     <div className="co-auth">
       <aside className="co-auth__panel" aria-hidden="true">
@@ -22,11 +24,16 @@ export function AuthFrame({ children, lead }: { readonly children: ReactNode; re
         <div className="co-auth__toolbar">
           <ThemeToggle />
         </div>
-        <section className="co-auth__card" aria-labelledby="auth-title">
+        <div className="co-auth__body">
           <Logo variant="stacked" width={168} className="co-auth__logo" />
-          <p className="co-auth__lead">{lead}</p>
-          {children}
-        </section>
+          <section className="co-auth__card" aria-labelledby="auth-title">
+            <h1 id="auth-title" className="co-auth__title">
+              {title}
+            </h1>
+            <p className="co-auth__lead">{lead}</p>
+            {children}
+          </section>
+        </div>
         <p className="co-auth__foot">
           <span>{strings.edition}</span>
           <span aria-hidden="true">·</span>

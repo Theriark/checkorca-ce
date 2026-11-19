@@ -42,10 +42,7 @@ export function FirstRunPage() {
 
   if (setup.isPending) {
     return (
-      <AuthFrame lead={strings.firstRun.checking}>
-        <h1 id="auth-title" className="co-auth__title">
-          {strings.firstRun.title}
-        </h1>
+      <AuthFrame title={strings.firstRun.title} lead={strings.firstRun.checking}>
         <SkeletonGroup className="co-auth__skeleton" label={strings.firstRun.checking}>
           <Skeleton height={40} radius="md" />
           <Skeleton height={40} radius="md" />
@@ -58,10 +55,7 @@ export function FirstRunPage() {
 
   if (setup.isError) {
     return (
-      <AuthFrame lead={strings.firstRun.checking}>
-        <h1 id="auth-title" className="co-auth__title">
-          {strings.firstRun.title}
-        </h1>
+      <AuthFrame title={strings.firstRun.title} lead={strings.firstRun.checking}>
         <ErrorState error={setup.error} onRetry={() => void setup.refetch()} retrying={setup.isFetching} compact />
       </AuthFrame>
     );
@@ -102,10 +96,7 @@ export function FirstRunPage() {
   };
 
   return (
-    <AuthFrame lead={strings.firstRun.lead}>
-      <h1 id="auth-title" className="co-auth__title">
-        {strings.firstRun.title}
-      </h1>
+    <AuthFrame title={strings.firstRun.title} lead={strings.firstRun.lead}>
       <form className="co-auth__form" onSubmit={(event) => void onSubmit(event)} noValidate>
         {formError && (
           <div className="co-alert co-alert--danger" role="alert">

@@ -12,16 +12,16 @@
 import { Outlet, createRootRoute, createRoute, createRouter, type RouterHistory } from '@tanstack/react-router';
 
 import { FirstRunPage } from './routes/FirstRunPage';
-import { GalleryPage } from './routes/GalleryPage';
+import { GALLERY_ENABLED, GalleryRoute } from './routes/GalleryRoute';
 import { LoginPage } from './routes/LoginPage';
 import { NotFoundPage } from './routes/NotFoundPage';
 import { PluginRouteOutlet } from './routes/PluginRouteOutlet';
 import { SectionPage } from './routes/SectionPage';
 import { ShellGate } from './routes/ShellGate';
+import { sanitiseRedirect } from './routes/redirect';
 import { SECTIONS } from './routes/sections';
 
 export const GALLERY_PATH = '/_gallery';
-export const GALLERY_ENABLED = import.meta.env.VITE_GALLERY === '1';
 
 const rootRoute = createRootRoute({
   component: () => <Outlet />,
@@ -31,8 +31,10 @@ const rootRoute = createRootRoute({
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/login',
-  validateSearch: (search: Record<string, unknown>): { redirect?: string } =>
-    typeof search.redirect === 'string' && search.redirect.startsWith('/') ? { redirect: search.redirect } : {},
+  validateSearch: (search: Record<string, unknown>): { redirect?: string } => {
+    const redirect = sanitiseRedirect(search.redirect);
+    return redirect ? { redirect } : {};
+  },
   component: LoginPage,
 });
 
@@ -64,10 +66,11 @@ const pluginRoute = createRoute({
   component: PluginRouteOutlet,
 });
 
+// The gallery is loaded on demand and only in the test build (GalleryRoute).
 const galleryRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: GALLERY_PATH,
-  component: GALLERY_ENABLED ? GalleryPage : () => <NotFoundPage />,
+  component: GalleryRoute,
 });
 
 const routeTree = rootRoute.addChildren([

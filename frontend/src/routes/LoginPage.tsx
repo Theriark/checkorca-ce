@@ -1,4 +1,4 @@
-import { Navigate, useNavigate } from '@tanstack/react-router';
+import { Navigate, useNavigate, useSearch } from '@tanstack/react-router';
 import { Eye, EyeOff, ShieldAlert } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 
@@ -8,14 +8,18 @@ import { Button } from '../components/ui/Button';
 import { ErrorState } from '../components/ui/ErrorState';
 import { Input } from '../components/ui/Input';
 import { Skeleton, SkeletonGroup } from '../components/ui/Skeleton';
+import { usePluginSlot } from '../plugins/slots';
 import { strings } from '../strings';
 import { AuthFrame } from './AuthFrame';
 import { loginErrorMessage } from './authMessages';
+import { resolveRedirect } from './redirect';
 import './routes.css';
 
 export function LoginPage() {
   const { status, error: sessionError, refresh, signIn } = useAuth();
   const navigate = useNavigate();
+  const { redirect } = useSearch({ from: '/login' });
+  const pluginRoutes = usePluginSlot('routes');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -23,8 +27,15 @@ export function LoginPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [requestId, setRequestId] = useState<string | null>(null);
 
+  // Where to go once signed in: the section the visitor asked for, if it is
+  // a known route of this app; otherwise the morning check.
+  const destination = resolveRedirect(
+    redirect,
+    pluginRoutes.map((route) => route.path),
+  );
+
   if (status === 'signed-in') {
-    return <Navigate to="/" replace />;
+    return <Navigate to={destination} replace />;
   }
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -38,7 +49,7 @@ export function LoginPage() {
     setRequestId(null);
     try {
       await signIn({ email: email.trim(), password });
-      await navigate({ to: '/', replace: true });
+      await navigate({ to: destination, replace: true });
     } catch (caught) {
       const apiError = toApiError(caught);
       setFormError(loginErrorMessage(apiError));
@@ -48,10 +59,7 @@ export function LoginPage() {
   };
 
   return (
-    <AuthFrame lead={strings.login.lead}>
-      <h1 id="auth-title" className="co-auth__title">
-        {strings.login.title}
-      </h1>
+    <AuthFrame title={strings.login.title} lead={strings.login.lead}>
       {status === 'loading' && (
         <SkeletonGroup className="co-auth__skeleton">
           <Skeleton height={40} radius="md" />

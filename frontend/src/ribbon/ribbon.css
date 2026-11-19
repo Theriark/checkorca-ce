@@ -26,13 +26,13 @@
   opacity: 0.6;
 }
 
+/* Reported rings are filled with their status colour, the silent ring is
+   hollow: the difference is shape, not only colour. Keep every kind rule at
+   one class of specificity so no variant rule can override the fill (the hero
+   variant once did, and every ring rendered hollow). */
 .co-ribbon-mark__ring {
   stroke-width: 2.5;
   fill: var(--surface);
-}
-
-.co-ribbon-mark--hero .co-ribbon-mark__ring {
-  fill: var(--brand-ink);
 }
 
 .co-ribbon-mark__ring--verified {

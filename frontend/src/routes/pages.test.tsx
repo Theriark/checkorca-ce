@@ -6,7 +6,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../api/client';
 import { PRODUCT_NAME, strings } from '../strings';
 import { ADMIN, TECHNICIAN, UNAUTHENTICATED, renderApp, stubFetch } from '../test/render';
-import { firstRunValidation, loginErrorMessage } from './authMessages';
+import { firstRunValidation, lockoutRetry, loginErrorMessage } from './authMessages';
+
+const SIGNED_IN_ADMIN = {
+  status: 200,
+  body: { user: { ...ADMIN, disabled: false, locked_until: null, created_at: '2026-11-18T00:00:00Z' }, csrf_token: 'c' },
+};
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -35,10 +40,20 @@ describe('login page', () => {
 
   it('maps 401, 423, 429 and a network failure to one sentence each', () => {
     expect(loginErrorMessage(new ApiError({ title: 'x', status: 401 }))).toBe(strings.login.wrongCredentials);
-    expect(loginErrorMessage(new ApiError({ title: 'x', status: 423 }))).toBe(strings.login.locked);
+    expect(loginErrorMessage(new ApiError({ title: 'x', status: 423 }))).toBe(`${strings.login.locked} ${strings.login.lockedRetryLater}`);
     expect(loginErrorMessage(new ApiError({ title: 'x', status: 429 }))).toBe(strings.login.tooMany);
     expect(loginErrorMessage(new ApiError({ title: 'x', status: 0 }))).toBe(strings.login.offline);
     expect(loginErrorMessage(new ApiError({ title: 'x', status: 500, detail: 'boom' }))).toBe('boom');
+  });
+
+  it('tells the locked user how long to wait, from the Retry-After the server gave', () => {
+    expect(lockoutRetry(300)).toBe('Try again in 5 minutes.');
+    expect(lockoutRetry(301)).toBe('Try again in 6 minutes.');
+    expect(lockoutRetry(45)).toBe(strings.login.lockedRetryMinute);
+    expect(lockoutRetry(0)).toBe(strings.login.lockedRetryLater);
+    expect(lockoutRetry(null)).toBe(strings.login.lockedRetryLater);
+    const locked = new ApiError({ title: 'Locked', status: 423 }, { retryAfterSeconds: 120 });
+    expect(loginErrorMessage(locked)).toBe(`${strings.login.locked} Try again in 2 minutes.`);
   });
 
   it('shows the wrong-credentials message after a 401 and keeps the form usable', async () => {
@@ -81,6 +96,37 @@ describe('login page', () => {
     await waitFor(() => expect(history.location.pathname).toBe('/'));
   });
 
+  it('comes back to the section asked for before sign-in (/login?redirect=/jobs lands on /jobs)', async () => {
+    const user = userEvent.setup();
+    stubFetch({ 'GET /api/v1/auth/me': UNAUTHENTICATED, 'POST /api/v1/auth/login': SIGNED_IN_ADMIN });
+    const { history } = renderApp('/login?redirect=%2Fjobs');
+    await user.type(await screen.findByLabelText(strings.login.email), ADMIN.email);
+    await user.type(screen.getByLabelText(strings.login.password), 'correct-password-1');
+    await user.click(screen.getByRole('button', { name: strings.login.submit }));
+    await waitFor(() => expect(history.location.pathname).toBe('/jobs'));
+    expect(await screen.findByRole('heading', { level: 1, name: strings.nav.jobs })).toBeTruthy();
+  });
+
+  it('ignores a redirect that is not a known section or that leaves the origin', async () => {
+    for (const hostile of ['%2F%2Fevil.example', 'https%3A%2F%2Fevil.example', '%2Fnot-a-section', '%2Fjobs%5Cevil']) {
+      const user = userEvent.setup();
+      stubFetch({ 'GET /api/v1/auth/me': UNAUTHENTICATED, 'POST /api/v1/auth/login': SIGNED_IN_ADMIN });
+      const { history, unmount } = renderApp(`/login?redirect=${hostile}`);
+      await user.type(await screen.findByLabelText(strings.login.email), ADMIN.email);
+      await user.type(screen.getByLabelText(strings.login.password), 'correct-password-1');
+      await user.click(screen.getByRole('button', { name: strings.login.submit }));
+      await waitFor(() => expect(history.location.pathname).toBe('/'));
+      unmount();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('sends an already signed-in visitor straight to the asked section', async () => {
+    stubFetch({ 'GET /api/v1/auth/me': { status: 200, body: ADMIN } });
+    const { history } = renderApp('/login?redirect=%2Fclients');
+    await waitFor(() => expect(history.location.pathname).toBe('/clients'));
+  });
+
   it('toggles the password visibility', async () => {
     const user = userEvent.setup();
     stubFetch({ 'GET /api/v1/auth/me': UNAUTHENTICATED });
@@ -97,7 +143,21 @@ describe('shell', () => {
     stubFetch({ 'GET /api/v1/auth/me': UNAUTHENTICATED });
     const { history } = renderApp('/jobs');
     await waitFor(() => expect(history.location.pathname).toBe('/login'));
-    expect(history.location.search).toContain('redirect');
+    expect(history.location.search).toBe('?redirect=%2Fjobs');
+  });
+
+  it('gives the technician a not-found page for the admin-only Settings address', async () => {
+    stubFetch({ 'GET /api/v1/auth/me': { status: 200, body: TECHNICIAN } });
+    renderApp('/settings');
+    expect(await screen.findByRole('heading', { level: 1, name: strings.notFound.title })).toBeTruthy();
+    expect(screen.getByText(strings.notFound.adminOnly)).toBeTruthy();
+    expect(screen.queryByRole('navigation', { name: strings.nav.primary })).toBeNull();
+  });
+
+  it('opens Settings for the admin', async () => {
+    stubFetch({ 'GET /api/v1/auth/me': { status: 200, body: ADMIN } });
+    renderApp('/settings');
+    expect(await screen.findByRole('heading', { level: 1, name: strings.nav.settings })).toBeTruthy();
   });
 
   it('shows every section to the admin, including Settings, and the user menu', async () => {

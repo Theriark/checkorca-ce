@@ -1,7 +1,10 @@
 /**
  * The component gallery: every component of components/ui in every state,
- * for the Playwright axe and screenshot run. Built only with VITE_GALLERY=1
- * (npm run build:e2e); the product image never contains it.
+ * for the Playwright axe and screenshot run. The router loads it on demand
+ * only when built with VITE_GALLERY=1 (npm run build:e2e); the product bundle
+ * never contains this page, its demo rows, its words or its stylesheet
+ * (scripts/check-product-bundle.mjs). Its own words therefore live here, not
+ * in strings.ts.
  */
 import { Bell, Plus, Trash2 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
@@ -32,7 +35,12 @@ import { NightRibbonMark } from '../ribbon/NightRibbonMark';
 import { Logo } from '../shell/Logo';
 import { ThemeToggle } from '../shell/ThemeToggle';
 import { strings } from '../strings';
-import './routes.css';
+import './gallery.css';
+
+const GALLERY = {
+  title: 'Component gallery',
+  lead: 'Every component in every state. Test build only; not part of the product.',
+} as const;
 
 interface JobRow {
   readonly id: string;
@@ -116,8 +124,8 @@ export function GalleryPage() {
       </header>
       <main className="co-gallery__main">
         <div>
-          <h1>{strings.gallery.title}</h1>
-          <p className="text-secondary">{strings.gallery.lead}</p>
+          <h1>{GALLERY.title}</h1>
+          <p className="text-secondary">{GALLERY.lead}</p>
         </div>
 
         <Section id="buttons" title="Button">
