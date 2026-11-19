@@ -105,6 +105,36 @@ async def test_an_unusable_schedule_is_an_answer_not_a_failure(
     assert isinstance(answer["error"], str) and answer["error"].endswith(".")
 
 
+async def test_every_minute_of_a_few_months_previews_outside_them(
+    client: httpx.AsyncClient, csrf: str
+) -> None:
+    """Code review M1: this answered 500 when next_n listed the whole window."""
+    answer = await preview(
+        client,
+        csrf,
+        kind="cron",
+        expr="* * * 1-3 *",
+        timezone="Europe/Lisbon",
+        after="2026-11-19T11:54:00Z",
+        count=20,
+    )
+    assert answer["error"] is None
+    times = answer["next"]
+    assert isinstance(times, list) and len(times) == 20
+    assert times[:2] == ["2027-01-01T00:00:00Z", "2027-01-01T00:01:00Z"]
+
+
+# Code review L3: times the schedule library cannot add its padding to.
+SIX_HOURS = {"kind": "interval", "expr": "6h", "timezone": "UTC"}
+OUT_OF_RANGE = [
+    {**SIX_HOURS, "after": "9999-12-30T00:00:00Z"},
+    {**SIX_HOURS, "after": "0001-01-01T00:00:00Z"},
+    {**SIX_HOURS, "after": "1969-12-31T23:59:59Z"},
+    {**SIX_HOURS, "anchor": "0001-01-01T00:00:00Z"},
+    {**SIX_HOURS, "anchor": "2200-01-01T00:00:01Z"},
+]
+
+
 @pytest.mark.parametrize(
     "body",
     [
@@ -112,6 +142,7 @@ async def test_an_unusable_schedule_is_an_answer_not_a_failure(
         {"kind": "weekly", "expr": "x", "timezone": "UTC"},
         {"kind": "daily", "expr": "23:00", "timezone": "UTC", "count": 21},
         {"kind": "daily", "expr": "23:00", "timezone": "UTC", "after": "2027-01-04"},
+        *OUT_OF_RANGE,
     ],
 )
 async def test_malformed_requests_are_422(
