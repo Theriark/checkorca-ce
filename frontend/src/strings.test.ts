@@ -34,12 +34,10 @@ describe('strings', () => {
     expect(PRODUCT_NAME).toBe('Checkorca-CE');
   });
 
-  it('keeps 404.html equal to index.html apart from its explanatory comment', () => {
+  it('names the product in index.html and the web manifest', () => {
     const root = resolve(SRC, '..');
     const index = readFileSync(join(root, 'index.html'), 'utf8');
-    const notFound = readFileSync(join(root, '404.html'), 'utf8').replace(/<!--[\s\S]*?-->\n/, '');
-    expect(notFound).toBe(index);
-    // The product name reaches these two files and the manifest from this constant.
+    // The product name reaches index.html and the manifest from this constant.
     expect(index).toContain(`<title>${PRODUCT_NAME}</title>`);
     expect(JSON.parse(readFileSync(join(root, 'public', 'manifest.webmanifest'), 'utf8')).name).toBe(PRODUCT_NAME);
   });

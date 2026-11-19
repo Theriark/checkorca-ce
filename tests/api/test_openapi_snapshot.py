@@ -60,6 +60,26 @@ def test_the_document_describes_the_c1_routes() -> None:
         assert path in paths
 
 
+def test_the_document_describes_the_c3_routes() -> None:
+    paths = generate()["paths"]
+    for path in (
+        "/api/v1/clients",
+        "/api/v1/clients/{client_id}",
+        "/api/v1/clients/{client_id}/archive",
+        "/api/v1/jobs",
+        "/api/v1/jobs/{job_id}",
+        "/api/v1/jobs/{job_id}/pause",
+        "/api/v1/jobs/{job_id}/resume",
+        "/api/v1/jobs/{job_id}/archive",
+        "/api/v1/jobs/export.csv",
+        "/api/v1/jobs/import.csv",
+        "/api/v1/schedule/preview",
+    ):
+        assert path in paths
+    export = paths["/api/v1/jobs/export.csv"]["get"]["responses"]["200"]
+    assert list(export["content"]) == ["text/csv"]
+
+
 def test_errors_are_declared_as_problem_documents() -> None:
     """The 4XX answers carry the media type the handlers send."""
     for path, operations in generate()["paths"].items():

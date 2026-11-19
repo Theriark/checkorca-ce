@@ -1,4 +1,9 @@
-"""HTTP application: health endpoints, the /api/v1 routes and the built web app."""
+"""HTTP application: health endpoints, the /api/v1 routes and the built web app.
+
+The web app answers what no route matched (app/web.py): built files, and
+index.html for every other path outside /api/, so deep links work. Unknown
+paths under /api/ stay 404 problem documents.
+"""
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -7,7 +12,6 @@ from typing import Any
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from starlette.middleware import Middleware
 
@@ -24,6 +28,7 @@ from app.security.crypto import SecretBox
 from app.security.passwords import PasswordService
 from app.security.ratelimit import RateLimiter
 from app.settings import Settings, get_settings
+from app.web import SinglePageApp
 
 # Where the Dockerfile puts the Vite build (frontend/dist).
 DEFAULT_STATIC_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
@@ -112,7 +117,7 @@ def create_app(
 
     app.include_router(v1.router)
 
-    # Mounted last so the API routes above always win.
+    # The router's default: it runs only when no route above matched.
     if static_dir is not None and (static_dir / "index.html").is_file():
-        app.mount("/", StaticFiles(directory=static_dir, html=True), name="web")
+        app.router.default = SinglePageApp(static_dir, fallback=app.router.default)
     return app

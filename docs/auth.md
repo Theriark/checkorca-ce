@@ -40,6 +40,8 @@ Every answer carries `Content-Security-Policy` (`default-src 'self'`, scripts on
 
 `chk_` plus 24 random bytes (URL-safe base64). The database keeps the SHA-256 only. Scripts send `Authorization: Bearer <token>`; the scope is `ingest` or `read`. Routes that accept tokens declare `require_token("ingest")` or `require_token("read")` (`app/api/deps.py`); the ingest routes arrive in phase C4.
 
+A job's ping URL holds its ping token, which alone lets a script report results for that job. Jobs read with an API token therefore carry `ping_url` as null; only signed-in users see it.
+
 ## Stored credentials
 
 Columns ending in `_enc` hold Fernet ciphertext made with `FERNET_KEY` (`app/security/crypto.py`). The API never returns a stored credential, at most a masked hint (`****` and the last four characters). The first is `settings.external_heartbeat_url_enc` (used from phase C10).

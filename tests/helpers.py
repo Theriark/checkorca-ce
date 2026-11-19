@@ -30,6 +30,12 @@ TECHNICIAN_EMAIL = "technician.one@example.com"
 ADMIN_PASSWORD = "Synthetic-" + "a" * 12
 TECHNICIAN_PASSWORD = "Synthetic-" + "t" * 12
 CSRF_HEADER = "X-CSRF-Token"
+# Synthetic clients (legal R-11: fictional companies).
+CLIENT_NAMES = (
+    "Fictional Dental Clinic",
+    "Example Freight Ltd",
+    "Sample Law Office",
+)
 
 
 class FakeClock:
@@ -102,3 +108,35 @@ async def sign_in(client: httpx.AsyncClient, email: str, password: str) -> str:
     assert response.status_code == 200, response.text
     token: str = response.json()["csrf_token"]
     return token
+
+
+async def make_client(
+    client: httpx.AsyncClient, csrf: str, name: str, **fields: Any
+) -> dict[str, Any]:
+    """Create a client through the API."""
+    response = await client.post(
+        "/api/v1/clients",
+        json={"name": name, **fields},
+        headers={CSRF_HEADER: csrf},
+    )
+    assert response.status_code == 201, response.text
+    created: dict[str, Any] = response.json()
+    return created
+
+
+async def make_job(
+    client: httpx.AsyncClient, csrf: str, client_id: str, name: str, **fields: Any
+) -> dict[str, Any]:
+    """Create a job through the API: daily at 23:00 Lisbon unless fields say."""
+    body = {
+        "client_id": client_id,
+        "name": name,
+        "schedule_kind": "daily",
+        "schedule_expr": "23:00",
+        "timezone": "Europe/Lisbon",
+        **fields,
+    }
+    response = await client.post("/api/v1/jobs", json=body, headers={CSRF_HEADER: csrf})
+    assert response.status_code == 201, response.text
+    created: dict[str, Any] = response.json()
+    return created

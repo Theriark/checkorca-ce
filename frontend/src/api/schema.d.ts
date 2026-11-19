@@ -365,10 +365,442 @@ export interface paths {
       };
     };
   };
+  "/api/v1/clients": {
+    get: {
+      /** List Clients */
+      parameters: {
+        query: {
+          q?: string | null;
+          archived?: boolean;
+          cursor?: string | null;
+          limit?: number;
+        };
+        path: never;
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["ClientPage"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+    post: {
+      /** Create Client */
+      parameters: {
+        query: never;
+        path: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": components["schemas"]["NewClient"];
+        };
+      };
+      responses: {
+        "201": {
+          content: {
+            "application/json": components["schemas"]["ClientOut"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/clients/{client_id}": {
+    get: {
+      /** Get Client */
+      parameters: {
+        query: never;
+        path: {
+          client_id: string;
+        };
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["ClientOut"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+    delete: {
+      /** Delete Client */
+      parameters: {
+        query: {
+          confirm_name: string;
+        };
+        path: {
+          client_id: string;
+        };
+      };
+      requestBody?: never;
+      responses: {
+        "204": {
+          content: never;
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+    patch: {
+      /** Update Client */
+      parameters: {
+        query: never;
+        path: {
+          client_id: string;
+        };
+      };
+      requestBody: {
+        content: {
+          "application/json": components["schemas"]["ClientPatch"];
+        };
+      };
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["ClientOut"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/clients/{client_id}/archive": {
+    post: {
+      /** Archive Client */
+      parameters: {
+        query: never;
+        path: {
+          client_id: string;
+        };
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["ClientOut"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/jobs": {
+    get: {
+      /** List Jobs */
+      parameters: {
+        query: {
+          client_id?: string | null;
+          q?: string | null;
+          state?: "ok" | "warning" | "failing" | "missed" | "unknown" | "paused" | "maintenance" | null;
+          kind?: "backup" | "script" | "other" | null;
+          pack?: string | null;
+          archived?: boolean;
+          cursor?: string | null;
+          limit?: number;
+        };
+        path: never;
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["JobPage"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+    post: {
+      /** Create Job */
+      parameters: {
+        query: never;
+        path: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": components["schemas"]["NewJob"];
+        };
+      };
+      responses: {
+        "201": {
+          content: {
+            "application/json": components["schemas"]["JobOut"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/jobs/export.csv": {
+    get: {
+      /** Export Jobs */
+      parameters: {
+        query: {
+          client_id?: string | null;
+        };
+        path: never;
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "text/csv": string;
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/jobs/import.csv": {
+    post: {
+      /** Import Jobs */
+      parameters: {
+        query: {
+          dry_run?: boolean;
+        };
+        path: never;
+      };
+      requestBody: {
+        content: {
+          "multipart/form-data": components["schemas"]["Body_import_jobs_api_v1_jobs_import_csv_post"];
+        };
+      };
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["ImportResult"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/jobs/{job_id}": {
+    get: {
+      /** Get Job */
+      parameters: {
+        query: never;
+        path: {
+          job_id: string;
+        };
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["JobOut"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+    patch: {
+      /** Update Job */
+      parameters: {
+        query: never;
+        path: {
+          job_id: string;
+        };
+      };
+      requestBody: {
+        content: {
+          "application/json": components["schemas"]["JobPatch"];
+        };
+      };
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["JobOut"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/jobs/{job_id}/pause": {
+    post: {
+      /** Pause Job */
+      parameters: {
+        query: never;
+        path: {
+          job_id: string;
+        };
+      };
+      requestBody?: {
+        content: {
+          "application/json": components["schemas"]["PauseRequest"] | null;
+        };
+      };
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["JobOut"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/jobs/{job_id}/resume": {
+    post: {
+      /** Resume Job */
+      parameters: {
+        query: never;
+        path: {
+          job_id: string;
+        };
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["JobOut"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/jobs/{job_id}/archive": {
+    post: {
+      /** Archive Job */
+      parameters: {
+        query: never;
+        path: {
+          job_id: string;
+        };
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["JobOut"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/schedule/preview": {
+    post: {
+      /** Preview Schedule */
+      parameters: {
+        query: never;
+        path: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": components["schemas"]["SchedulePreviewRequest"];
+        };
+      };
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["SchedulePreview"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
 }
 
 export interface components {
   schemas: {
+    Body_import_jobs_api_v1_jobs_import_csv_post: {
+      /** The CSV file (UTF-8). */
+      file: string;
+    };
+    ClientOut: {
+      id: string;
+      name: string;
+      notes: string;
+      aliases: string[];
+      archived: boolean;
+      created_at: string;
+      job_count: number;
+      status_counts: Record<string, number>;
+      worst_state: "ok" | "warning" | "failing" | "missed" | "unknown" | "paused" | "maintenance" | null;
+    };
+    ClientPage: {
+      items: components["schemas"]["ClientOut"][];
+      next_cursor: string | null;
+    };
+    /** Only the fields sent change. */
+    ClientPatch: {
+      name?: string | null;
+      notes?: string | null;
+      aliases?: string[] | null;
+      archived?: boolean | null;
+    };
     /** The new token with its value. The value is shown this once only. */
     CreatedToken: {
       id: string;
@@ -389,6 +821,70 @@ export interface components {
       field: string;
       message: string;
     };
+    /** A row that was not imported. Row 1 is the header line. */
+    ImportProblem: {
+      row: number;
+      message: string;
+    };
+    ImportResult: {
+      created: number;
+      updated: number;
+      clients_created: number;
+      errors: components["schemas"]["ImportProblem"][];
+      dry_run: boolean;
+    };
+    /** A job; its state is paused or unknown until the evaluator keeps it (C7). */
+    JobOut: {
+      id: string;
+      client_id: string;
+      client_name: string;
+      name: string;
+      kind: "backup" | "script" | "other";
+      parser_pack_id: string | null;
+      match_key: string | null;
+      schedule_kind: "cron" | "interval" | "daily";
+      schedule_expr: string;
+      timezone: string;
+      max_runtime_minutes: number;
+      grace_minutes: number;
+      escalate_minutes: number;
+      attribution_basis: "started" | "finished" | "received";
+      warning_policy: "warning_is_attention" | "warning_counts_ok";
+      consecutive_failures_to_alert: number;
+      ping_url: string | null;
+      enabled: boolean;
+      paused_until: string | null;
+      archived: boolean;
+      state: "ok" | "warning" | "failing" | "missed" | "unknown" | "paused" | "maintenance";
+      state_since: string | null;
+      last_success_at: string | null;
+      acknowledged_at: string | null;
+      created_at: string;
+      updated_at: string;
+    };
+    JobPage: {
+      items: components["schemas"]["JobOut"][];
+      next_cursor: string | null;
+    };
+    /** Only the fields sent change; null clears parser_pack_id and match_key. */
+    JobPatch: {
+      client_id?: string | null;
+      name?: string | null;
+      kind?: "backup" | "script" | "other" | null;
+      parser_pack_id?: string | null;
+      match_key?: string | null;
+      schedule_kind?: "cron" | "interval" | "daily" | null;
+      schedule_expr?: string | null;
+      timezone?: string | null;
+      max_runtime_minutes?: number | null;
+      grace_minutes?: number | null;
+      escalate_minutes?: number | null;
+      attribution_basis?: "started" | "finished" | "received" | null;
+      warning_policy?: "warning_is_attention" | "warning_counts_ok" | null;
+      consecutive_failures_to_alert?: number | null;
+      enabled?: boolean | null;
+      archived?: boolean | null;
+    };
     Me: {
       id: string;
       email: string;
@@ -399,6 +895,28 @@ export interface components {
       email: string;
       password: string;
     };
+    NewClient: {
+      name: string;
+      notes?: string;
+      aliases?: string[];
+    };
+    NewJob: {
+      kind?: "backup" | "script" | "other";
+      parser_pack_id?: string | null;
+      match_key?: string | null;
+      schedule_kind: "cron" | "interval" | "daily";
+      schedule_expr: string;
+      timezone: string;
+      max_runtime_minutes?: number;
+      grace_minutes?: number;
+      escalate_minutes?: number;
+      attribution_basis?: "started" | "finished" | "received";
+      warning_policy?: "warning_is_attention" | "warning_counts_ok";
+      consecutive_failures_to_alert?: number;
+      client_id: string;
+      name: string;
+      enabled?: boolean;
+    };
     NewToken: {
       label: string;
       scope: "ingest" | "read";
@@ -407,6 +925,10 @@ export interface components {
       email: string;
       password: string;
       role: "admin" | "technician";
+    };
+    /** Without until the job stays paused until it is resumed. */
+    PauseRequest: {
+      until?: string | null;
     };
     /** An RFC 9457 problem details document. */
     Problem: {
@@ -417,6 +939,21 @@ export interface components {
       instance?: string | null;
       request_id?: string | null;
       errors?: components["schemas"]["FieldProblem"][] | null;
+    };
+    /** The next times, or why the schedule cannot be used (error and field). */
+    SchedulePreview: {
+      next: string[];
+      local: string[];
+      error: string | null;
+      field: string | null;
+    };
+    SchedulePreviewRequest: {
+      kind: "cron" | "interval" | "daily";
+      expr: string;
+      timezone: string;
+      count?: number;
+      anchor?: string | null;
+      after?: string | null;
     };
     SetupState: {
       needs_first_run: boolean;
@@ -476,4 +1013,20 @@ export type operations = {
   list_tokens_api_v1_tokens_get: paths["/api/v1/tokens"]["get"];
   create_token_api_v1_tokens_post: paths["/api/v1/tokens"]["post"];
   revoke_token_api_v1_tokens__token_id__delete: paths["/api/v1/tokens/{token_id}"]["delete"];
+  list_clients_api_v1_clients_get: paths["/api/v1/clients"]["get"];
+  create_client_api_v1_clients_post: paths["/api/v1/clients"]["post"];
+  get_client_api_v1_clients__client_id__get: paths["/api/v1/clients/{client_id}"]["get"];
+  delete_client_api_v1_clients__client_id__delete: paths["/api/v1/clients/{client_id}"]["delete"];
+  update_client_api_v1_clients__client_id__patch: paths["/api/v1/clients/{client_id}"]["patch"];
+  archive_client_api_v1_clients__client_id__archive_post: paths["/api/v1/clients/{client_id}/archive"]["post"];
+  list_jobs_api_v1_jobs_get: paths["/api/v1/jobs"]["get"];
+  create_job_api_v1_jobs_post: paths["/api/v1/jobs"]["post"];
+  export_jobs_api_v1_jobs_export_csv_get: paths["/api/v1/jobs/export.csv"]["get"];
+  import_jobs_api_v1_jobs_import_csv_post: paths["/api/v1/jobs/import.csv"]["post"];
+  get_job_api_v1_jobs__job_id__get: paths["/api/v1/jobs/{job_id}"]["get"];
+  update_job_api_v1_jobs__job_id__patch: paths["/api/v1/jobs/{job_id}"]["patch"];
+  pause_job_api_v1_jobs__job_id__pause_post: paths["/api/v1/jobs/{job_id}/pause"]["post"];
+  resume_job_api_v1_jobs__job_id__resume_post: paths["/api/v1/jobs/{job_id}/resume"]["post"];
+  archive_job_api_v1_jobs__job_id__archive_post: paths["/api/v1/jobs/{job_id}/archive"]["post"];
+  preview_schedule_api_v1_schedule_preview_post: paths["/api/v1/schedule/preview"]["post"];
 };

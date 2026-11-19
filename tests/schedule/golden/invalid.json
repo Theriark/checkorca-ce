@@ -1,0 +1,31 @@
+{
+  "cases": [
+    {"name": "unknown kind", "kind": "weekly", "expr": "0 9 * * 1", "timezone": "UTC", "field": "schedule_kind"},
+    {"name": "minute out of range", "kind": "cron", "expr": "61 * * * *", "timezone": "UTC", "field": "schedule_expr"},
+    {"name": "hour out of range", "kind": "cron", "expr": "0 24 * * *", "timezone": "UTC", "field": "schedule_expr"},
+    {"name": "step of zero", "kind": "cron", "expr": "*/0 * * * *", "timezone": "UTC", "field": "schedule_expr"},
+    {"name": "four fields", "kind": "cron", "expr": "* * * *", "timezone": "UTC", "field": "schedule_expr"},
+    {"name": "six fields (seconds)", "kind": "cron", "expr": "0 0 0 * * *", "timezone": "UTC", "field": "schedule_expr"},
+    {"name": "hashed value", "kind": "cron", "expr": "H 2 * * *", "timezone": "UTC", "field": "schedule_expr"},
+    {"name": "random value", "kind": "cron", "expr": "R 2 * * *", "timezone": "UTC", "field": "schedule_expr"},
+    {"name": "unknown macro", "kind": "cron", "expr": "@reboot", "timezone": "UTC", "field": "schedule_expr"},
+    {"name": "words", "kind": "cron", "expr": "every day at nine", "timezone": "UTC", "field": "schedule_expr"},
+    {"name": "empty expression", "kind": "cron", "expr": "   ", "timezone": "UTC", "field": "schedule_expr"},
+    {"name": "too long", "kind": "cron", "expr": "0 0 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15 * *", "timezone": "UTC", "field": "schedule_expr"},
+    {"name": "daily 24:00", "kind": "daily", "expr": "24:00", "timezone": "UTC", "field": "schedule_expr"},
+    {"name": "daily minute 60", "kind": "daily", "expr": "12:60", "timezone": "UTC", "field": "schedule_expr"},
+    {"name": "daily am/pm", "kind": "daily", "expr": "7am", "timezone": "UTC", "field": "schedule_expr"},
+    {"name": "daily empty item", "kind": "daily", "expr": "06:00,,18:00", "timezone": "UTC", "field": "schedule_expr"},
+    {"name": "interval zero", "kind": "interval", "expr": "0m", "timezone": "UTC", "anchor": "2027-01-04T09:00:00Z", "field": "schedule_expr"},
+    {"name": "interval in seconds", "kind": "interval", "expr": "30s", "timezone": "UTC", "anchor": "2027-01-04T09:00:00Z", "field": "schedule_expr"},
+    {"name": "interval longer than a year", "kind": "interval", "expr": "367d", "timezone": "UTC", "anchor": "2027-01-04T09:00:00Z", "field": "schedule_expr"},
+    {"name": "interval without a unit", "kind": "interval", "expr": "15", "timezone": "UTC", "anchor": "2027-01-04T09:00:00Z", "field": "schedule_expr"},
+    {"name": "interval without an anchor", "kind": "interval", "expr": "6h", "timezone": "UTC", "field": "anchor"},
+    {"name": "interval with a naive anchor", "kind": "interval", "expr": "6h", "timezone": "UTC", "anchor": "2027-01-04T09:00:00", "field": "anchor"},
+    {"name": "unknown zone", "kind": "daily", "expr": "23:00", "timezone": "Mars/Olympus_Mons", "field": "timezone"},
+    {"name": "zone in the wrong case", "kind": "daily", "expr": "23:00", "timezone": "europe/lisbon", "field": "timezone"},
+    {"name": "zone that is a path", "kind": "daily", "expr": "23:00", "timezone": "../../etc/passwd", "field": "timezone"},
+    {"name": "fixed offset is not a zone name", "kind": "daily", "expr": "23:00", "timezone": "+01:00", "field": "timezone"},
+    {"name": "empty zone", "kind": "daily", "expr": "23:00", "timezone": "", "field": "timezone"}
+  ]
+}

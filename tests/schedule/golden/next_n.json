@@ -1,0 +1,13 @@
+{
+  "cases": [
+    {"name": "daily 23:00 Lisbon, the five times of the Development check", "kind": "daily", "expr": "23:00", "timezone": "Europe/Lisbon", "after": "2027-01-04T09:00:00Z", "count": 5, "expected": ["2027-01-04T23:00:00Z", "2027-01-05T23:00:00Z", "2027-01-06T23:00:00Z", "2027-01-07T23:00:00Z", "2027-01-08T23:00:00Z"]},
+    {"name": "next_n is strictly after", "kind": "daily", "expr": "23:00", "timezone": "UTC", "after": "2027-01-04T23:00:00Z", "count": 2, "expected": ["2027-01-05T23:00:00Z", "2027-01-06T23:00:00Z"]},
+    {"name": "leap day only, from early 2027", "kind": "cron", "expr": "0 12 29 2 *", "timezone": "UTC", "after": "2027-01-04T09:00:00Z", "count": 2, "expected": ["2028-02-29T12:00:00Z", "2032-02-29T12:00:00Z"]},
+    {"name": "30 February never fires", "kind": "cron", "expr": "0 0 30 2 *", "timezone": "UTC", "after": "2027-01-04T09:00:00Z", "count": 3, "expected": []},
+    {"name": "interval from its anchor", "kind": "interval", "expr": "6h", "timezone": "UTC", "anchor": "2027-01-04T09:00:00Z", "after": "2027-01-04T09:00:00Z", "count": 3, "expected": ["2027-01-04T15:00:00Z", "2027-01-04T21:00:00Z", "2027-01-05T03:00:00Z"]},
+    {"name": "every minute", "kind": "cron", "expr": "* * * * *", "timezone": "Europe/Lisbon", "after": "2027-01-04T09:00:30Z", "count": 3, "expected": ["2027-01-04T09:01:00Z", "2027-01-04T09:02:00Z", "2027-01-04T09:03:00Z"]},
+    {"name": "every minute of January to March, asked in November", "kind": "cron", "expr": "* * * 1-3 *", "timezone": "Europe/Lisbon", "after": "2026-11-19T11:54:00Z", "count": 3, "expected": ["2027-01-01T00:00:00Z", "2027-01-01T00:01:00Z", "2027-01-01T00:02:00Z"]},
+    {"name": "every minute across the Lisbon repeated hour keeps real minutes in order", "kind": "cron", "expr": "* * * * *", "timezone": "Europe/Lisbon", "after": "2027-10-31T00:58:30Z", "count": 4, "expected": ["2027-10-31T00:59:00Z", "2027-10-31T01:00:00Z", "2027-10-31T01:01:00Z", "2027-10-31T01:02:00Z"]},
+    {"name": "fixed hour across the Lisbon repeated hour fires once", "kind": "cron", "expr": "30 1 * * *", "timezone": "Europe/Lisbon", "after": "2027-10-30T12:00:00Z", "count": 3, "expected": ["2027-10-31T00:30:00Z", "2027-11-01T01:30:00Z", "2027-11-02T01:30:00Z"]}
+  ]
+}
