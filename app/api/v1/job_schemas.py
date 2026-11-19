@@ -5,7 +5,7 @@ Times go out as ISO 8601 in UTC.
 """
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated, Literal
 
 from pydantic import (
@@ -29,6 +29,8 @@ WarningPolicy = Literal["warning_is_attention", "warning_counts_ok"]
 MAX_NOTES_LENGTH = 4000
 MAX_ALIASES = 50
 MAX_MINUTES = 7 * 24 * 60
+EARLIEST_TIME = datetime(1970, 1, 1, tzinfo=UTC)
+LATEST_TIME = datetime(2200, 1, 1, tzinfo=UTC)
 
 
 def clean_name(value: str) -> str:
@@ -38,7 +40,17 @@ def clean_name(value: str) -> str:
         raise ValueError("must not contain control characters")
     if not name:
         raise ValueError("must not be empty")
+    # Case folding can lengthen a name (ß becomes ss); the key has the same column.
+    if len(name_key(name)) > NAME_LENGTH:
+        raise ValueError(f"must be at most {NAME_LENGTH} characters when case folded")
     return name
+
+
+def plausible_time(value: datetime) -> datetime:
+    """A time between 1970 and 2200; the schedule library works on such times."""
+    if not EARLIEST_TIME <= value <= LATEST_TIME:
+        raise ValueError("must be between 1970 and 2200")
+    return value
 
 
 def unique_aliases(values: list[str]) -> list[str]:
@@ -77,6 +89,7 @@ ZoneName = Annotated[str, Field(min_length=1, max_length=64)]
 RuntimeMinutes = Annotated[int, Field(ge=1, le=MAX_MINUTES)]
 Minutes = Annotated[int, Field(ge=0, le=MAX_MINUTES)]
 Threshold = Annotated[int, Field(ge=1, le=100)]
+PlausibleTime = Annotated[AwareDatetime, AfterValidator(plausible_time)]
 
 
 class NewClient(Body):
@@ -177,7 +190,8 @@ class JobOut(BaseModel):
     attribution_basis: AttributionBasis
     warning_policy: WarningPolicy
     consecutive_failures_to_alert: int
-    ping_url: str
+    # Null for an API token: the ping URL is shown to signed-in users only.
+    ping_url: str | None
     enabled: bool
     paused_until: datetime | None
     archived: bool
@@ -206,9 +220,9 @@ class SchedulePreviewRequest(Body):
     timezone: ZoneName
     count: Annotated[int, Field(ge=1, le=20)] = 5
     # The start of an interval schedule; the job's creation time, else now.
-    anchor: AwareDatetime | None = None
+    anchor: PlausibleTime | None = None
     # The times listed are after this; default now.
-    after: AwareDatetime | None = None
+    after: PlausibleTime | None = None
 
 
 class SchedulePreview(BaseModel):
