@@ -69,12 +69,14 @@ class ProblemError(Exception):
         title: str,
         detail: str | None = None,
         headers: dict[str, str] | None = None,
+        errors: list[FieldProblem] | None = None,
     ) -> None:
         super().__init__(title)
         self.status = status
         self.title = title
         self.detail = detail
         self.headers = headers
+        self.errors = errors
 
 
 def problem_response(
@@ -103,7 +105,12 @@ def problem_response(
 
 async def handle_problem(request: Request, error: ProblemError) -> JSONResponse:
     return problem_response(
-        request.url.path, error.status, error.title, error.detail, error.headers
+        request.url.path,
+        error.status,
+        error.title,
+        error.detail,
+        error.headers,
+        error.errors,
     )
 
 

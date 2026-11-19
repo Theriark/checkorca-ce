@@ -217,3 +217,20 @@ def require_token(
         return Principal.for_token(token.id, scope)
 
     return dependency
+
+
+_read_token = require_token("read")
+
+
+async def require_reader(
+    request: Request, response: Response, services: ServicesDep, db: DbDep
+) -> Principal:
+    """For read routes: an API token of scope read in the Authorization header,
+    or else a signed-in session."""
+    if "authorization" in request.headers:
+        return await _read_token(request, services, db)
+    context = await require_session(request, response, services, db)
+    return context.principal
+
+
+ReaderDep = Annotated[Principal, Depends(require_reader)]

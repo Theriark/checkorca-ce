@@ -6,7 +6,8 @@ raw path or query, which can carry tokens. An unhandled error is logged with its
 class and stack frames (app/logging.py drops the text) and answered with a 500
 problem document; it is not re-raised, so the server never logs it again.
 Request bodies under /api/ are limited to 64 KiB (413): sign-in and first run
-are anonymous and would otherwise read any body into memory.
+are anonymous and would otherwise read any body into memory. The CSV import
+takes up to 1 MiB of file (BODY_LIMITS).
 """
 
 import logging
@@ -26,6 +27,8 @@ logger = logging.getLogger("app.http")
 
 REQUEST_ID_HEADER = b"x-request-id"
 MAX_API_BODY = 64 * 1024
+# Routes that take more: the file plus room for the multipart framing.
+BODY_LIMITS = {"/api/v1/jobs/import.csv": 1024 * 1024 + 16 * 1024}
 # Sent only when BASE_URL is https: a plain-http install must not pin HTTPS.
 HSTS_HEADER = (b"strict-transport-security", b"max-age=31536000")
 # A request id from the proxy is kept when it looks like one; else a new one.
@@ -95,6 +98,7 @@ class RequestContextMiddleware:
         response_started = False
         path = str(scope.get("path", ""))
         api = path.startswith("/api/")
+        max_body = BODY_LIMITS.get(path, self.max_body)
         received = 0
 
         async def limited_receive() -> Message:
@@ -103,8 +107,8 @@ class RequestContextMiddleware:
             message = await receive()
             if message["type"] == "http.request":
                 received += len(message.get("body", b""))
-                if received > self.max_body:
-                    raise BodyTooLarge(self.max_body)
+                if received > max_body:
+                    raise BodyTooLarge(max_body)
             return message
 
         async def send_with_headers(message: Message) -> None:
@@ -133,8 +137,8 @@ class RequestContextMiddleware:
         try:
             if not api:
                 await self.app(scope, receive, send_with_headers)
-            elif _content_length(scope) > self.max_body:
-                too_large = BodyTooLarge(self.max_body)
+            elif _content_length(scope) > max_body:
+                too_large = BodyTooLarge(max_body)
                 response = problem_response(path, 413, detail=too_large.detail)
                 await response(scope, receive, send_with_headers)
             else:
