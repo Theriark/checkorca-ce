@@ -126,6 +126,8 @@ def test_an_interval_spec_without_anchor_is_refused() -> None:
     spec = ScheduleSpec(kind="interval", expr="1h", timezone="UTC")
     with pytest.raises(ValueError, match="anchor"):
         occurrences(spec, MONDAY, MONDAY + timedelta(hours=3))
+    with pytest.raises(ValueError, match="anchor"):
+        next_n(spec, MONDAY, 1)
 
 
 def test_a_huge_interval_window_is_refused_before_it_is_built() -> None:
@@ -139,3 +141,32 @@ def test_a_huge_cron_window_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
     spec = parse_spec("cron", "* * * * *", "UTC")
     with pytest.raises(TooManyOccurrences):
         occurrences(spec, MONDAY, MONDAY + timedelta(hours=1))
+
+
+@pytest.mark.parametrize(
+    ("expr", "first"),
+    [
+        ("* * * 1-3 *", datetime(2027, 1, 1, tzinfo=UTC)),
+        ("* * * 1,2 *", datetime(2027, 1, 1, tzinfo=UTC)),
+        ("* * * * *", datetime(2026, 11, 19, 11, 55, tzinfo=UTC)),
+    ],
+)
+def test_next_n_never_lists_the_whole_window(
+    monkeypatch: pytest.MonkeyPatch, expr: str, first: datetime
+) -> None:
+    """Every minute of a few months, asked outside them (code review M1): next_n
+    walks from `after` and stops at n, so the window cap is never reached."""
+    monkeypatch.setattr("app.schedule.times.MAX_OCCURRENCES", 10)
+    spec = parse_spec("cron", expr, "Europe/Lisbon")
+    found = next_n(spec, datetime(2026, 11, 19, 11, 54, 30, tzinfo=UTC), 20)
+    assert found == [first + timedelta(minutes=step) for step in range(20)]
+
+
+def test_next_n_of_an_interval_is_arithmetic(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.schedule.times.MAX_OCCURRENCES", 10)
+    anchor = MONDAY + timedelta(days=30)
+    spec = parse_spec("interval", "1m", "UTC", anchor)
+    found = next_n(spec, MONDAY, 20)
+    assert found == [anchor + timedelta(minutes=step) for step in range(1, 21)]
+    rare = parse_spec("interval", "366d", "UTC", MONDAY)
+    assert len(next_n(rare, MONDAY, 20)) == 9
