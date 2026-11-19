@@ -1,0 +1,155 @@
+/* Charts (visx). Colours come from the status tokens. */
+
+.co-sparkline {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  overflow: visible;
+  --spark-colour: var(--text-secondary);
+}
+
+.co-sparkline--success {
+  --spark-colour: var(--status-success);
+}
+
+.co-sparkline--warning {
+  --spark-colour: var(--status-warning);
+}
+
+.co-sparkline--danger {
+  --spark-colour: var(--status-danger);
+}
+
+.co-sparkline__line {
+  fill: none;
+  stroke: var(--spark-colour);
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.co-sparkline__dot {
+  fill: var(--spark-colour);
+  stroke: var(--surface);
+  stroke-width: 1.5;
+}
+
+.co-sparkline__stop-top {
+  stop-color: var(--spark-colour);
+  stop-opacity: 0.28;
+}
+
+.co-sparkline__stop-bottom {
+  stop-color: var(--spark-colour);
+  stop-opacity: 0;
+}
+
+.co-sparkline__baseline {
+  stroke: var(--gridline);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+  stroke-linecap: round;
+}
+
+.co-sparkline__empty {
+  font-size: 10px;
+  font-weight: 500;
+  fill: var(--text-secondary);
+}
+
+/* Coverage ring */
+
+.co-ring {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-4);
+  align-items: center;
+}
+
+.co-ring--standalone {
+  grid-template-columns: auto;
+  justify-items: center;
+  text-align: center;
+}
+
+.co-ring__svg {
+  display: block;
+  overflow: visible;
+}
+
+.co-ring__track {
+  fill: none;
+  stroke: var(--bg-sunken);
+  stroke-width: 10;
+}
+
+[data-theme='dark'] .co-ring__track {
+  stroke: var(--surface-raised);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .co-ring__track {
+    stroke: var(--surface-raised);
+  }
+}
+
+.co-ring__arc {
+  fill: none;
+  stroke-width: 10;
+  stroke-linecap: round;
+  transition: stroke-dashoffset var(--duration-slow) var(--ease-out);
+}
+
+.co-ring--success .co-ring__arc {
+  stroke: var(--status-success);
+}
+
+.co-ring--warning .co-ring__arc {
+  stroke: var(--status-warning);
+}
+
+.co-ring--danger .co-ring__arc {
+  stroke: var(--status-danger);
+}
+
+.co-ring--muted .co-ring__arc {
+  stroke: var(--gridline);
+}
+
+.co-ring__value {
+  font-size: var(--text-24);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  fill: var(--text);
+}
+
+.co-ring__value--large {
+  font-size: var(--text-32);
+}
+
+.co-ring__unit {
+  font-size: var(--text-12);
+  font-weight: 500;
+  fill: var(--text-secondary);
+}
+
+.co-ring__caption {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.co-ring__label {
+  font-size: var(--text-14);
+  font-weight: 600;
+}
+
+.co-ring__lead {
+  font-size: var(--text-14);
+  color: var(--text-secondary);
+}
+
+.co-ring__counts {
+  font-size: var(--text-14);
+  font-variant-numeric: tabular-nums;
+}

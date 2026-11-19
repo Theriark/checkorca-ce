@@ -1,0 +1,25 @@
+<!doctype html>
+<!--
+  Second entry of the same single-page app. The FastAPI StaticFiles mount
+  (html=True) serves this file, with HTTP status 404, for any path that is not a
+  built file, so a deep link such as /login or /clients/ID still boots the app
+  and the router renders the right screen (or its own 404 page). Keep it equal
+  to index.html.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="description" content="Checkorca-CE: which clients are verified, failed or silent, every morning." />
+    <title>Checkorca-CE</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="/brand/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/brand/favicon-16x16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/brand/favicon-180x180.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
