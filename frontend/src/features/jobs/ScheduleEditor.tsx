@@ -4,7 +4,7 @@
  * of the next five times with the server's own error text.
  */
 import { Loader2, Plus, X } from 'lucide-react';
-import { useId, useMemo } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import { SCHEDULE_KINDS, type ScheduleKind } from '../../api/jobs';
 import { Alert } from '../../components/ui/Alert';
@@ -15,7 +15,7 @@ import { knownTimeZones } from '../../lib/timezones';
 import { strings } from '../../strings';
 import { scheduleKindLabel } from './jobState';
 import { scheduleExpression, type ScheduleValue } from './scheduleValue';
-import { useSchedulePreview, type PreviewState } from './useSchedulePreview';
+import { useSchedulePreview, type PreviewState, type ZonedPreview } from './useSchedulePreview';
 import '../features.css';
 
 export interface ScheduleEditorProps {
@@ -36,12 +36,32 @@ export function ScheduleEditor({ value, onChange, anchor, disabled, errors }: Sc
   const previewExprError = preview.status === 'invalid' && preview.field !== 'timezone' ? preview.message : undefined;
   const previewZoneError = preview.status === 'invalid' && preview.field === 'timezone' ? preview.message : undefined;
 
+  // A stable key per daily-time row, so removing a row never moves a
+  // half-typed input or the focus to the wrong row. Kept in step with the
+  // times in the handlers; the effect catches a reset of the whole form.
+  const [rowIds, setRowIds] = useState<readonly string[]>([]);
+  const rowSeq = useRef(0);
+  const timesCount = value.times.length;
+  useEffect(() => {
+    if (rowIds.length !== timesCount) {
+      setRowIds((current) => {
+        const next = current.slice(0, timesCount);
+        while (next.length < timesCount) {
+          rowSeq.current += 1;
+          next.push(`row-${rowSeq.current}`);
+        }
+        return next;
+      });
+    }
+  }, [rowIds.length, timesCount]);
+
   const setKind = (kind: ScheduleKind) => onChange({ ...value, kind });
   const setTime = (index: number, time: string) =>
     onChange({ ...value, times: value.times.map((item, at) => (at === index ? time : item)) });
   const addTime = () => onChange({ ...value, times: [...value.times, ''] });
   const removeTime = (index: number) => {
     const times = value.times.filter((_, at) => at !== index);
+    setRowIds((current) => current.filter((_, at) => at !== index));
     onChange({ ...value, times: times.length > 0 ? times : [''] });
   };
 
@@ -75,7 +95,7 @@ export function ScheduleEditor({ value, onChange, anchor, disabled, errors }: Sc
           <span className="co-field__label">{strings.jobForm.dailyTimes}</span>
           <ul className="co-times__list">
             {value.times.map((time, index) => (
-              <li key={index} className="co-times__row">
+              <li key={rowIds[index] ?? `pending-${index}`} className="co-times__row">
                 <Input
                   label={<span className="sr-only">{fill(strings.jobForm.timeLabel, { index: index + 1 })}</span>}
                   type="time"
@@ -136,21 +156,22 @@ export function ScheduleEditor({ value, onChange, anchor, disabled, errors }: Sc
       </datalist>
       </div>
 
-      <SchedulePreviewPanel state={preview} timezone={value.timezone} interval={value.kind === 'interval'} />
+      <SchedulePreviewPanel state={preview} interval={value.kind === 'interval'} />
       </div>
     </div>
   );
 }
 
-function PreviewList({ next, local, timezone }: { readonly next: readonly string[]; readonly local: readonly string[]; readonly timezone: string }) {
+/** The five times, formatted in the zone of the answer they came from. */
+function PreviewList({ preview }: { readonly preview: ZonedPreview }) {
   return (
     <ol className="co-preview__list">
-      {next.map((iso, index) => (
+      {preview.next.map((iso, index) => (
         <li key={iso} className="co-preview__item">
           <span className="co-preview__index tabular" aria-hidden="true">
             {index + 1}
           </span>
-          <span className="co-preview__local tabular">{formatDateTime(local[index] ?? iso, timezone)}</span>
+          <span className="co-preview__local tabular">{formatDateTime(preview.local[index] ?? iso, preview.timezone)}</span>
           <span className="co-preview__utc tabular">{formatUtcTime(iso)}</span>
         </li>
       ))}
@@ -158,22 +179,26 @@ function PreviewList({ next, local, timezone }: { readonly next: readonly string
   );
 }
 
-export function SchedulePreviewPanel({ state, timezone, interval }: { readonly state: PreviewState; readonly timezone: string; readonly interval: boolean }) {
+export function SchedulePreviewPanel({ state, interval }: { readonly state: PreviewState; readonly interval: boolean }) {
+  // Only the status line and the alerts are live regions: five dates read
+  // out after every keystroke would be noise.
   return (
-    <section className="co-preview" aria-live="polite" aria-busy={state.status === 'checking'}>
+    <section className="co-preview" aria-busy={state.status === 'checking'}>
       <div className="co-preview__head">
         <h3 className="co-preview__title">{strings.schedule.previewTitle}</h3>
-        {state.status === 'checking' && (
-          <span className="co-preview__status">
-            <Loader2 size={14} aria-hidden="true" />
-            {strings.schedule.checking}
-          </span>
-        )}
+        <span className="co-preview__status" role="status" aria-live="polite">
+          {state.status === 'checking' && (
+            <>
+              <Loader2 size={14} aria-hidden="true" />
+              {strings.schedule.checking}
+            </>
+          )}
+        </span>
       </div>
       {state.status === 'idle' && <p className="co-preview__empty">{strings.schedule.idle}</p>}
-      {state.status === 'checking' && state.previous && <PreviewList next={state.previous.next} local={state.previous.local} timezone={timezone} />}
+      {state.status === 'checking' && state.previous && <PreviewList preview={state.previous} />}
       {state.status === 'checking' && !state.previous && <p className="co-preview__empty">{strings.schedule.checking}</p>}
-      {state.status === 'ready' && <PreviewList next={state.preview.next} local={state.preview.local} timezone={timezone} />}
+      {state.status === 'ready' && <PreviewList preview={state.preview} />}
       {state.status === 'invalid' && (
         <Alert tone="warning" title={strings.schedule.invalidTitle} role="status">
           {state.message}

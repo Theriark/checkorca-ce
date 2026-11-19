@@ -402,7 +402,9 @@
   background: var(--bg);
 }
 
+/* The label comes first in the markup (dt before dd); the value is shown above it. */
 .co-import__count-value {
+  order: -1;
   font-size: var(--text-24);
   font-weight: 600;
   line-height: 1.1;
@@ -456,9 +458,19 @@
   font-weight: 600;
 }
 
+/* On a phone the three counts stay on one row, smaller, so the Import
+   button is not pushed under the fold. */
 @media (max-width: 479px) {
   .co-import__counts {
-    grid-template-columns: 1fr;
+    gap: var(--space-2);
+  }
+
+  .co-import__count {
+    padding: var(--space-2);
+  }
+
+  .co-import__count-value {
+    font-size: var(--text-20, 20px);
   }
 }
 
