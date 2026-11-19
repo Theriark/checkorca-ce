@@ -14,11 +14,11 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from sqlalchemy import ColumnElement, delete
+from sqlalchemy import ColumnElement, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import Base
-from app.db.models import Client, Job
+from app.db.models import Client, Job, JobResult, RawMessage
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,7 +29,16 @@ class DeleteStep:
     rows: Callable[[uuid.UUID], ColumnElement[bool]]
 
 
+def _client_results(client_id: uuid.UUID) -> ColumnElement[bool]:
+    """Results of the client's jobs, and results of the client's messages."""
+    jobs = select(Job.id).where(Job.client_id == client_id)
+    messages = select(RawMessage.id).where(RawMessage.client_id == client_id)
+    return or_(JobResult.job_id.in_(jobs), JobResult.raw_message_id.in_(messages))
+
+
 CLIENT_DELETE_MAP: tuple[DeleteStep, ...] = (
+    DeleteStep(JobResult, _client_results),
+    DeleteStep(RawMessage, lambda client_id: RawMessage.client_id == client_id),
     DeleteStep(Job, lambda client_id: Job.client_id == client_id),
     DeleteStep(Client, lambda client_id: Client.id == client_id),
 )

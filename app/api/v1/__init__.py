@@ -3,7 +3,18 @@
 from fastapi import APIRouter
 
 from app.api.problems import PROBLEM_RESPONSES
-from app.api.v1 import auth, clients, jobs, schedule, tokens, users
+from app.api.v1 import (
+    auth,
+    clients,
+    inboxes,
+    jobs,
+    messages,
+    results,
+    schedule,
+    system,
+    tokens,
+    users,
+)
 
 router = APIRouter(prefix="/api/v1", responses=PROBLEM_RESPONSES)
 router.include_router(auth.router)
@@ -12,3 +23,7 @@ router.include_router(tokens.router)
 router.include_router(clients.router)
 router.include_router(jobs.router)
 router.include_router(schedule.router)
+router.include_router(inboxes.router)
+router.include_router(messages.router)
+router.include_router(results.router)
+router.include_router(system.router)
