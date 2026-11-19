@@ -71,12 +71,14 @@ export function useJobActions(): JobActions {
     }
   };
 
+  // mutateAsync per call: TanStack runs per-call mutate callbacks only for
+  // the last call, so two quick resumes would lose a toast.
   const resume = useCallback(
     (job: JobOut) => {
-      resumeMutation.mutate(job.id, {
-        onSuccess: () => toast({ tone: 'success', title: strings.jobs.resumed, description: job.name }),
-        onError: (error) => toast({ tone: 'danger', title: strings.jobs.resume, description: errorSentence(error) }),
-      });
+      void resumeMutation
+        .mutateAsync(job.id)
+        .then(() => toast({ tone: 'success', title: strings.jobs.resumed, description: job.name }))
+        .catch((error: unknown) => toast({ tone: 'danger', title: strings.jobs.resume, description: errorSentence(error) }));
     },
     [resumeMutation, toast],
   );
@@ -101,10 +103,10 @@ export function useJobActions(): JobActions {
 
   const restore = useCallback(
     (job: JobOut) => {
-      restoreMutation.mutate(job.id, {
-        onSuccess: () => toast({ tone: 'success', title: strings.jobs.restoredToast, description: job.name }),
-        onError: (error) => toast({ tone: 'danger', title: strings.jobs.restore, description: errorSentence(error) }),
-      });
+      void restoreMutation
+        .mutateAsync(job.id)
+        .then(() => toast({ tone: 'success', title: strings.jobs.restoredToast, description: job.name }))
+        .catch((error: unknown) => toast({ tone: 'danger', title: strings.jobs.restore, description: errorSentence(error) }));
     },
     [restoreMutation, toast],
   );

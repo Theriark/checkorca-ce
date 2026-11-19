@@ -24,10 +24,14 @@ export interface ScheduleInput {
   readonly anchor?: string | null;
 }
 
+/** An answer with the zone of the request that produced it, so a kept
+ *  answer is formatted in its own zone while a new zone is being typed. */
+export type ZonedPreview = SchedulePreview & { readonly timezone: string };
+
 export type PreviewState =
   | { readonly status: 'idle' }
-  | { readonly status: 'checking'; readonly previous: SchedulePreview | null }
-  | { readonly status: 'ready'; readonly preview: SchedulePreview }
+  | { readonly status: 'checking'; readonly previous: ZonedPreview | null }
+  | { readonly status: 'ready'; readonly preview: ZonedPreview }
   | { readonly status: 'invalid'; readonly message: string; readonly field: string | null }
   | { readonly status: 'failed'; readonly message: string };
 
@@ -44,11 +48,13 @@ export function useSchedulePreview(input: ScheduleInput): PreviewState {
 
   const query = useQuery({
     queryKey: ['schedule', 'preview', settled],
-    queryFn: ({ signal }) =>
-      scheduleApi.preview(
+    queryFn: async ({ signal }): Promise<ZonedPreview> => {
+      const answer = await scheduleApi.preview(
         { kind: settled.kind, expr: settled.expr, timezone: settled.timezone, count: PREVIEW_COUNT, anchor: settled.anchor },
         signal,
-      ),
+      );
+      return { ...answer, timezone: settled.timezone };
+    },
     enabled: complete,
     placeholderData: keepPreviousData,
     staleTime: 60_000,

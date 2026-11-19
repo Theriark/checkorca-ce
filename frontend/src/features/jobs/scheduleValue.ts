@@ -11,10 +11,12 @@ export interface ScheduleValue {
   readonly timezone: string;
 }
 
-/** The expression the API gets for the value. */
+/** The expression the API gets for the value. Daily times are joined the
+ *  way the server stores them (comma, no space), so an unchanged job
+ *  compares equal and sends no PATCH. */
 export function scheduleExpression(value: ScheduleValue): string {
   if (value.kind === 'daily') {
-    return value.times.map((time) => time.trim()).filter(Boolean).join(', ');
+    return value.times.map((time) => time.trim()).filter(Boolean).join(',');
   }
   return value.expr.trim();
 }
