@@ -8,6 +8,8 @@ import httpx
 import pytest
 from sqlalchemy import false
 
+import app.repos.clients
+import app.repos.jobs
 import app.repos.sessions
 import app.repos.settings
 import app.repos.tokens
@@ -29,7 +31,14 @@ from app.settings import load_settings
 from helpers import ADMIN_EMAIL, ADMIN_PASSWORD, TEST_FERNET_KEY, running, sign_in
 
 # Importing the modules registers every repository class.
-MODULES = (app.repos.sessions, app.repos.settings, app.repos.tokens, app.repos.users)
+MODULES = (
+    app.repos.clients,
+    app.repos.jobs,
+    app.repos.sessions,
+    app.repos.settings,
+    app.repos.tokens,
+    app.repos.users,
+)
 
 
 def repositories() -> list[type[Repository]]:
@@ -76,15 +85,17 @@ def build(cls: type[Repository], policy: Any) -> Repository:
     return cls(NoDatabase(), policy)
 
 
-def test_the_c1_repositories_are_covered() -> None:
+def test_the_c1_and_c3_repositories_are_covered() -> None:
     names = {cls.__name__ for cls in repositories()}
     assert names >= {
         "UserRepository",
         "SessionRepository",
         "TokenRepository",
         "SettingsRepository",
+        "ClientRepository",
+        "JobRepository",
     }
-    assert len(REPOSITORY_METHODS) >= 20
+    assert len(REPOSITORY_METHODS) >= 35
 
 
 @pytest.mark.parametrize(
@@ -162,6 +173,15 @@ async def test_list_and_get_queries_go_through_the_policy_scope(
             f"/api/v1/tokens/{created.json()['id']}", headers={"X-CSRF-Token": csrf}
         )
         assert revoke.status_code == 404
+        made = await client.post(
+            "/api/v1/clients",
+            json={"name": "Scoped Away Ltd"},
+            headers={"X-CSRF-Token": csrf},
+        )
+        assert made.status_code == 201
+        assert (await client.get("/api/v1/clients")).json()["items"] == []
+        found = await client.get(f"/api/v1/clients/{made.json()['id']}")
+        assert found.status_code == 404
 
 
 def test_private_helpers_need_no_guard() -> None:

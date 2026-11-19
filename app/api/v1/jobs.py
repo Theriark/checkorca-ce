@@ -7,6 +7,7 @@ in their normal form. A job is paused until resumed (pause without until) or
 until a time (pause with until).
 """
 
+import codecs
 import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any
@@ -243,7 +244,7 @@ async def export_jobs(
     )
     return Response(
         # The byte order mark makes spreadsheets read the file as UTF-8.
-        content="﻿" + text,
+        content=codecs.BOM_UTF8 + text.encode("utf-8"),
         media_type=f"{CSV_MEDIA_TYPE}; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="jobs.csv"'},
     )

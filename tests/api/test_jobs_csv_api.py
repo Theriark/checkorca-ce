@@ -1,5 +1,6 @@
 """Jobs CSV: export with the formula guard, import with row errors, round trip."""
 
+import codecs
 import csv
 import io
 from typing import Any
@@ -23,6 +24,7 @@ from helpers import (
 
 DENTAL, FREIGHT, LAW = CLIENT_NAMES
 HEADER = ",".join(COLUMNS)
+BOM = codecs.BOM_UTF8.decode("utf-8")
 
 
 @pytest.fixture
@@ -31,7 +33,7 @@ async def csrf(client: httpx.AsyncClient, admin: AppUser) -> str:
 
 
 def read_csv(text: str) -> list[dict[str, str]]:
-    return list(csv.DictReader(io.StringIO(text.removeprefix("\\ufeff"))))
+    return list(csv.DictReader(io.StringIO(text.removeprefix(BOM))))
 
 
 async def export(client: httpx.AsyncClient, **params: str) -> httpx.Response:
@@ -59,8 +61,8 @@ async def upload(
         ("+1", "'+1"),
         ("-1", "'-1"),
         ("@daily", "'@daily"),
-        ("\\tTab", "'\\tTab"),
-        ("\\rReturn", "'\\rReturn"),
+        ("\tTab", "'\tTab"),
+        ("\rReturn", "'\rReturn"),
         ("'=quoted", "''=quoted"),
         ("'plain", "'plain"),
         ("Plain", "Plain"),
@@ -96,7 +98,7 @@ async def test_export_lists_jobs_with_guarded_cells(
     response = await export(client)
     assert response.headers["content-type"] == "text/csv; charset=utf-8"
     assert "attachment" in response.headers["content-disposition"]
-    assert response.text.startswith("\\ufeff" + HEADER + "\\r\\n")
+    assert response.text.startswith(BOM + HEADER + "\r\n")
     rows = read_csv(response.text)
     assert [row["client"] for row in rows] == ["'=cmd Fictional Co", DENTAL]
     hostile_row = rows[0]
@@ -156,8 +158,8 @@ async def test_a_round_trip_changes_nothing_and_one_bad_row_is_reported(
     # One more row for a new client and one row with an impossible schedule.
     extra = (
         f"{LAW},Document server backup,backup,cron,0 22 * * 1-5,Europe/Lisbon,"
-        "240,60,15,warning_is_attention,2,docsrv,\\r\\n"
-        f"{LAW},Broken job,backup,cron,61 * * * *,UTC,,,,,,,\\r\\n"
+        "240,60,15,warning_is_attention,2,docsrv,\r\n"
+        f"{LAW},Broken job,backup,cron,61 * * * *,UTC,,,,,,,\r\n"
     )
     imported = await upload(client, csrf, before + extra)
     result = imported.json()
@@ -180,15 +182,15 @@ async def test_import_reports_each_bad_row_by_number(
     client: httpx.AsyncClient, csrf: str
 ) -> None:
     text = (
-        "client,job,schedule_kind,schedule_expr,timezone,grace_minutes\\n"
-        f"{DENTAL},Nightly server backup,daily,23:00,Europe/Lisbon,\\n"
-        f"{DENTAL},Bad zone,daily,23:00,Mars/Olympus_Mons,\\n"
-        f"{DENTAL},Bad number,daily,23:00,UTC,soon\\n"
-        f",Missing client,daily,23:00,UTC,\\n"
-        f"{DENTAL},nightly SERVER backup,daily,22:00,UTC,\\n"
-        f"{DENTAL},Too many cells,daily,22:00,UTC,1,extra\\n"
-        "\\n"
-        f"{FREIGHT},Never fires,cron,0 0 30 2 *,UTC,\\n"
+        "client,job,schedule_kind,schedule_expr,timezone,grace_minutes\n"
+        f"{DENTAL},Nightly server backup,daily,23:00,Europe/Lisbon,\n"
+        f"{DENTAL},Bad zone,daily,23:00,Mars/Olympus_Mons,\n"
+        f"{DENTAL},Bad number,daily,23:00,UTC,soon\n"
+        f",Missing client,daily,23:00,UTC,\n"
+        f"{DENTAL},nightly SERVER backup,daily,22:00,UTC,\n"
+        f"{DENTAL},Too many cells,daily,22:00,UTC,1,extra\n"
+        "\n"
+        f"{FREIGHT},Never fires,cron,0 0 30 2 *,UTC,\n"
     )
     response = await upload(client, csrf, text)
     assert response.status_code == 200
@@ -210,8 +212,8 @@ async def test_import_reports_each_bad_row_by_number(
 
 async def test_a_dry_run_saves_nothing(client: httpx.AsyncClient, csrf: str) -> None:
     text = (
-        "client,job,schedule_kind,schedule_expr,timezone\\n"
-        f"{DENTAL},Nightly server backup,daily,23:00,Europe/Lisbon\\n"
+        "client,job,schedule_kind,schedule_expr,timezone\n"
+        f"{DENTAL},Nightly server backup,daily,23:00,Europe/Lisbon\n"
     )
     response = await upload(client, csrf, text, dry_run="true")
     assert response.json() == {
@@ -229,11 +231,11 @@ async def test_a_dry_run_saves_nothing(client: httpx.AsyncClient, csrf: str) -> 
     ("content", "detail"),
     [
         (b"", "empty"),
-        (b"\\xff\\xfeclient", "UTF-8"),
-        (b"client,job\\n", "Missing column: schedule_expr, schedule_kind, timezone."),
-        (HEADER.encode() + b",secret\\n", "Unknown column: secret."),
-        (b"client,client,job,schedule_kind,schedule_expr,timezone\\n", "twice"),
-        (b'client,job,schedule_kind,schedule_expr,timezone\\n"open', "valid CSV"),
+        (b"\xff\xfeclient", "UTF-8"),
+        (b"client,job\n", "Missing column: schedule_expr, schedule_kind, timezone."),
+        (HEADER.encode() + b",secret\n", "Unknown column: secret."),
+        (b"client,client,job,schedule_kind,schedule_expr,timezone\n", "twice"),
+        (b'client,job,schedule_kind,schedule_expr,timezone\n"open', "valid CSV"),
     ],
 )
 async def test_unusable_files_are_refused(
@@ -248,8 +250,8 @@ async def test_too_many_rows_or_bytes_are_refused(
     client: httpx.AsyncClient, csrf: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr("app.api.v1.jobs_csv.MAX_IMPORT_ROWS", 2)
-    rows = "".join(f"{DENTAL},Job {n},daily,23:00,UTC\\n" for n in range(3))
-    text = "client,job,schedule_kind,schedule_expr,timezone\\n" + rows
+    rows = "".join(f"{DENTAL},Job {n},daily,23:00,UTC\n" for n in range(3))
+    text = "client,job,schedule_kind,schedule_expr,timezone\n" + rows
     many = await upload(client, csrf, text)
     assert many.status_code == 422
     assert "more than 2 rows" in many.json()["detail"]
@@ -291,8 +293,8 @@ async def test_a_missing_column_keeps_the_stored_value(
         client, csrf, dental["id"], "Disk check", kind="script", grace_minutes=60
     )
     text = (
-        "client,job,schedule_kind,schedule_expr,timezone,grace_minutes\\n"
-        f"{DENTAL},Disk check,cron,0 6 * * *,UTC,\\n"
+        "client,job,schedule_kind,schedule_expr,timezone,grace_minutes\n"
+        f"{DENTAL},Disk check,cron,0 6 * * *,UTC,\n"
     )
     assert (await upload(client, csrf, text)).json()["updated"] == 1
     changed = (await client.get(f"/api/v1/jobs/{job['id']}")).json()
