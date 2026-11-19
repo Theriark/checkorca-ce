@@ -25,6 +25,10 @@ A job says when it should report: a schedule kind, an expression and an IANA tim
 
 An hour range such as `0-23` counts as a fixed hour (docs/spikes.md). The rule depends only on the wall time and the zone, so a restart or a different query window never changes the times. croniter is only asked which wall-clock times match an expression (`app/schedule/_cron.py`); turning them into instants is `app/schedule/_wall.py`.
 
+## Next times
+
+`next_n` (the preview and the check on save) walks the wall-clock times from the given moment and stops once the n-th time is settled, so its cost grows with n and not with how dense the schedule is: `* * * 1-3 *` asked in November costs about as much as a daily job. It looks ten years ahead (`NEXT_HORIZON`). `occurrences` lists a whole window and refuses one with more than 100000 times.
+
 ## Deadline
 
 An occurrence without a final result is overdue at `scheduled time + max_runtime_minutes + grace_minutes` (`deadline`), and missed after `escalate_minutes` more (evaluator, phase C7).
