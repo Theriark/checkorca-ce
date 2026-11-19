@@ -1,9 +1,10 @@
-"""Tables of phase C1: users, sessions, API tokens, audit events, settings.
+"""Tables of phases C1 (users, sessions, API tokens, audit events, settings)
+and C3 (clients and jobs).
 
-Revision c1_auth creates them; later phases add their tables here. Primary keys
-are UUIDs, timestamps UTC. No table stores a secret in clear text: sessions and
-API tokens keep a SHA-256 hash, passwords an Argon2id hash, and stored
-credentials (columns ending in _enc) Fernet ciphertext.
+Revisions c1_auth and c3_jobs create them; later phases add their tables
+here. Primary keys are UUIDs, timestamps UTC. No table stores a secret in clear
+text: sessions and API tokens keep a SHA-256 hash, passwords an Argon2id hash,
+and stored credentials (columns ending in _enc) Fernet ciphertext.
 """
 
 import uuid
@@ -17,14 +18,30 @@ from sqlalchemy import (
     String,
     Text,
     Time,
+    UniqueConstraint,
     text,
 )
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 
 USER_ROLES = ("admin", "technician")
 TOKEN_SCOPES = ("ingest", "read")
+JOB_KINDS = ("backup", "script", "other")
+SCHEDULE_KINDS = ("cron", "interval", "daily")
+ATTRIBUTION_BASES = ("started", "finished", "received")
+WARNING_POLICIES = ("warning_is_attention", "warning_counts_ok")
+NAME_LENGTH = 200
+
+
+def name_key(name: str) -> str:
+    """The form names are compared in: inner spaces collapsed, case folded."""
+    return " ".join(name.split()).casefold()
+
+
+def _one_of(column: str, values: tuple[str, ...]) -> str:
+    return f"{column} IN ({', '.join(repr(value) for value in values)})"
 
 
 class AppUser(Base):
@@ -127,3 +144,84 @@ class AppSettings(Base):
     demo_seeded: Mapped[bool] = mapped_column(
         default=False, server_default=text("false")
     )
+
+
+class Client(Base):
+    """A customer of the MSP (rnd-report-2 5.4). Names are unique by name_key."""
+
+    __tablename__ = "client"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(NAME_LENGTH))
+    name_key: Mapped[str] = mapped_column(String(NAME_LENGTH), unique=True)
+    notes: Mapped[str] = mapped_column(Text, default="", server_default=text("''"))
+    # Other names the matcher accepts for this client (phase C5).
+    aliases: Mapped[list[str]] = mapped_column(
+        ARRAY(String(NAME_LENGTH)),
+        default=list,
+        server_default=text("'{}'::character varying[]"),
+    )
+    archived: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
+    created_at: Mapped[datetime]
+
+
+class Job(Base):
+    """A job that should report on a schedule (rnd-report-2 5.4).
+
+    No foreign key here cascades from client: deleting a client goes through
+    the delete map of app/repos/client_delete.py, so a table missing from the
+    map makes the delete fail instead of leaving rows behind.
+    """
+
+    __tablename__ = "job"
+    __table_args__ = (
+        UniqueConstraint("client_id", "name_key"),
+        CheckConstraint(_one_of("kind", JOB_KINDS), name="kind"),
+        CheckConstraint(_one_of("schedule_kind", SCHEDULE_KINDS), name="schedule_kind"),
+        CheckConstraint(
+            _one_of("attribution_basis", ATTRIBUTION_BASES), name="attribution_basis"
+        ),
+        CheckConstraint(
+            _one_of("warning_policy", WARNING_POLICIES), name="warning_policy"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    client_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("client.id"))
+    name: Mapped[str] = mapped_column(String(NAME_LENGTH))
+    name_key: Mapped[str] = mapped_column(String(NAME_LENGTH))
+    kind: Mapped[str] = mapped_column(String(16))
+    parser_pack_id: Mapped[str | None] = mapped_column(String(100))
+    match_key: Mapped[str | None] = mapped_column(String(NAME_LENGTH))
+    schedule_kind: Mapped[str] = mapped_column(String(16))
+    schedule_expr: Mapped[str] = mapped_column(String(200))
+    timezone: Mapped[str] = mapped_column(String(64))
+    max_runtime_minutes: Mapped[int] = mapped_column(
+        default=360, server_default=text("360")
+    )
+    grace_minutes: Mapped[int] = mapped_column(default=120, server_default=text("120"))
+    escalate_minutes: Mapped[int] = mapped_column(default=30, server_default=text("30"))
+    attribution_basis: Mapped[str] = mapped_column(
+        String(16), default="finished", server_default=text("'finished'")
+    )
+    warning_policy: Mapped[str] = mapped_column(
+        String(32),
+        default="warning_is_attention",
+        server_default=text("'warning_is_attention'"),
+    )
+    consecutive_failures_to_alert: Mapped[int] = mapped_column(
+        default=1, server_default=text("1")
+    )
+    # 24 random letters and digits: the job's ping URL (phase C4).
+    ping_token: Mapped[str] = mapped_column(String(24), unique=True)
+    # False: paused until resumed. paused_until: paused until that time.
+    enabled: Mapped[bool] = mapped_column(default=True, server_default=text("true"))
+    paused_until: Mapped[datetime | None]
+    archived: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
+    # The anchor of an interval schedule.
+    created_at: Mapped[datetime]
+    updated_at: Mapped[datetime]
+    acknowledged_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("app_user.id", ondelete="SET NULL")
+    )
+    acknowledged_at: Mapped[datetime | None]

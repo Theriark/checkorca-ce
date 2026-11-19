@@ -45,7 +45,7 @@ OPTIONAL_VARIABLES = (
     "DEV_SEED_PASSWORD_TECHNICIAN",
 )
 # Emptied before each database test; settings keeps its single row.
-TABLES = ("app_session", "api_token", "audit_event", "app_user")
+TABLES = ("job", "client", "app_session", "api_token", "audit_event", "app_user")
 
 
 @pytest.fixture(autouse=True)
