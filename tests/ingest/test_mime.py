@@ -45,16 +45,35 @@ def test_body_of_finds_the_first_blank_line() -> None:
     assert mime.body_of(b"A: 1\r\n") == b""
 
 
-def test_the_content_hash_covers_date_and_body_only() -> None:
+def test_the_content_hash_covers_the_identifying_headers_and_the_body() -> None:
     def content(raw: bytes) -> str:
         return mime.content_hash(raw, mime.parse_headers(raw))
 
-    base = b"Date: Mon, 4 Jan 2027 06:29:00 +0000\r\nSubject: a\r\n\r\nOK\r\n"
-    renamed = base.replace(b"Subject: a", b"Subject: b\r\nReceived: by relay")
-    assert content(base) == content(renamed)
+    base = (
+        b"Date: Mon, 4 Jan 2027 06:29:00 +0000\r\nFrom: backup@example.com\r\n"
+        b"To: alerts@example.com\r\nSubject: Backup srv1: OK\r\n\r\nOK\r\n"
+    )
+    # A relay adds Received headers and may change line endings: same message.
+    relayed = b"Received: by relay.example.com\r\n" + base
+    assert content(base) == content(relayed)
     assert content(base) == content(base.replace(b"\r\n", b"\n"))
-    assert content(base) != content(base.replace(b"Mon, 4", b"Tue, 5"))
-    assert content(base) != content(base.replace(b"OK", b"KO"))
+    # Anything that tells one alert from another gives another key.
+    for old, new in (
+        (b"Mon, 4", b"Tue, 5"),
+        (b"backup@", b"other@"),
+        (b"alerts@", b"team@"),
+        (b"srv1: OK", b"srv1: FAILED"),
+        (b"\r\n\r\nOK", b"\r\n\r\nKO"),
+    ):
+        assert content(base) != content(base.replace(old, new)), new
+
+
+def test_a_message_without_date_is_only_deduplicated_by_message_id() -> None:
+    # No Date header, or an empty one: every delivery gets a key of its own.
+    for raw in (b"Subject: done\r\n\r\ndone\r\n", b"Date: \r\n\r\ndone\r\n"):
+        headers = mime.parse_headers(raw)
+        keys = {mime.content_hash(raw, headers) for _ in range(2)}
+        assert len(keys) == 2
 
 
 def test_text_prefers_plain_and_skips_attachments() -> None:

@@ -89,6 +89,10 @@ def test_the_route_list_is_complete() -> None:
         ("POST", "/api/v1/jobs/{job_id}/archive"),
         ("POST", "/api/v1/jobs/import.csv"),
         ("POST", "/api/v1/schedule/preview"),
+        ("POST", "/api/v1/inboxes"),
+        ("PATCH", "/api/v1/inboxes/{inbox_id}"),
+        ("DELETE", "/api/v1/inboxes/{inbox_id}"),
+        ("POST", "/api/v1/inboxes/{inbox_id}/token"),
     }
 
 
