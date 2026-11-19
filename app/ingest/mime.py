@@ -8,6 +8,7 @@ refuse them).
 
 import hashlib
 import re
+import secrets
 from email.errors import HeaderParseError
 from email.header import decode_header, make_header
 from email.message import Message
@@ -22,6 +23,8 @@ MAX_HEADER_NAME: Final = 200
 MAX_HEADER_VALUE: Final = 4000
 # The text a message detail shows; the parser engine caps its input at 256 KB.
 MAX_TEXT: Final = 256 * 1024
+# Besides the body, what tells one alert from another for the duplicate key.
+CONTENT_HEADERS: Final = ("Date", "From", "To", "Subject")
 
 _FOLD = re.compile(r"\r?\n[ \t]+")
 _LINE_BREAK = re.compile(r"\r?\n")
@@ -83,16 +86,24 @@ def body_of(raw: bytes) -> bytes:
 
 
 def content_hash(raw: bytes, message: Message) -> str:
-    """The duplicate key besides the Message-ID: SHA-256 of the Date header and
-    the body, line endings normalised.
+    """The duplicate key besides the Message-ID: SHA-256 of the Date, From, To
+    and Subject headers and the body, line endings normalised.
 
-    The Date header is part of it so that a script that sends the same text
-    every day is not taken for a duplicate of yesterday's mail, while the same
-    message delivered twice (or forwarded with a new Message-ID) is.
+    The same message delivered twice, or forwarded with a new Message-ID, has
+    the same key. Two alerts that differ only in the Subject (the status in
+    the Subject, an empty body) do not, nor does the same text on another day.
+    A message without a Date header gets a key of its own: only its
+    Message-ID can make it a duplicate, so a script that sends the same words
+    without a Date is never taken for an earlier run.
     """
-    date = header_value(message.get("Date", "")).strip()
+    if not header_value(message.get("Date", "")).strip():
+        return hashlib.sha256(b"no-date:" + secrets.token_bytes(32)).hexdigest()
+    parts: list[bytes] = []
+    for name in CONTENT_HEADERS:
+        value = header_value(message.get(name, "")).strip()
+        parts.append(f"{name.lower()}:{value}".encode())
     body = body_of(raw).replace(b"\r\n", b"\n")
-    return hashlib.sha256(b"date:" + date.encode("utf-8") + b"\n" + body).hexdigest()
+    return hashlib.sha256(b"\n".join([*parts, body])).hexdigest()
 
 
 def _text_part(message: Message) -> Message | None:

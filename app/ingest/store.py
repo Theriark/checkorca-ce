@@ -129,6 +129,17 @@ def _time(value: datetime | None, field: str) -> datetime | None:
     return value
 
 
+def _has_nul(value: Any) -> bool:
+    """A NUL character in a key or a string value, at any depth."""
+    if isinstance(value, str):
+        return "\x00" in value
+    if isinstance(value, dict):
+        return any(_has_nul(key) or _has_nul(item) for key, item in value.items())
+    if isinstance(value, list):
+        return any(_has_nul(item) for item in value)
+    return False
+
+
 def _details(details: Any) -> dict[str, Any]:
     if not isinstance(details, dict):
         raise ResultRejected("details must be an object")
@@ -136,9 +147,16 @@ def _details(details: Any) -> dict[str, Any]:
         encoded = json.dumps(details, ensure_ascii=False, allow_nan=False)
     except (TypeError, ValueError):
         raise ResultRejected("details must hold JSON values only") from None
-    if "\\u0000" in encoded:
+    # PostgreSQL JSONB refuses NUL; checked on the values, so a text holding
+    # a backslash and "u0000" (a Windows path, say) is still accepted.
+    if _has_nul(details):
         raise ResultRejected("details must not contain NUL characters")
-    if len(encoded.encode("utf-8")) > MAX_DETAILS_BYTES:
+    try:
+        size = len(encoded.encode("utf-8"))
+    except UnicodeEncodeError:
+        # A lone surrogate, which a JSON body can carry as an escape.
+        raise ResultRejected("details must be valid Unicode text") from None
+    if size > MAX_DETAILS_BYTES:
         raise ResultRejected(f"details may have at most {MAX_DETAILS_BYTES} bytes")
     loaded: dict[str, Any] = json.loads(encoded)
     return loaded
