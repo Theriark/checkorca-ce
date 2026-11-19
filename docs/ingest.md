@@ -27,9 +27,12 @@ Lookups for the receivers, always with the `SYSTEM` principal and the context's 
 
 ```python
 inboxes = InboxRepository(db, context.policy)
-inbox = await inboxes.find_by_code(SYSTEM, local_part, kinds=("smtp",))           # RCPT TO
-inbox = await inboxes.find_by_code(SYSTEM, inbox_code, kinds=("smtp", "webhook"))  # POST ingest/email
-inbox = await inboxes.find_by_token(SYSTEM, bearer_value)                          # webhook token
+# RCPT TO
+inbox = await inboxes.find_by_code(SYSTEM, local_part, kinds=("smtp",))
+# POST ingest/email/{inbox_code}
+inbox = await inboxes.find_by_code(SYSTEM, inbox_code, kinds=("smtp", "webhook"))
+# A webhook inbox's own token
+inbox = await inboxes.find_by_token(SYSTEM, bearer_value)
 ```
 
 ## store_raw
@@ -37,15 +40,17 @@ inbox = await inboxes.find_by_token(SYSTEM, bearer_value)                       
 ```python
 from app.ingest.store import MAX_MESSAGE_BYTES, MessageTooLarge, StoredRaw, store_raw
 
+# store_raw never commits: the caller commits, then answers 250, marks the
+# message Seen or answers 202.
 stored: StoredRaw = await store_raw(
-    db,                 # AsyncSession; store_raw never commits
-    policy,             # AccessPolicy (context.policy or services.policy)
-    principal,          # SYSTEM in receivers; the caller's Principal in routes
+    db,  # AsyncSession
+    policy,  # context.policy or services.policy
+    principal,  # SYSTEM in receivers; the caller's Principal in routes
     inbox_id=inbox.id,  # the inbox the message arrived in
-    raw=raw,            # bytes as received (RFC 822)
-    received_at=now,    # aware datetime from the injected Clock
+    raw=raw,  # bytes as received (RFC 822)
+    received_at=now,  # aware datetime from the injected Clock
 )
-await db.commit()       # then answer 250 / mark Seen / answer 202
+await db.commit()
 ```
 
 - `len(raw) > MAX_MESSAGE_BYTES` (5 MiB) raises `MessageTooLarge` before anything is read or written. The SMTP listener also refuses oversize DATA itself (SIZE and a `handle_DATA` length check).
@@ -61,13 +66,21 @@ from app.ingest.results import ParsedResult
 from app.ingest.store import ResultRejected, record_result
 
 result_id = await record_result(
-    db, policy, principal,
-    ParsedResult(status="success", job_name="Nightly server backup",
-                 client_hint="Fictional Dental Clinic", started_at=..., finished_at=...,
-                 run_id="...", details={...}),
+    db,
+    policy,
+    principal,
+    ParsedResult(
+        status="success",
+        job_name="Nightly server backup",
+        client_hint="Fictional Dental Clinic",
+        started_at=...,
+        finished_at=...,
+        run_id="...",
+        details={...},
+    ),
     received_at=now,
-    job_id=job.id,            # known job (ping, POST results with job_id or ping_token); else None
-    raw_message_id=None,      # the stored message, for parsed mail
+    job_id=job.id,  # the known job (ping, results API with job_id); else None
+    raw_message_id=None,  # the stored message, for parsed mail
 )
 await db.commit()
 ```
@@ -89,11 +102,17 @@ The Receiver hook point for C4-I:
 ```python
 class Receiver(Protocol):
     name: str
-    async def start(self, context: WorkerContext) -> None: ...   # start serving and return
-    async def stop(self) -> None: ...                            # stop and release everything
+
+    async def start(self, context: WorkerContext) -> None:
+        """Start serving and return."""
+
+    async def stop(self) -> None:
+        """Stop serving and release everything."""
+
 
 type ReceiverFactory = Callable[[WorkerContext], Receiver]
-RECEIVERS: tuple[ReceiverFactory, ...] = ()   # C4-I adds the SMTP listener and the IMAP poller
+# C4-I adds the SMTP listener and the IMAP poller.
+RECEIVERS: tuple[ReceiverFactory, ...] = ()
 ```
 
 `WorkerContext` carries `settings` (`smtp_port` 2525, `inbox_domain`), `engine`, `sessionmaker`, `clock`, `policy` (CE: AllowAllPolicy) and `secret_box`. Receivers run only while the worker holds the lock, so exactly one SMTP listener and one IMAP poller exist per installation. A receiver that fails to start is logged and skipped; the worker keeps ticking. C4-I's SMTP abstraction (aiosmtpd or the own fallback receiver) implements this `Receiver`.
@@ -106,7 +125,7 @@ IMAP: decrypt with `context.secret_box.decrypt(inbox.imap_password_enc)` only in
 | --- | --- | --- |
 | `POST /api/v1/ingest/email/{inbox_code}` | `Authorization: Bearer` with an ingest-scope API token, or the inbox's own webhook token (only for its own inbox) | raw RFC 822 body; `find_by_code(kinds=("smtp", "webhook"))`, 404 for an unknown code; 413 above 5 MiB; `store_raw`; 202 with `message_id` (the stored row id) and `duplicate` |
 | `POST /api/v1/results` | ingest-scope API token | ParsedResult plus `job_id`, `ping_token`, or `client_hint` and `job_name`; `record_result`; 202 |
-| `GET/POST /api/v1/ping/{ping_token}[/start|/fail]` | the ping token | `JobRepository` lookup by ping token; `record_result` with `success`, `started` or `failed`; 200 `OK`; 120 a minute per token |
+| `GET/POST /api/v1/ping/{ping_token}`, plus `/start` and `/fail` | the ping token | `JobRepository` lookup by ping token; `record_result` with `success`, `started` or `failed`; 200 `OK`; 120 a minute per token |
 | `POST /api/v1/messages/upload` | session (CSRF) | multipart `file` and `inbox_id`; `store_raw` into that inbox |
 
 The read routes are in place: `GET /inboxes`, `/inboxes/{id}`, `/messages`, `/messages/{id}`, `/results`, `/jobs/{id}/results`, `/system/status`. Token-authenticated routes are not session routes: `tests/api/test_csrf_api.py` reads every state-changing route from the app, so C4-I adds them to its exemption list with the reason.
