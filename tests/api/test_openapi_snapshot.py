@@ -80,6 +80,26 @@ def test_the_document_describes_the_c3_routes() -> None:
     assert list(export["content"]) == ["text/csv"]
 
 
+def test_the_document_describes_the_c4_routes() -> None:
+    paths = generate()["paths"]
+    for path in (
+        "/api/v1/inboxes",
+        "/api/v1/inboxes/{inbox_id}",
+        "/api/v1/inboxes/{inbox_id}/token",
+        "/api/v1/messages",
+        "/api/v1/messages/{message_id}",
+        "/api/v1/results",
+        "/api/v1/jobs/{job_id}/results",
+        "/api/v1/system/status",
+    ):
+        assert path in paths
+    # Write-only (D-6): no inbox answer has a password or the token's hash.
+    schemas = generate()["components"]["schemas"]
+    hidden = {"password", "imap_password_enc", "token_sha256"}
+    for name in ("InboxOut", "InboxCreated", "ImapOut", "InboxActivity"):
+        assert not hidden & set(schemas[name]["properties"])
+
+
 def test_errors_are_declared_as_problem_documents() -> None:
     """The 4XX answers carry the media type the handlers send."""
     for path, operations in generate()["paths"].items():
