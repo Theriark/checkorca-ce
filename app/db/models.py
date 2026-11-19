@@ -1,10 +1,12 @@
-"""Tables of phases C1 (users, sessions, API tokens, audit events, settings)
-and C3 (clients and jobs).
+"""Tables of phases C1 (users, sessions, API tokens, audit events, settings),
+C3 (clients and jobs) and C4 (inboxes, raw messages, results, the worker
+heartbeat).
 
-Revisions c1_auth and c3_jobs create them; later phases add their tables
-here. Primary keys are UUIDs, timestamps UTC. No table stores a secret in clear
-text: sessions and API tokens keep a SHA-256 hash, passwords an Argon2id hash,
-and stored credentials (columns ending in _enc) Fernet ciphertext.
+Revisions c1_auth, c3_jobs and c4_ingest create them; later phases add their
+tables here. Primary keys are UUIDs, timestamps UTC. No table stores a secret
+in clear text: sessions, API tokens and webhook inbox tokens keep a SHA-256
+hash, passwords an Argon2id hash, and stored credentials (columns ending in
+_enc) Fernet ciphertext.
 """
 
 import uuid
@@ -14,6 +16,8 @@ from typing import Any
 from sqlalchemy import (
     CheckConstraint,
     ForeignKey,
+    Index,
+    LargeBinary,
     SmallInteger,
     String,
     Text,
@@ -21,7 +25,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -32,7 +36,12 @@ JOB_KINDS = ("backup", "script", "other")
 SCHEDULE_KINDS = ("cron", "interval", "daily")
 ATTRIBUTION_BASES = ("started", "finished", "received")
 WARNING_POLICIES = ("warning_is_attention", "warning_counts_ok")
+INBOX_KINDS = ("smtp", "imap", "webhook", "upload")
+PARSE_STATES = ("pending", "parsed", "unmatched", "error")
+RESULT_STATUSES = ("success", "warning", "failed", "started", "unknown")
 NAME_LENGTH = 200
+# RFC 5322 allows a header line of 998 characters; a longer Message-ID is not kept.
+MESSAGE_ID_LENGTH = 998
 
 
 def name_key(name: str) -> str:
@@ -225,3 +234,130 @@ class Job(Base):
         ForeignKey("app_user.id", ondelete="SET NULL")
     )
     acknowledged_at: Mapped[datetime | None]
+
+
+class Inbox(Base):
+    """Where alert mail and webhooks arrive (rnd-report-2 5.4 and 5.7).
+
+    code is 24 random lower-case letters and digits: the local part of an smtp
+    inbox's address and the last part of a webhook inbox's ingest URL. It is
+    stored plain because the SMTP listener looks it up at RCPT time. A webhook
+    inbox also has a token, shown once and stored as SHA-256. The IMAP
+    password is Fernet ciphertext and never leaves the server (D-6).
+    """
+
+    __tablename__ = "inbox"
+    __table_args__ = (CheckConstraint(_one_of("kind", INBOX_KINDS), name="kind"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    kind: Mapped[str] = mapped_column(String(16))
+    label: Mapped[str] = mapped_column(String(100))
+    code: Mapped[str] = mapped_column(String(24), unique=True)
+    token_sha256: Mapped[str | None] = mapped_column(String(64), unique=True)
+    imap_host: Mapped[str | None] = mapped_column(String(253))
+    imap_port: Mapped[int | None]
+    imap_username: Mapped[str | None] = mapped_column(String(320))
+    imap_password_enc: Mapped[str | None] = mapped_column(Text)
+    imap_folder: Mapped[str | None] = mapped_column(String(200))
+    imap_poll_seconds: Mapped[int | None]
+    imap_tls: Mapped[bool | None]
+    # Addresses (alerts@example.com) or whole domains (@example.com), lower case.
+    sender_allowlist: Mapped[list[str]] = mapped_column(
+        ARRAY(String(254)),
+        default=list,
+        server_default=text("'{}'::character varying[]"),
+    )
+    require_auth_results: Mapped[bool] = mapped_column(
+        default=False, server_default=text("false")
+    )
+    created_at: Mapped[datetime]
+    updated_at: Mapped[datetime]
+    last_message_at: Mapped[datetime | None]
+
+
+class RawMessage(Base):
+    """One received message, compressed, kept until purge_after (5.4).
+
+    A message is stored once per inbox: the same Message-ID, or the same
+    content hash (Date header and body), is a duplicate. inbox_id becomes NULL
+    when the inbox is deleted, so job history keeps its evidence until the
+    purge. client_id is set by the matcher (phase C5) when every result of the
+    message belongs to one client, so deleting that client deletes the message.
+    """
+
+    __tablename__ = "raw_message"
+    __table_args__ = (
+        CheckConstraint(_one_of("parse_state", PARSE_STATES), name="parse_state"),
+        UniqueConstraint("inbox_id", "message_id"),
+        UniqueConstraint("inbox_id", "body_sha256"),
+        Index("ix_raw_message_parse_state_received_at", "parse_state", "received_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    inbox_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("inbox.id", ondelete="SET NULL")
+    )
+    client_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("client.id"), index=True
+    )
+    received_at: Mapped[datetime] = mapped_column(index=True)
+    message_id: Mapped[str | None] = mapped_column(String(MESSAGE_ID_LENGTH))
+    # SHA-256 of the message as received; body_sha256 is the duplicate key.
+    sha256: Mapped[str] = mapped_column(String(64))
+    body_sha256: Mapped[str] = mapped_column(String(64))
+    size: Mapped[int]
+    # [[name, value], ...] in the order received, decoded to text.
+    headers: Mapped[list[list[str]]] = mapped_column(
+        JSONB, default=list, server_default=text("'[]'::jsonb")
+    )
+    body_zlib: Mapped[bytes] = mapped_column(LargeBinary)
+    parse_state: Mapped[str] = mapped_column(
+        String(16), default="pending", server_default=text("'pending'")
+    )
+    purge_after: Mapped[datetime] = mapped_column(index=True)
+
+
+class JobResult(Base):
+    """One run reported by a parsed message, a ping or the results API (5.4).
+
+    job_id is NULL until the matcher binds the result to a job (Unmatched).
+    """
+
+    __tablename__ = "job_result"
+    __table_args__ = (
+        CheckConstraint(_one_of("status", RESULT_STATUSES), name="status"),
+        Index("ix_job_result_job_id_received_at", "job_id", "received_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    job_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("job.id"))
+    client_hint: Mapped[str | None] = mapped_column(String(NAME_LENGTH))
+    job_name: Mapped[str | None] = mapped_column(String(NAME_LENGTH))
+    status: Mapped[str] = mapped_column(String(16))
+    started_at: Mapped[datetime | None]
+    finished_at: Mapped[datetime | None]
+    received_at: Mapped[datetime] = mapped_column(index=True)
+    raw_message_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("raw_message.id"), index=True
+    )
+    run_id: Mapped[str | None] = mapped_column(String(NAME_LENGTH))
+    details: Mapped[dict[str, Any]] = mapped_column(
+        default=dict, server_default=text("'{}'::jsonb")
+    )
+
+
+class WorkerHeartbeat(Base):
+    """The single heartbeat row (id 1), written by the worker that holds the
+    lock on every tick. /readyz and System status read it."""
+
+    __tablename__ = "worker_heartbeat"
+    __table_args__ = (CheckConstraint("id = 1", name="single_row"),)
+
+    id: Mapped[int] = mapped_column(
+        SmallInteger, primary_key=True, autoincrement=False, default=1
+    )
+    beat_at: Mapped[datetime]
+    # Host name and process id of the worker that holds the lock.
+    holder: Mapped[str] = mapped_column(String(200))
+    # When that worker took the lock.
+    started_at: Mapped[datetime]
