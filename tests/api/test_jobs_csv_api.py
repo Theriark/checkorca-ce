@@ -99,7 +99,7 @@ async def test_export_lists_jobs_with_guarded_cells(
     assert response.headers["content-type"] == "text/csv; charset=utf-8"
     assert "attachment" in response.headers["content-disposition"]
     assert response.text.startswith(BOM + HEADER + "\r\n")
-    rows = read_csv(response.text)
+    rows = sorted(read_csv(response.text), key=lambda row: row["client"])
     assert [row["client"] for row in rows] == ["'=cmd Fictional Co", DENTAL]
     hostile_row = rows[0]
     assert hostile_row["job"] == "'@SUM(1+1) report"
@@ -169,12 +169,13 @@ async def test_a_round_trip_changes_nothing_and_one_bad_row_is_reported(
     assert [problem["row"] for problem in result["errors"]] == [5]
     assert "cron" in result["errors"][0]["message"]
     rows = read_csv((await export(client)).text)
-    assert [(row["client"], row["job"]) for row in rows] == [
+    # The order follows the database collation, which may skip punctuation.
+    assert sorted((row["client"], row["job"]) for row in rows) == [
         ("'+Fictional Plus Ltd", "'=Weekly image backup"),
         (DENTAL, "Nightly server backup"),
         (LAW, "Document server backup"),
     ]
-    law_row = rows[2]
+    law_row = next(row for row in rows if row["client"] == LAW)
     assert (law_row["max_runtime_minutes"], law_row["match_key"]) == ("240", "docsrv")
 
 

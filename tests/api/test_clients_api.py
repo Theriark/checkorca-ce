@@ -30,7 +30,10 @@ async def csrf(client: httpx.AsyncClient, admin: AppUser) -> str:
 
 
 async def audit_actions(engine: AsyncEngine) -> list[tuple[str, str | None]]:
-    query = select(AuditEvent.action, AuditEvent.target_id)
+    # Sign-in is audited too; these tests look at the client events.
+    query = select(AuditEvent.action, AuditEvent.target_id).where(
+        AuditEvent.action.like("client.%")
+    )
     async with engine.connect() as connection:
         return [tuple(row) for row in (await connection.execute(query)).all()]
 

@@ -29,6 +29,8 @@ LISBON = ZoneInfo("Europe/Lisbon")
         ("cron", "@HOURLY", "0 * * * *"),
         ("cron", "@weekly", "0 0 * * 0"),
         ("cron", "0 9 * JAN-MAR MON-FRI", "0 9 * JAN-MAR MON-FRI"),
+        # croniter reads a range from a value to itself as a full cycle.
+        ("cron", "0-0 5-5/2,7 * * MON-mon", "0 5,7 * * MON"),
         ("daily", "18:00, 6:00,06:00", "06:00,18:00"),
         ("daily", "23:00", "23:00"),
         ("interval", " 1H 30m ", "1h30m"),

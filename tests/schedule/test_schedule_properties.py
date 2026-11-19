@@ -29,8 +29,12 @@ DAYS = (
     datetime(2027, 11, 7, tzinfo=UTC),
     datetime(2027, 6, 15, tzinfo=UTC),
 )
+# Derandomized: the merge gate sees the same examples on every run.
 PROFILE = settings(
-    max_examples=60, deadline=None, suppress_health_check=[HealthCheck.too_slow]
+    max_examples=60,
+    deadline=None,
+    derandomize=True,
+    suppress_health_check=[HealthCheck.too_slow],
 )
 
 

@@ -225,7 +225,8 @@ async def test_pause_and_resume(
     assert naive.status_code == 422
 
     async with db_engine.connect() as connection:
-        actions = (await connection.execute(select(AuditEvent.action))).scalars()
+        query = select(AuditEvent.action).where(AuditEvent.action.like("job.%"))
+        actions = (await connection.execute(query)).scalars()
         assert sorted(actions) == ["job.create", "job.pause", "job.pause", "job.resume"]
 
 
