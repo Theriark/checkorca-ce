@@ -125,7 +125,7 @@ export function JobDrawer({ open, onOpenChange, job, presetClientId = null, onSa
           <Select
             label={strings.jobForm.client}
             options={clientOptions}
-            value={state.clientId || undefined}
+            value={state.clientId}
             onValueChange={(value) => set('clientId', value)}
             placeholder={clients.isPending ? strings.jobs.loadingClients : strings.jobForm.clientPlaceholder}
             disabled={busy || clients.isPending}

@@ -189,14 +189,18 @@ describe('job drawer', () => {
     expect(within(drawer).getByText(strings.jobForm.clientRequired)).toBeTruthy();
     expect(within(drawer).getByText(strings.jobForm.nameRequired)).toBeTruthy();
     expect(calls.filter((call) => call.method === 'POST' && call.url.endsWith('/jobs'))).toHaveLength(0);
-    // The preview arrives once the zone is set (the daily time is prefilled).
+    // The zone is prefilled with the browser's (UTC on the CI runner); the
+    // preview for the typed zone arrives once typing has settled.
+    const previewBodies = () =>
+      calls.filter((call) => call.url.endsWith('/schedule/preview')).map((call) => JSON.parse(String(call.init?.body)) as { kind: string; expr: string; timezone: string; count: number });
+    const before = previewBodies().length;
     await user.clear(within(drawer).getByLabelText(strings.jobForm.timezone));
     await user.type(within(drawer).getByLabelText(strings.jobForm.timezone), 'Europe/Lisbon');
+    await waitFor(() => expect(previewBodies().at(-1)?.timezone).toBe('Europe/Lisbon'), { timeout: 3000 });
     await waitFor(() => expect(within(drawer).getAllByText(/23:00/).length).toBeGreaterThanOrEqual(5), { timeout: 3000 });
-    // Typing thirteen characters asked the server about three times, not thirteen.
-    const previews = calls.filter((call) => call.url.endsWith('/schedule/preview'));
-    expect(previews.length).toBeLessThan(6);
-    expect(JSON.parse(String(previews[previews.length - 1]?.init?.body))).toMatchObject({ kind: 'daily', expr: '23:00', timezone: 'Europe/Lisbon', count: 5 });
+    // Typing thirteen characters asked the server a few times, not thirteen.
+    expect(previewBodies().length - before).toBeLessThan(6);
+    expect(previewBodies().at(-1)).toMatchObject({ kind: 'daily', expr: '23:00', timezone: 'Europe/Lisbon', count: 5 });
 
     await user.click(within(drawer).getByRole('combobox', { name: strings.jobForm.client }));
     await user.click(await screen.findByRole('option', { name: 'Harbourside Dental (fictional)' }));
