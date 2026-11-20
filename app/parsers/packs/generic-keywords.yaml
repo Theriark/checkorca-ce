@@ -6,7 +6,10 @@
 # with two or more matching conditions always wins over it.
 #
 # Patterns use possessive quantifiers (*+) and bounded values ({0,199}), so a
-# long line or a run of spaces in a hostile mail costs linear time.
+# long line or a run of spaces in a hostile mail costs linear time. Status
+# rules match the keyword first and look behind it only then (the regex module
+# allows variable-length lookbehind), so a 256 KiB body stays far inside the
+# 50 ms timeout.
 id: generic-keywords
 version: 2
 vendor: Generic
@@ -47,17 +50,17 @@ status_rules:
   # "has not finished" and "didn't run" are, and never count as success.
   - status: failed
     in: subject
-    regex: '(?i)\b(?<!\b0 )(?<!\bno )(?<!\bzero )(?<!\bwithout )(?:fail(?:ed|ure|ing|s)?|unsuccessful|abort(?:ed)?|errors?|critical)\b(?![ \t]*+[:=][ \t]*+(?:0|none|no)\b)|\b(?:not|never|cannot|unable[ \t]+to|[a-z]+n[''’]t)[ \t]+(?:been[ \t]+|be[ \t]+)?(?:complete[ds]?|finish(?:ed)?|succeed(?:ed|s)?|successful(?:ly)?)\b|\bdid(?:[ \t]+not|n[''’]t)[ \t]+run\b'
+    regex: '(?i)\b(?:fail(?:ed|ure|ing|s)?|unsuccessful|abort(?:ed)?|errors?|critical)\b(?<!\b(?:0|no|zero|without)[ \t]+\w+)(?![ \t]*+[:=][ \t]*+(?:0|none|no)\b)|\b(?:complete[ds]?|finish(?:ed)?|succeed(?:ed|s)?|successful(?:ly)?)\b(?<=\b(?:not|never|cannot|unable[ \t]+to|\w+n[''’]t)[ \t]+(?:(?:been|be)[ \t]+)?\w+)|\brun\b(?<=\bdid(?:[ \t]+not|n[''’]t)[ \t]+run)'
   - status: warning
     in: subject
-    regex: '(?i)\b(?<!\b0 )(?<!\bno )(?<!\bzero )(?<!\bwithout )(?:warn(?:ing|ings|s)?|partial(?:ly)?|degraded)\b(?![ \t]*+[:=][ \t]*+(?:0|none|no)\b)'
+    regex: '(?i)\b(?:warn(?:ing|ings|s)?|partial(?:ly)?|degraded)\b(?<!\b(?:0|no|zero|without)[ \t]+\w+)(?![ \t]*+[:=][ \t]*+(?:0|none|no)\b)'
   # Before success: "completed (started 01:00)" must not count as success.
   - status: started
     in: subject
     regex: '(?i)\b(?:started|starting|running|in[ \t]+progress)\b'
   - status: success
     in: subject
-    regex: '(?i)\b(?<!\bnot )(?<!\bnever )(?<!\bbe )(?<!\bbeen )(?:success(?:ful(?:ly)?)?|succeeded|completed?|finished|ok|done|passed)\b'
+    regex: '(?i)\b(?:success(?:ful(?:ly)?)?|succeeded|completed?|finished|ok|done|passed)\b(?<!\b(?:not|never|be|been)[ \t]+\w+)'
   # Then a "Status: value" line of the body.
   - status: failed
     regex: '(?im)^[ \t]*+(?:status|result|state|outcome)[ \t]*+:[ \t]*+(?:fail|error|abort|unsuccessful|critical)'
@@ -69,11 +72,11 @@ status_rules:
     regex: '(?im)^[ \t]*+(?:status|result|state|outcome)[ \t]*+:[ \t]*+(?:success|succeeded|ok\b|completed?\b|finished|done|passed)'
   # Last, keywords anywhere in the body; success only in plain words.
   - status: failed
-    regex: '(?i)\b(?<!\b0 )(?<!\bno )(?<!\bzero )(?<!\bwithout )(?:fail(?:ed|ure|ing|s)?|unsuccessful|abort(?:ed)?|errors?|critical)\b(?![ \t]*+[:=][ \t]*+(?:0|none|no)\b)|\b(?:not|never|cannot|unable[ \t]+to|[a-z]+n[''’]t)[ \t]+(?:been[ \t]+|be[ \t]+)?(?:complete[ds]?|finish(?:ed)?|succeed(?:ed|s)?|successful(?:ly)?)\b|\bdid(?:[ \t]+not|n[''’]t)[ \t]+run\b'
+    regex: '(?i)\b(?:fail(?:ed|ure|ing|s)?|unsuccessful|abort(?:ed)?|errors?|critical)\b(?<!\b(?:0|no|zero|without)[ \t]+\w+)(?![ \t]*+[:=][ \t]*+(?:0|none|no)\b)|\b(?:complete[ds]?|finish(?:ed)?|succeed(?:ed|s)?|successful(?:ly)?)\b(?<=\b(?:not|never|cannot|unable[ \t]+to|\w+n[''’]t)[ \t]+(?:(?:been|be)[ \t]+)?\w+)|\brun\b(?<=\bdid(?:[ \t]+not|n[''’]t)[ \t]+run)'
   - status: warning
-    regex: '(?i)\b(?<!\b0 )(?<!\bno )(?<!\bzero )(?<!\bwithout )(?:warn(?:ing|ings|s)?|partial(?:ly)?|degraded)\b(?![ \t]*+[:=][ \t]*+(?:0|none|no)\b)'
+    regex: '(?i)\b(?:warn(?:ing|ings|s)?|partial(?:ly)?|degraded)\b(?<!\b(?:0|no|zero|without)[ \t]+\w+)(?![ \t]*+[:=][ \t]*+(?:0|none|no)\b)'
   - status: success
-    regex: '(?i)\b(?<!\bnot )(?<!\bnever )(?<!\bbe )(?<!\bbeen )(?:(?:completed|finished)[ \t]+successfully|succeeded|successful(?:ly)?)\b'
+    regex: '(?i)\b(?:(?:completed|finished)[ \t]+successfully|succeeded|successful(?:ly)?)\b(?<!\b(?:not|never|be|been)[ \t]+\w+)'
 fixtures:
   - {name: success-plain, origin: synthetic, class: success}
   - {name: warning-html, origin: synthetic, class: warning}
