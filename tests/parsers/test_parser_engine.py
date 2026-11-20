@@ -2,6 +2,7 @@
 regex time. Mail and names are synthetic (R-11)."""
 
 import time
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta, timezone
 from itertools import chain, repeat
 from math import isqrt
@@ -188,6 +189,40 @@ def test_an_empty_split_match_moves_on() -> None:
     assert [result.job_name for result in outcome.results] == ["a", "b", "c"]
 
 
+def test_a_record_of_only_whitespace_is_no_record() -> None:
+    # (?m)^ also matches after the last line break: no phantom unknown result.
+    pack = digest_pack(split={"record": "(?m)^"})
+    outcome = parsed(parse([pack], mail("Job: a\nJob: b\n \n")))
+    assert [result.job_name for result in outcome.results] == ["a", "b"]
+    assert parse([pack], mail(" \n\n")) == Unmatched("no-records", ("example-tool",))
+
+
+def test_the_deadline_is_checked_before_every_record() -> None:
+    # Start, 4 split searches, record 1 (check, status search): then time is up.
+    clock = chain(repeat(0.0, 7), repeat(100.0)).__next__
+    rules = [{"status": "success", "regex": "Report", "in": "subject"}]
+    pack = digest_pack(status_rules=rules, extract={})
+    body = "Job: a\nJob: b\nJob: c\n"
+    outcome = apply(pack, mail(body), clock=clock)
+    assert outcome == ParseFailed("example-tool", "/split/record", "deadline")
+
+
+def test_values_outside_the_record_are_read_once_per_mail() -> None:
+    extract = {"job_name": {"regex": "(?s)(?P<all>.+)", "in": "body"}}
+    for index in range(16):
+        extract.setdefault("details", {})[f"d{index}"] = {
+            "regex": "(?s)(?P<all>.+)",
+            "in": "body",
+        }
+    pack = make_pack(split={"record": "(?m)^R$"}, extract=extract)
+    body = "R\n" * MAX_RECORDS + "x " * 120_000
+    started = time.perf_counter()
+    outcome = parsed(apply(pack, mail(body)))
+    assert time.perf_counter() - started < 2.0
+    assert len(outcome.results) == MAX_RECORDS
+    assert outcome.results[0].job_name == outcome.results[-1].job_name
+
+
 # Status
 
 
@@ -315,8 +350,6 @@ def test_a_time_that_cannot_be_read_is_empty() -> None:
     body = "Started: 2026-31-31 03:00\nFinished: yesterday evening"
     result = only(parse([times_pack(format="%Y-%m-%d %H:%M")], mail(body)))
     assert (result.started_at, result.finished_at) == (None, None)
-    result = only(parse([times_pack(format="%Q")], mail("Started: 1")))
-    assert result.started_at is None
 
 
 # The bounds on regex time
@@ -380,6 +413,28 @@ def test_the_text_is_cut_at_max_text() -> None:
     assert only(apply(pack, mail("x" * (MAX_TEXT - 4) + "MARK"))).status == "failed"
 
 
+class OutOfMemory:
+    def search(self, *args: object, **kwargs: object) -> None:
+        raise MemoryError
+
+
+def test_a_regex_out_of_memory_fails_the_mail() -> None:
+    pack = make_pack()
+    (condition,) = pack.match_all
+    broken = replace(pack, match_all=(replace(condition, pattern=OutOfMemory()),))
+    outcome = parse([broken], mail())
+    assert outcome == ParseFailed("example-tool", "/match/all/0/from", "memory")
+
+
+def test_a_time_format_strptime_cannot_compile_reads_nothing() -> None:
+    # The loader refuses "%d %d"; a Pack built another way still never raises.
+    pack = times_pack()
+    started, finished = pack.fields
+    broken = replace(pack, fields=(replace(started, time_format="%d %d"), finished))
+    result = only(parse([broken], mail("Started: 20 20")))
+    assert result.started_at is None
+
+
 def test_apply_reads_mail_the_pack_would_not_claim() -> None:
     outcome = apply(make_pack(), mail("success", sender="other@example.org"))
     assert only(outcome).status == "success"
@@ -424,6 +479,45 @@ def test_a_date_header_is_read_with_care() -> None:
 # Unknown never becomes success
 
 
+NEGATED_SUCCESS = [
+    "was not successful",
+    "could not complete",
+    "has not finished",
+    "not completed",
+    "has not been completed",
+    "did not run",
+    "didn't run",
+    "couldn't complete",
+    "was unable to complete",
+    "never finished",
+]
+
+
+def test_a_negated_success_word_is_a_failure_in_the_generic_pack() -> None:
+    for phrase in NEGATED_SUCCESS:
+        subject = only(parse([GENERIC], mail(subject=f"Nightly backup {phrase}")))
+        assert (phrase, subject.status) == (phrase, "failed")
+        assert subject.job_name == "Nightly backup"
+        body = only(parse([GENERIC], mail(f"The backup {phrase}.", subject="Backup")))
+        assert (phrase, body.status) == (phrase, "failed")
+
+
+def test_the_generic_pack_reads_a_large_benign_mail_in_time() -> None:
+    # The slowest generic rules scan the whole body; with the real module they
+    # must stay well inside the 50 ms timeout on a full 256 KiB text.
+    line = "2026-11-20 01:00:07 INFO copied file 1234 of 9999 to share FS-01\n"
+    body = (line * (MAX_TEXT // len(line) + 1))[:MAX_TEXT]
+    outcome = parse([GENERIC], mail(body, subject="Nightly backup report"))
+    assert only(outcome).status == "unknown"
+
+
+def test_success_words_still_count_in_the_generic_pack() -> None:
+    for subject in ("Nightly backup completed", "Nightly backup: OK"):
+        assert only(parse([GENERIC], mail(subject=subject))).status == "success"
+    plain = mail("It completed successfully with 0 errors.", subject="Backup")
+    assert only(parse([GENERIC], plain)).status == "success"
+
+
 def first_rule_status(pack: Pack, alerts: Mail) -> str:
     """The status of the first rule that matches: the engine's definition."""
     for rule in pack.status_rules:
@@ -433,8 +527,31 @@ def first_rule_status(pack: Pack, alerts: Mail) -> str:
     return "unknown"
 
 
+# Status words, their negations and noise, so the rules are reached.
+WORDS = st.sampled_from(
+    [
+        "success",
+        "successful",
+        "completed",
+        "OK",
+        "failed",
+        "not",
+        "could not",
+        "no",
+        "0",
+        "errors",
+        "Errors: 0",
+        "warning",
+        "started",
+        "Status:",
+        "\n",
+    ]
+)
+STATUS_TEXT = st.lists(WORDS | st.text(max_size=8), max_size=30).map(" ".join)
+
+
 @settings(max_examples=300, deadline=None)
-@given(st.text(max_size=400), st.text(max_size=120))
+@given(STATUS_TEXT | st.text(max_size=400), STATUS_TEXT | st.text(max_size=120))
 def test_unknown_never_becomes_success(body: str, subject: str) -> None:
     alerts = mail(body, subject="Nightly backup " + subject)
     result = only(parse([GENERIC], alerts))

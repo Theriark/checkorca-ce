@@ -264,6 +264,67 @@ def test_a_field_gives_regex_or_literal(field: dict[str, str], message: str) -> 
     assert issue.message.startswith(message)
 
 
+@pytest.mark.parametrize(
+    "literal",
+    [r'"a\0b"', r'"a\x01b"', r'"a\uD800b"', r'" padded"', r'"two  spaces"'],
+)
+def test_a_literal_is_plain_text(literal: str) -> None:
+    text = text_of(minimal()) + f"extract:\n  details:\n    k: {{literal: {literal}}}\n"
+    (issue,) = issues_of(text)
+    assert issue.path == "/extract/details/k/literal"
+    assert issue.message.startswith("must be plain text")
+
+
+@pytest.mark.parametrize("time_format", ["%d %d", "%Q", "%Y%"])
+def test_a_time_format_must_read_back(time_format: str) -> None:
+    field = {"regex": "(?P<at>.+)", "format": time_format}
+    (issue,) = issues_of(with_changes(extract={"started_at": field}))
+    assert issue.path == "/extract/started_at/format"
+    assert issue.message.startswith("not a strptime format")
+
+
+@pytest.mark.parametrize("time_format", ["%d/%m/%Y %H:%M", "%Y-%m-%dT%H:%M:%S%z"])
+def test_a_usable_time_format_loads(time_format: str) -> None:
+    field = {"regex": "(?P<at>.+)", "format": time_format}
+    (started,) = parse_pack(with_changes(extract={"started_at": field})).fields
+    assert started.time_format == time_format
+
+
+@pytest.mark.parametrize(
+    ("text", "path"),
+    [
+        ("version: 0x" + "f" * 5000 + "\n", "/version"),
+        ("version: -0b" + "1" * 20000 + "\n", "/version"),
+        ("version: 9223372036854775808\n", "/version"),
+        (
+            "extract:\n  details:\n    ? 0x" + "f" * 5000 + "\n    : x\n",
+            "/extract/details",
+        ),
+        ("fixtures:\n  - [0x" + "f" * 5000 + "]\n", "/fixtures/0/0"),
+    ],
+)
+def test_a_huge_number_is_refused(text: str, path: str) -> None:
+    (issue,) = issues_of(text)
+    assert issue == PackIssue(path, "a number must be smaller than 2**63")
+
+
+@pytest.mark.parametrize(
+    ("line", "path"),
+    [
+        (r'id: "example-tool\n"', "/id"),
+        (
+            r'fixtures: [{name: "sample\n", origin: synthetic, class: success}]',
+            "/fixtures/0/name",
+        ),
+        (r'extract: {details: {"size\n": {literal: x}}}', "/extract/details"),
+        ("extract: {details: {1: {literal: x}}}", "/extract/details"),
+    ],
+)
+def test_names_are_strings_without_a_line_break(line: str, path: str) -> None:
+    text = text_of(minimal()).replace("id: example-tool\n", "") + line + "\n"
+    assert path in paths_of(text)
+
+
 def test_fixture_names_are_unique() -> None:
     sample = {"name": "sample", "origin": "synthetic", "class": "success"}
     # Two dicts: safe_dump writes one dict used twice as an alias.
