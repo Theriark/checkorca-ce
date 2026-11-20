@@ -158,7 +158,7 @@ Every 30 seconds the poller polls each imap inbox whose `poll_seconds` have pass
 1. Decrypt the password into a `MailboxAccount` (only here).
 2. `UID SEARCH UNSEEN`, at most 50 messages, sizes first; bodies with `BODY.PEEK[]`, so nothing becomes Seen by being read. A message over 5 MB is not downloaded: it is marked Seen and counted in a warning.
 3. `accept_message` and commit, one message per transaction.
-4. `UID STORE +FLAGS (\\Seen)` for what was stored, was a duplicate or was refused. A message whose store failed stays unseen and is fetched again by the next poll. A ref is `UIDVALIDITY:UID`, so a rebuilt folder never gets the wrong message marked.
+4. `UID STORE +FLAGS (\Seen)` for what was stored, was a duplicate or was refused. A message whose store failed stays unseen and is fetched again by the next poll. A ref is `UIDVALIDITY:UID`, so a rebuilt folder never gets the wrong message marked.
 
 A failed login or a lost connection is logged with the inbox id and the error class and tried again at the inbox's next poll; one failing inbox never stops the others.
 

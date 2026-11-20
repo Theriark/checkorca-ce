@@ -112,6 +112,32 @@ def test_the_document_describes_the_c4_receivers() -> None:
         assert list(answer["content"]) == ["text/plain"]
 
 
+def test_the_document_describes_the_c5_routes() -> None:
+    paths = generate()["paths"]
+    for path, method in (
+        ("/api/v1/packs", "get"),
+        ("/api/v1/packs/{pack_id}", "get"),
+        ("/api/v1/packs/{pack_id}", "put"),
+        ("/api/v1/packs/import", "post"),
+        ("/api/v1/packs/{pack_id}/export", "get"),
+        ("/api/v1/packs/{pack_id}/enable", "post"),
+        ("/api/v1/packs/{pack_id}/disable", "post"),
+        ("/api/v1/packs/test", "post"),
+        ("/api/v1/unmatched", "get"),
+        ("/api/v1/unmatched/{result_id}/assign", "post"),
+        ("/api/v1/unmatched/{result_id}/create-job", "post"),
+        ("/api/v1/unmatched/{result_id}/suggest-schedule", "get"),
+    ):
+        assert method in paths[path], (method, path)
+    # packs/test reads its body itself; the document still declares it.
+    body = paths["/api/v1/packs/test"]["post"]["requestBody"]["content"]
+    assert set(body["application/json"]["schema"]["properties"]) == {"raw", "pack"}
+    export = paths["/api/v1/packs/{pack_id}/export"]["get"]["responses"]["200"]
+    assert list(export["content"]) == ["application/yaml"]
+    problem = generate()["components"]["schemas"]["Problem"]["properties"]
+    assert "issues" in problem
+
+
 def test_errors_are_declared_as_problem_documents() -> None:
     """The 4XX answers carry the media type the handlers send."""
     for path, operations in generate()["paths"].items():
