@@ -275,7 +275,7 @@ def test_a_literal_is_plain_text(literal: str) -> None:
     assert issue.message.startswith("must be plain text")
 
 
-@pytest.mark.parametrize("time_format", ["%d %d", "%Q", "%Y%"])
+@pytest.mark.parametrize("time_format", ["%d %d", "%Q", "%s"])
 def test_a_time_format_must_read_back(time_format: str) -> None:
     field = {"regex": "(?P<at>.+)", "format": time_format}
     (issue,) = issues_of(with_changes(extract={"started_at": field}))
