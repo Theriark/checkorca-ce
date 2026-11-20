@@ -15,10 +15,12 @@ from fastapi import Depends, Request, Response
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.access import SYSTEM, AccessPolicy, Principal, TokenScope, as_role, as_scope
+from app.api.bench import BenchRunner
 from app.api.problems import ProblemError
 from app.clock import Clock
 from app.db.models import AppSession, AppUser
 from app.ext.audit import AuditRecord, AuditSink, DetailValue
+from app.ext.parsers import ParserPackSource
 from app.repos.sessions import SessionRepository
 from app.repos.tokens import TokenRepository
 from app.security.crypto import SecretBox
@@ -52,6 +54,11 @@ class Services:
     login_limiter: RateLimiter
     # Requests with an API token, per token.
     token_limiter: RateLimiter
+    # packs/test: the child processes that run it, and a limit per user.
+    bench: BenchRunner
+    bench_limiter: RateLimiter
+    # The packs that parse mail (and that packs/test tries).
+    pack_source: ParserPackSource
 
 
 def get_services(request: Request) -> Services:

@@ -268,6 +268,12 @@ class MessageOut(BaseModel):
     message_id: str | None
     size: int
     parse_state: ParseState
+    # Set by the parser (phase C5): when, the pack that claimed the message,
+    # and for unmatched or error the reason and the pattern's JSON Pointer.
+    parsed_at: datetime | None
+    parse_pack_id: str | None
+    parse_reason: str | None
+    parse_path: str | None
     # From the headers, decoded; shown as text, never as HTML.
     subject: str | None
     sender: str | None

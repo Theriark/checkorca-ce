@@ -19,12 +19,14 @@ from starlette.middleware import Middleware
 from app import PRODUCT_NAME, __version__
 from app.access import AccessPolicy, AllowAllPolicy
 from app.api import v1
+from app.api.bench import BenchRunner
 from app.api.deps import Services
 from app.api.middleware import RequestContextMiddleware
 from app.api.problems import EXCEPTION_HANDLERS, problem_media_type
 from app.clock import Clock, SystemClock
 from app.db.engine import check_database, make_engine
 from app.ext.audit import AuditSink, DatabaseAuditSink
+from app.ext.parsers import ParserPackSource, TablePackSource
 from app.security.crypto import SecretBox
 from app.security.passwords import PasswordService
 from app.security.ratelimit import RateLimiter
@@ -39,6 +41,8 @@ DEFAULT_STATIC_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist
 LOGIN_RATE = (10, 60.0)
 # API tokens: 120 requests a minute per token (rnd-report-2 5.7).
 TOKEN_RATE = (120, 60.0)
+# packs/test: 30 tests a minute per user, each in a child process.
+BENCH_RATE = (30, 60.0)
 
 logger = logging.getLogger(__name__)
 
@@ -50,11 +54,14 @@ def create_app(
     clock: Clock | None = None,
     policy: AccessPolicy | None = None,
     audit: AuditSink | None = None,
+    pack_source: ParserPackSource | None = None,
+    bench: BenchRunner | None = None,
 ) -> FastAPI:
     """Build the application. The engine connects on first use only.
 
-    clock, policy and audit replace the CE defaults (tests, and EE through the
-    extension seams).
+    clock, policy, audit and pack_source replace the CE defaults (tests, and
+    EE through the extension seams); bench replaces the test bench runner
+    (tests).
     """
     config = settings or get_settings()
     engine = make_engine(config.database_url.get_secret_value())
@@ -70,6 +77,9 @@ def create_app(
         secret_box=SecretBox(config.fernet_key.get_secret_value()),
         login_limiter=RateLimiter(*LOGIN_RATE, clock=clock),
         token_limiter=RateLimiter(*TOKEN_RATE, clock=clock),
+        bench=bench or BenchRunner(),
+        bench_limiter=RateLimiter(*BENCH_RATE, clock=clock),
+        pack_source=pack_source or TablePackSource(),
     )
 
     @asynccontextmanager
