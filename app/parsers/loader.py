@@ -103,7 +103,8 @@ def _pointer(parts: Sequence[str | int]) -> str:
     return "".join("/" + part for part in escaped)
 
 
-def _at(message: str, mark: yaml.Mark | None) -> str:
+def _at(message: str, mark: Any) -> str:
+    # A yaml.Mark, or the C extension's Mark; None when the text has no place.
     if mark is None:
         return message
     return f"{message} (line {mark.line + 1}, column {mark.column + 1})"

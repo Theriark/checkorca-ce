@@ -17,8 +17,8 @@ from app.parsers.engine import (
     MAX_TEXT,
     MAX_VALUE,
     Mail,
-    ParseFailed,
     Parsed,
+    ParseFailed,
     Unmatched,
     apply,
     mail_from_raw,
@@ -445,7 +445,7 @@ def test_unknown_never_becomes_success(body: str, subject: str) -> None:
 
 
 # The long s folds to s under (?i).
-NO_S = st.characters(exclude_characters="Ss\\u017f")
+NO_S = st.characters(exclude_characters="Ssſ")
 
 
 @settings(max_examples=300, deadline=None)

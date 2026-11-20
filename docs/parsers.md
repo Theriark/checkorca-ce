@@ -76,9 +76,12 @@ from app.parsers.engine import ParseFailed, Parsed, Unmatched, mail_from_raw, pa
 
 outcome = await asyncio.to_thread(parse, packs, mail_from_raw(raw))
 match outcome:
-    case Parsed(pack_id, results): ...      # record_result(..., raw_message_id=message.id) for each; parse_state parsed
-    case Unmatched(reason, candidates): ... # parse_state unmatched; reason no-pack, tie or no-records
-    case ParseFailed(pack_id, path, reason): ...  # parse_state error; reason timeout, deadline or too-many-records
+    case Parsed(pack_id, results):
+        ...  # record_result(..., raw_message_id=message.id) for each; parse_state parsed
+    case Unmatched(reason, candidates):
+        ...  # parse_state unmatched; reason no-pack, tie or no-records
+    case ParseFailed(pack_id, path, reason):
+        ...  # parse_state error; reason timeout, deadline or too-many-records
 ```
 
 1. **Claim.** A pack claims the mail when every `match.all` condition and at least one `match.any` condition match. Its score is the number of matching conditions. The highest score wins; a tie between the best packs gives `Unmatched("tie", ids)`, no claim gives `Unmatched("no-pack")`. `apply(pack, mail)` skips the claim (a job's own pack, the test bench).
