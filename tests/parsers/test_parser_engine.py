@@ -197,6 +197,15 @@ def test_a_record_of_only_whitespace_is_no_record() -> None:
     assert parse([pack], mail(" \n\n")) == Unmatched("no-records", ("example-tool",))
 
 
+def test_the_empty_match_after_the_last_line_does_not_count_as_a_record() -> None:
+    # (?m)^ over MAX_RECORDS lines that end in a line break finds one start more.
+    pack = digest_pack(split={"record": "(?m)^"})
+    outcome = parsed(parse([pack], mail("Job: a\n" * MAX_RECORDS)))
+    assert len(outcome.results) == MAX_RECORDS
+    outcome = parse([pack], mail("Job: a\n" * (MAX_RECORDS + 1)))
+    assert outcome == ParseFailed("example-tool", "/split/record", "too-many-records")
+
+
 def test_the_deadline_is_checked_before_every_record() -> None:
     # Start, 4 split searches, record 1 (check, status search): then time is up.
     clock = chain(repeat(0.0, 7), repeat(100.0)).__next__
@@ -490,6 +499,13 @@ NEGATED_SUCCESS = [
     "couldn't complete",
     "was unable to complete",
     "never finished",
+    "was not completely successful",
+    "not yet completed",
+    "could not be completed",
+    "cannot be completed",
+    "no successful backup in 3 days",
+    "had no recent successful run",
+    "finished without success",
 ]
 
 
@@ -500,6 +516,39 @@ def test_a_negated_success_word_is_a_failure_in_the_generic_pack() -> None:
         assert subject.job_name == "Nightly backup"
         body = only(parse([GENERIC], mail(f"The backup {phrase}.", subject="Backup")))
         assert (phrase, body.status) == (phrase, "failed")
+
+
+def test_an_error_text_after_a_colon_is_a_failure_in_the_generic_pack() -> None:
+    # "no" or "none" is a count only when it ends the value: "Errors: none".
+    # "Error: No such file" is a failure, even next to a success word.
+    bodies = [
+        "Volume C: completed successfully.\nVolume D: Error: No such file or directory",
+        "Snapshot succeeded. Upload failed: no route to host",
+        "Copy job error = no connection to repository; previous run successful",
+    ]
+    for body in bodies:
+        result = only(parse([GENERIC], mail(body, subject="Backup report")))
+        assert (body, result.status) == (body, "failed")
+    subject = "Nightly backup failed: No space left on device"
+    alerts = mail("Volume C: completed successfully.", subject=subject)
+    result = only(parse([GENERIC], alerts))
+    assert (result.status, result.job_name) == ("failed", "Nightly backup")
+
+
+def test_a_count_of_none_is_no_failure_in_the_generic_pack() -> None:
+    bodies = [
+        "Completed successfully. Errors: 0",
+        "Completed successfully. Errors: 0, Warnings: 0",
+        "Completed successfully. Errors: none",
+        "Completed successfully. Failures: none.",
+        "Errors: no\nCompleted successfully",
+        "Errors = none; completed successfully",
+    ]
+    for body in bodies:
+        result = only(parse([GENERIC], mail(body, subject="Backup report")))
+        assert (body, result.status) == (body, "success")
+    subject = "Nightly backup completed, Errors: none"
+    assert only(parse([GENERIC], mail(subject=subject))).status == "success"
 
 
 def test_the_generic_pack_reads_a_large_benign_mail_in_time() -> None:
