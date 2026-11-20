@@ -407,3 +407,334 @@ export async function installFakeApi(page: Page, seed: { readonly clients?: read
 
   return store;
 }
+
+// ---------- Inboxes, messages, upload (C4) ----------
+
+type InboxOut = components['schemas']['InboxOut'];
+type MessageOut = components['schemas']['MessageOut'];
+type MessageDetail = components['schemas']['MessageDetail'];
+
+function inbox(id: string, kind: InboxOut['kind'], label: string, extra: Partial<InboxOut> = {}): InboxOut {
+  const code = `code${id.slice(-4)}k7m2p9q4r1s8t3u6v0w5`;
+  return {
+    id,
+    kind,
+    label,
+    address: kind === 'smtp' ? `${code}@ce-dev.example.com` : null,
+    ingest_url: kind === 'smtp' || kind === 'webhook' ? `https://ce-dev.example.com/api/v1/ingest/email/${code}` : null,
+    imap: null,
+    webhook_token_set: kind === 'webhook',
+    sender_allowlist: [],
+    require_auth_results: false,
+    created_at: '2026-11-10T09:00:00Z',
+    updated_at: '2026-11-10T09:00:00Z',
+    last_message_at: null,
+    ...extra,
+  };
+}
+
+export const SMTP_INBOX = inbox('i1000000-0000-4000-8000-000000000001', 'smtp', 'Veeam reports', { last_message_at: '2026-11-19T23:05:00Z' });
+export const WEBHOOK_INBOX = inbox('i1000000-0000-4000-8000-000000000002', 'webhook', 'Script results', { created_at: '2026-11-11T09:00:00Z', last_message_at: '2026-11-19T22:10:00Z' });
+export const IMAP_INBOX = inbox('i1000000-0000-4000-8000-000000000003', 'imap', 'Alerts mailbox', {
+  created_at: '2026-11-12T09:00:00Z',
+  imap: { host: 'imap.example.test', port: 993, username: 'alerts@example.test', folder: 'INBOX', poll_seconds: 300, tls: true, secret_set: true, secret_hint: '****x7Qz' },
+  sender_allowlist: ['@veeam.example.test', 'backup@example.test'],
+  require_auth_results: true,
+});
+
+const VEEAM_TEXT = [
+  'Backup job: Nightly server backup',
+  'Status: Success',
+  'Client: Harbourside Dental (fictional)',
+  '<script>window.__pwned = 1</script>',
+  '<b>Bold</b> and <a href="https://example.test">a link</a> stay text.',
+  '',
+  ...Array.from({ length: 60 }, (_, index) => `VM ${String(index + 1).padStart(2, '0')}: processed, 12.4 GB transferred, 00:0${index % 10}:12`),
+].join('\n');
+
+function message(id: string, inboxId: string | null, extra: Partial<MessageDetail> = {}): MessageDetail {
+  const base: MessageOut = {
+    id,
+    inbox_id: inboxId,
+    client_id: null,
+    received_at: '2026-11-19T23:05:00Z',
+    message_id: `<msg-${id.slice(-4)}@backup.example.test>`,
+    size: 18_432,
+    parse_state: 'pending',
+    subject: '[Success] Nightly server backup - Harbourside Dental (fictional)',
+    sender: 'Veeam Backup <veeam@backup.example.test>',
+  };
+  return {
+    ...base,
+    headers: [
+      { name: 'From', value: base.sender ?? '' },
+      { name: 'To', value: SMTP_INBOX.address ?? '' },
+      { name: 'Subject', value: base.subject ?? '' },
+      { name: 'Date', value: 'Thu, 19 Nov 2026 23:05:00 +0000' },
+      { name: 'Message-ID', value: base.message_id ?? '' },
+      { name: 'Content-Type', value: 'text/html; charset="utf-8"' },
+    ],
+    text: VEEAM_TEXT,
+    text_truncated: false,
+    results: [],
+    ...extra,
+  };
+}
+
+export const SEED_MESSAGES: readonly MessageDetail[] = [
+  message('m1000000-0000-4000-8000-000000000001', SMTP_INBOX.id),
+  message('m1000000-0000-4000-8000-000000000002', WEBHOOK_INBOX.id, {
+    received_at: '2026-11-19T22:10:00Z',
+    message_id: '<abb-2026-11-19@nas.example.test>',
+    subject: 'Synology Active Backup: task finished',
+    sender: 'nas@example.test',
+    parse_state: 'parsed',
+    client_id: NORTHWIND.id,
+    text: 'Task: Daily file backup\nResult: finished with 2 warnings\n',
+    results: [
+      { id: 'r1000000-0000-4000-8000-000000000001', job_id: 'j1000000-0000-4000-8000-000000000003', client_hint: 'Northwind Legal (fictional)', job_name: 'Synology ABB', status: 'warning', started_at: '2026-11-19T21:00:00Z', finished_at: '2026-11-19T22:09:00Z', received_at: '2026-11-19T22:10:00Z', raw_message_id: 'm1000000-0000-4000-8000-000000000002', run_id: 'run-4411', details: { warnings: 2 } },
+    ],
+  }),
+  // The Veeam mail also reached the IMAP mailbox: a duplicate pair across inboxes.
+  message('m1000000-0000-4000-8000-000000000003', IMAP_INBOX.id, { received_at: '2026-11-19T23:06:00Z', message_id: '<msg-0001@backup.example.test>', parse_state: 'unmatched' }),
+  message('m1000000-0000-4000-8000-000000000004', SMTP_INBOX.id, { received_at: '2026-11-18T23:05:00Z', message_id: '<msg-0004@backup.example.test>', subject: '[Failed] Nightly server backup - Harbourside Dental (fictional)', parse_state: 'error', size: 2_048, text: 'Backup job: Nightly server backup\nStatus: Failed\nError: VSS writer timed out.\n' }),
+];
+
+export interface IngestStore {
+  inboxes: InboxOut[];
+  messages: MessageDetail[];
+  readonly calls: { readonly method: string; readonly url: string; readonly body: string | null }[];
+}
+
+const MAX_MESSAGE_BYTES = 5 * 1024 * 1024;
+
+/** The parts of a multipart body: the field values and the file content. */
+function multipart(body: string): { readonly fields: Record<string, string>; readonly file: string | null; readonly fileName: string | null } {
+  const boundary = body.split('\r\n')[0] ?? '';
+  const fields: Record<string, string> = {};
+  let file: string | null = null;
+  let fileName: string | null = null;
+  for (const part of body.split(boundary).slice(1)) {
+    const split = part.indexOf('\r\n\r\n');
+    if (split < 0) {
+      continue;
+    }
+    const head = part.slice(0, split);
+    const content = part.slice(split + 4).replace(/\r\n$/, '').replace(/--$/, '').replace(/\r\n$/, '');
+    const name = /name="([^"]+)"/.exec(head)?.[1];
+    const filename = /filename="([^"]*)"/.exec(head)?.[1];
+    if (filename !== undefined) {
+      file = content;
+      fileName = filename;
+    } else if (name) {
+      fields[name] = content;
+    }
+  }
+  return { fields, file, fileName };
+}
+
+function headerOf(raw: string, name: string): string | null {
+  const head = raw.split(/\r?\n\r?\n/)[0] ?? '';
+  const line = head.split(/\r?\n/).find((item) => item.toLowerCase().startsWith(`${name.toLowerCase()}:`));
+  return line ? line.slice(name.length + 1).trim() : null;
+}
+
+function toMessageOut(item: MessageDetail): MessageOut {
+  const { id, inbox_id, client_id, received_at, message_id, size, parse_state, subject, sender } = item;
+  return { id, inbox_id, client_id, received_at, message_id, size, parse_state, subject, sender };
+}
+
+/** Routes inboxes, messages and the .eml upload to an in-memory store. */
+export async function installIngestApi(page: Page, seed: { readonly inboxes?: readonly InboxOut[]; readonly messages?: readonly MessageDetail[] } = {}): Promise<IngestStore> {
+  // Deep copies: the routes change rows in place, and the seed is shared by
+  // every test of a worker.
+  const store: IngestStore = {
+    inboxes: structuredClone([...(seed.inboxes ?? [SMTP_INBOX, WEBHOOK_INBOX, IMAP_INBOX])]),
+    messages: structuredClone([...(seed.messages ?? SEED_MESSAGES)]),
+    calls: [],
+  };
+  let tokens = 0;
+
+  await page.route(/\/api\/v1\/inboxes(\/|\?|$)/, (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const method = request.method();
+    store.calls.push({ method, url: url.pathname + url.search, body: request.postData() });
+    const parts = url.pathname.split('/').filter(Boolean); // api, v1, inboxes, id?, token?
+    const id = parts[3];
+    const action = parts[4];
+    if (method !== 'GET' && !request.headers()['x-csrf-token']) {
+      return problem(route, 403, 'Forbidden', 'Missing CSRF token.');
+    }
+    if (!id) {
+      if (method === 'GET') {
+        const kind = url.searchParams.get('kind');
+        const items = store.inboxes.filter((item) => !kind || item.kind === kind).sort((a, b) => a.created_at.localeCompare(b.created_at));
+        return ok(route, { items, next_cursor: null });
+      }
+      if (method === 'POST') {
+        const body = jsonBody(route);
+        const kind = body.kind as InboxOut['kind'];
+        const label = String(body.label ?? '').trim();
+        if (!label) {
+          return problem(route, 422, 'Unprocessable', 'label: enter a label', [{ field: 'body.label', message: 'Enter a label.' }]);
+        }
+        const imap = body.imap as Record<string, unknown> | undefined;
+        const created = inbox(newId('i'), kind, label, {
+          sender_allowlist: (body.sender_allowlist as string[] | undefined) ?? [],
+          require_auth_results: Boolean(body.require_auth_results),
+          created_at: NOW,
+          updated_at: NOW,
+          imap:
+            kind === 'imap' && imap
+              ? {
+                  host: String(imap.host),
+                  port: Number(imap.port ?? 993),
+                  username: String(imap.username),
+                  folder: String(imap.folder ?? 'INBOX'),
+                  poll_seconds: Number(imap.poll_seconds ?? 300),
+                  tls: imap.tls !== false,
+                  secret_set: true,
+                  secret_hint: `****${String(imap.password).slice(-4)}`,
+                }
+              : null,
+        });
+        store.inboxes.push(created);
+        tokens += 1;
+        const webhook_token = kind === 'webhook' ? `chki_e2e-token-shown-once-${String(tokens).padStart(4, '0')}-000000000000` : null;
+        return ok(route, { ...created, webhook_token }, 201);
+      }
+    }
+    const found = store.inboxes.find((item) => item.id === id);
+    if (!found) {
+      return problem(route, 404, 'Inbox not found');
+    }
+    if (method === 'GET') {
+      return ok(route, found);
+    }
+    if (method === 'POST' && action === 'token') {
+      if (found.kind !== 'webhook') {
+        return problem(route, 409, 'Not a webhook inbox', 'Only a webhook inbox has a token.');
+      }
+      tokens += 1;
+      found.webhook_token_set = true;
+      return ok(route, { webhook_token: `chki_e2e-token-shown-once-${String(tokens).padStart(4, '0')}-000000000000` });
+    }
+    if (method === 'PATCH') {
+      const body = jsonBody(route);
+      const imap = body.imap as Record<string, unknown> | undefined;
+      if (imap && found.imap) {
+        // C4-I security F1: a new host, port, TLS setting or user name needs the password again.
+        const retargets = ['host', 'port', 'tls', 'username'].some((field) => imap[field] !== undefined && imap[field] !== found.imap?.[field as 'host' | 'port' | 'tls' | 'username']);
+        if (retargets && found.imap.secret_set && typeof imap.password !== 'string') {
+          return problem(route, 422, 'IMAP password required', 'Send the IMAP password again to change the host, port, TLS setting or user name.');
+        }
+        found.imap = {
+          ...found.imap,
+          host: typeof imap.host === 'string' ? imap.host : found.imap.host,
+          port: typeof imap.port === 'number' ? imap.port : found.imap.port,
+          username: typeof imap.username === 'string' ? imap.username : found.imap.username,
+          folder: typeof imap.folder === 'string' ? imap.folder : found.imap.folder,
+          poll_seconds: typeof imap.poll_seconds === 'number' ? imap.poll_seconds : found.imap.poll_seconds,
+          tls: typeof imap.tls === 'boolean' ? imap.tls : found.imap.tls,
+          secret_hint: typeof imap.password === 'string' ? `****${imap.password.slice(-4)}` : found.imap.secret_hint,
+        };
+      }
+      if (typeof body.label === 'string') {
+        found.label = body.label;
+      }
+      if (Array.isArray(body.sender_allowlist)) {
+        found.sender_allowlist = body.sender_allowlist as string[];
+      }
+      if (typeof body.require_auth_results === 'boolean') {
+        found.require_auth_results = body.require_auth_results;
+      }
+      found.updated_at = NOW;
+      return ok(route, found);
+    }
+    if (method === 'DELETE') {
+      store.inboxes = store.inboxes.filter((item) => item.id !== id);
+      for (const item of store.messages) {
+        if (item.inbox_id === id) {
+          item.inbox_id = null;
+        }
+      }
+      return route.fulfill({ status: 204 });
+    }
+    return problem(route, 405, 'Method Not Allowed');
+  });
+
+  await page.route(/\/api\/v1\/messages(\/|\?|$)/, (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const method = request.method();
+    const parts = url.pathname.split('/').filter(Boolean); // api, v1, messages, id-or-upload
+    const id = parts[3];
+    const text = request.postData() ?? '';
+    store.calls.push({ method, url: url.pathname + url.search, body: method === 'POST' ? text.slice(0, 2000) : null });
+    if (method === 'POST' && id === 'upload') {
+      if (!request.headers()['x-csrf-token']) {
+        return problem(route, 403, 'Forbidden', 'Missing CSRF token.');
+      }
+      const { fields, file } = multipart(text);
+      const target = store.inboxes.find((item) => item.id === fields.inbox_id);
+      if (!target) {
+        return problem(route, 404, 'Inbox not found');
+      }
+      const raw = file ?? '';
+      const declared = Number(request.headers()['content-length'] ?? raw.length);
+      if (raw.length > MAX_MESSAGE_BYTES || declared > MAX_MESSAGE_BYTES + 16 * 1024) {
+        return problem(route, 413, 'Message too large', `a message may have at most ${MAX_MESSAGE_BYTES} bytes.`);
+      }
+      const messageId = headerOf(raw, 'Message-ID');
+      const subject = headerOf(raw, 'Subject');
+      const from = headerOf(raw, 'From');
+      if (!messageId && !subject && !from && !headerOf(raw, 'Date')) {
+        return problem(route, 422, 'Not an e-mail message', 'Send one RFC 822 message: headers, a blank line, then the body.');
+      }
+      const earlier = messageId ? store.messages.find((item) => item.inbox_id === target.id && item.message_id === messageId) : undefined;
+      if (earlier) {
+        return ok(route, { message_id: earlier.id, duplicate: true }, 202);
+      }
+      const body = raw.split(/\r?\n\r?\n/).slice(1).join('\n\n');
+      const stored = message(newId('m'), target.id, {
+        received_at: NOW,
+        message_id: messageId,
+        subject,
+        sender: from,
+        size: raw.length,
+        headers: (raw.split(/\r?\n\r?\n/)[0] ?? '')
+          .split(/\r?\n/)
+          .map((line) => {
+            const at = line.indexOf(':');
+            return at > 0 ? { name: line.slice(0, at), value: line.slice(at + 1).trim() } : null;
+          })
+          .filter((item): item is { name: string; value: string } => item !== null),
+        text: body,
+      });
+      store.messages.unshift(stored);
+      target.last_message_at = NOW;
+      return ok(route, { message_id: stored.id, duplicate: false }, 202);
+    }
+    if (method !== 'GET') {
+      return problem(route, 405, 'Method Not Allowed');
+    }
+    if (!id) {
+      const inboxId = url.searchParams.get('inbox_id');
+      const state = url.searchParams.get('parse_state');
+      const items = store.messages
+        .filter((item) => !inboxId || item.inbox_id === inboxId)
+        .filter((item) => !state || item.parse_state === state)
+        .sort((a, b) => b.received_at.localeCompare(a.received_at))
+        .map(toMessageOut);
+      return ok(route, { items, next_cursor: null });
+    }
+    const found = store.messages.find((item) => item.id === id);
+    if (!found) {
+      return problem(route, 404, 'Message not found');
+    }
+    return ok(route, found);
+  });
+
+  return store;
+}

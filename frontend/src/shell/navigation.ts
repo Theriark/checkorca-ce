@@ -34,6 +34,8 @@ export interface NavItem {
   readonly roles?: readonly Role[];
   /** Shown in the bottom bar at phone width. */
   readonly primary?: boolean;
+  /** Other paths the item is current for (the messages under Inboxes). */
+  readonly also?: readonly string[];
 }
 
 export const NAV_ITEMS: readonly NavItem[] = [
@@ -41,7 +43,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { key: 'clients', label: strings.nav.clients, to: '/clients', icon: Users, primary: true },
   { key: 'jobs', label: strings.nav.jobs, to: '/jobs', icon: Briefcase, primary: true },
   { key: 'unmatched', label: strings.nav.unmatched, to: '/unmatched', icon: MailQuestion, primary: true },
-  { key: 'inboxes', label: strings.nav.inboxes, to: '/inboxes', icon: Inbox },
+  { key: 'inboxes', label: strings.nav.inboxes, to: '/inboxes', icon: Inbox, also: ['/messages'] },
   { key: 'parsers', label: strings.nav.parsers, to: '/parsers', icon: Puzzle },
   { key: 'notifications', label: strings.nav.notifications, to: '/notifications', icon: Bell },
   { key: 'system', label: strings.nav.system, to: '/system', icon: Server },

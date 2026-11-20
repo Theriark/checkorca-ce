@@ -4,8 +4,8 @@ import { installFakeApi } from './fakeApi';
 import { ADMIN, SCHEMES, TECHNICIAN, WIDTHS, expectAccessible, expectLogo, expectNoHorizontalOverflow, setView, shot, stubApi, watchConsole } from './helpers';
 
 const SECTIONS = ['Morning check', 'Clients', 'Jobs', 'Unmatched', 'Inboxes', 'Parsers', 'Notifications', 'System', 'Settings'];
-// Sections with a built page (C3); the others still show their placeholder.
-const BUILT = ['Clients', 'Jobs'];
+// Sections with a built page (C3, C4); the others still show their placeholder.
+const BUILT = ['Clients', 'Jobs', 'Inboxes'];
 
 for (const scheme of SCHEMES) {
   for (const width of WIDTHS) {
