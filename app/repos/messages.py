@@ -9,12 +9,12 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func, or_, select, tuple_
+from sqlalchemy import func, or_, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import defer
 
 from app.access import Principal
-from app.db.models import AppSettings, RawMessage
+from app.db.models import PACK_PATH_LENGTH, AppSettings, Job, JobResult, RawMessage
 from app.repos.base import Repository, guarded
 
 # Kept when the settings row says nothing (it always does after c1_auth).
@@ -110,3 +110,67 @@ class RawMessageRepository(Repository):
         query = query.where(RawMessage.parse_state == "pending")
         query = self.policy.scope(principal, self.resource, query)
         return int((await self.db.execute(query)).scalar_one())
+
+    @guarded("parse")
+    async def next_pending(self, principal: Principal) -> RawMessage | None:
+        """The oldest message that waits for the parser, locked until the
+        transaction ends; a message another session holds is skipped."""
+        query = (
+            select(RawMessage)
+            .where(RawMessage.parse_state == "pending")
+            .order_by(RawMessage.received_at, RawMessage.id)
+            .limit(1)
+            .with_for_update(skip_locked=True)
+        )
+        query = self.policy.scope(principal, self.resource, query)
+        return (await self.db.scalars(query)).one_or_none()
+
+    @guarded("parse")
+    async def record_parse(
+        self,
+        principal: Principal,
+        message: RawMessage,
+        *,
+        state: str,
+        at: datetime,
+        pack_id: str | None = None,
+        reason: str | None = None,
+        path: str | None = None,
+    ) -> None:
+        """What the parser made of the message (parse_state and its reason)."""
+        message.parse_state = state
+        message.parsed_at = at
+        message.parse_pack_id = pack_id
+        message.parse_reason = reason
+        message.parse_path = None if path is None else path[:PACK_PATH_LENGTH]
+        await self.db.flush()
+
+    @guarded("parse")
+    async def fail_pending(
+        self, principal: Principal, message_id: uuid.UUID, reason: str, at: datetime
+    ) -> None:
+        """Mark a message the parser could not handle as error, if it still
+        waits, so the next tick does not take it again."""
+        await self.db.execute(
+            update(RawMessage)
+            .where(RawMessage.id == message_id, RawMessage.parse_state == "pending")
+            .values(parse_state="error", parse_reason=reason, parsed_at=at)
+        )
+
+    @guarded("update")
+    async def refresh_client(self, principal: Principal, message_id: uuid.UUID) -> None:
+        """Set client_id when every result of the message is bound to a job of
+        one client, else clear it (a client delete then removes the message
+        only when all of it was that client's)."""
+        query = (
+            select(JobResult.job_id, Job.client_id)
+            .outerjoin(Job, Job.id == JobResult.job_id)
+            .where(JobResult.raw_message_id == message_id)
+        )
+        clients = {client_id for _, client_id in (await self.db.execute(query)).all()}
+        client_id = next(iter(clients)) if len(clients) == 1 else None
+        await self.db.execute(
+            update(RawMessage)
+            .where(RawMessage.id == message_id)
+            .values(client_id=client_id)
+        )

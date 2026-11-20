@@ -20,7 +20,7 @@ import logging
 import os
 import socket
 from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Final, Protocol
 
@@ -30,12 +30,14 @@ from app.access import SYSTEM, AccessPolicy, AllowAllPolicy
 from app.clock import Clock, SystemClock
 from app.db.engine import make_engine
 from app.db.locks import WORKER_LOCK
+from app.ext.parsers import ParserPackSource, TablePackSource
 from app.ingest.imap import ImapPoller
 from app.ingest.smtp import SmtpReceiver
 from app.repos.heartbeat import HeartbeatRepository
 from app.security.crypto import SecretBox
 from app.settings import Settings
 from app.worker.lock import WorkerLock, wait_for_stop
+from app.worker.parse import parse_messages
 
 TICK_SECONDS: Final = 60.0
 # How often a waiting worker tries the lock again.
@@ -47,7 +49,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class WorkerContext:
-    """What hooks and receivers share: settings, database, clock and policy."""
+    """What hooks and receivers share: settings, database, clock, policy and
+    the parser packs."""
 
     settings: Settings
     engine: AsyncEngine
@@ -55,6 +58,7 @@ class WorkerContext:
     clock: Clock
     policy: AccessPolicy
     secret_box: SecretBox
+    pack_source: ParserPackSource = field(default_factory=TablePackSource)
 
 
 type TickHook = Callable[[WorkerContext, datetime], Awaitable[None]]
@@ -76,8 +80,8 @@ class Receiver(Protocol):
 
 type ReceiverFactory = Callable[[WorkerContext], Receiver]
 
-# Phases append their hooks and receivers here.
-TICK_HOOKS: tuple[TickHook, ...] = ()
+# Phases append their hooks and receivers here. C5-B: parse pending messages.
+TICK_HOOKS: tuple[TickHook, ...] = (parse_messages,)
 # C4-I: the SMTP listener on SMTP_PORT and the IMAP poller.
 RECEIVERS: tuple[ReceiverFactory, ...] = (SmtpReceiver, ImapPoller)
 

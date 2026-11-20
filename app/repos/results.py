@@ -29,10 +29,12 @@ class JobResultRepository(Repository):
         job_id: uuid.UUID | None = None,
         status: str | None = None,
         raw_message_id: uuid.UUID | None = None,
+        unmatched: bool = False,
         after: tuple[datetime, uuid.UUID] | None = None,
         limit: int,
     ) -> list[JobResult]:
-        """Results, newest first, before the (received_at, id) cursor."""
+        """Results, newest first, before the (received_at, id) cursor;
+        unmatched: only those no job is bound to."""
         query = (
             select(JobResult)
             .order_by(JobResult.received_at.desc(), JobResult.id.desc())
@@ -44,7 +46,45 @@ class JobResultRepository(Repository):
             query = query.where(JobResult.status == status)
         if raw_message_id is not None:
             query = query.where(JobResult.raw_message_id == raw_message_id)
+        if unmatched:
+            query = query.where(JobResult.job_id.is_(None))
         if after is not None:
             query = query.where(tuple_(JobResult.received_at, JobResult.id) < after)
         query = self.policy.scope(principal, self.resource, query)
         return list((await self.db.scalars(query)).all())
+
+    @guarded("read")
+    async def get(
+        self, principal: Principal, result_id: uuid.UUID, *, for_update: bool = False
+    ) -> JobResult | None:
+        """The result; for_update locks its row until the transaction ends."""
+        query = select(JobResult).where(JobResult.id == result_id)
+        if for_update:
+            query = query.with_for_update()
+        query = self.policy.scope(principal, self.resource, query)
+        return (await self.db.scalars(query)).one_or_none()
+
+    @guarded("list")
+    async def named(
+        self, principal: Principal, *, unmatched: bool, limit: int
+    ) -> list[JobResult]:
+        """The newest results that name a job (job_name set), for the matcher
+        to compare in Python; unmatched: only those no job is bound to."""
+        query = (
+            select(JobResult)
+            .where(JobResult.job_name.is_not(None))
+            .order_by(JobResult.received_at.desc(), JobResult.id.desc())
+            .limit(limit)
+        )
+        if unmatched:
+            query = query.where(JobResult.job_id.is_(None))
+        query = self.policy.scope(principal, self.resource, query)
+        return list((await self.db.scalars(query)).all())
+
+    @guarded("update")
+    async def bind(
+        self, principal: Principal, result: JobResult, job_id: uuid.UUID
+    ) -> None:
+        """Bind the result to a job (assign, create-job and the matcher)."""
+        result.job_id = job_id
+        await self.db.flush()
