@@ -1,9 +1,10 @@
 """The parser engine: which pack claims a mail, and the results it reads.
 
 Pure and synchronous. C5-B calls parse() from the worker's parse hook in a
-thread, one mail at a time (asyncio.to_thread; the regex module releases the
-GIL while it matches), and the test bench of C5-F calls apply() on a pasted
-sample.
+thread, one mail at a time (the regex module releases the GIL while it
+matches), and the test bench (POST packs/test) calls bench() on a pasted
+sample in a child process of the web process: every pack's score, the claim,
+and the outcome of parse or of apply() for the pack being edited.
 
 1. Claim: a pack claims a mail when every condition of its match.all and at
    least one of its match.any match. The pack with the most matching
@@ -67,12 +68,15 @@ __all__ = [
     "MAX_TEXT",
     "MAX_VALUE",
     "REGEX_TIMEOUT",
+    "Bench",
     "Mail",
     "Outcome",
     "ParseFailed",
     "Parsed",
+    "Score",
     "Unmatched",
     "apply",
+    "bench",
     "mail_from_raw",
     "parse",
 ]
@@ -116,6 +120,24 @@ class ParseFailed:
 
 
 type Outcome = Parsed | Unmatched | ParseFailed
+
+
+@dataclass(frozen=True, slots=True)
+class Score:
+    """How many conditions of a pack match the mail; 0 when it does not claim."""
+
+    pack_id: str
+    matched: int
+
+
+@dataclass(frozen=True, slots=True)
+class Bench:
+    """What the test bench shows: every pack's score, the pack that claims the
+    mail (None for no claim, a tie or a failed claim) and the outcome."""
+
+    scores: tuple[Score, ...]
+    claimed_by: str | None
+    outcome: Outcome
 
 
 def _sent_at(value: str) -> datetime | None:
@@ -383,6 +405,30 @@ def _capped(mail: Mail) -> Mail:
     return replace(mail, body=mail.body[:MAX_TEXT])
 
 
+def _claim(
+    packs: Sequence[Pack], mail: Mail, budget: _Budget
+) -> tuple[tuple[Score, ...], Pack | Outcome]:
+    """The score of every pack tried, and the pack that claims the mail or the
+    outcome without one. A failed condition ends the claim at its pack."""
+    scores: list[Score] = []
+    claims: list[tuple[int, Pack]] = []
+    for pack in packs:
+        try:
+            score = _score(pack, mail, budget)
+        except _Stopped as stop:
+            return tuple(scores), ParseFailed(pack.id, stop.path, stop.reason)
+        scores.append(Score(pack.id, score))
+        if score:
+            claims.append((score, pack))
+    if not claims:
+        return tuple(scores), Unmatched("no-pack")
+    best = max(score for score, _ in claims)
+    winners = [pack for score, pack in claims if score == best]
+    if len(winners) > 1:
+        return tuple(scores), Unmatched("tie", tuple(pack.id for pack in winners))
+    return tuple(scores), winners[0]
+
+
 def parse(
     packs: Sequence[Pack],
     mail: Mail,
@@ -393,21 +439,37 @@ def parse(
     """Let the packs claim the mail, then read it with the one that won."""
     mail = _capped(mail)
     budget = _Budget(clock() + deadline, clock)
-    scores: list[tuple[int, Pack]] = []
-    for pack in packs:
-        try:
-            score = _score(pack, mail, budget)
-        except _Stopped as stop:
-            return ParseFailed(pack.id, stop.path, stop.reason)
-        if score:
-            scores.append((score, pack))
-    if not scores:
-        return Unmatched("no-pack")
-    best = max(score for score, _ in scores)
-    winners = [pack for score, pack in scores if score == best]
-    if len(winners) > 1:
-        return Unmatched("tie", tuple(pack.id for pack in winners))
-    return _Run(winners[0], mail, budget).outcome()
+    _, claimed = _claim(packs, mail, budget)
+    if isinstance(claimed, Pack):
+        return _Run(claimed, mail, budget).outcome()
+    return claimed
+
+
+def bench(
+    packs: Sequence[Pack],
+    mail: Mail,
+    *,
+    pack: Pack | None = None,
+    deadline: float = DEADLINE,
+    clock: Callable[[], float] = time.monotonic,
+) -> Bench:
+    """The test bench: every pack's score and the claim, as parse sees them,
+    and the outcome: of apply(pack) when a pack is given, else of parse.
+
+    The claim and the outcome share one deadline, as in parse.
+    """
+    mail = _capped(mail)
+    budget = _Budget(clock() + deadline, clock)
+    scores, claimed = _claim(packs, mail, budget)
+    claimed_by = claimed.id if isinstance(claimed, Pack) else None
+    outcome: Outcome
+    if pack is not None:
+        outcome = _Run(pack, mail, budget).outcome()
+    elif isinstance(claimed, Pack):
+        outcome = _Run(claimed, mail, budget).outcome()
+    else:
+        outcome = claimed
+    return Bench(scores, claimed_by, outcome)
 
 
 def apply(

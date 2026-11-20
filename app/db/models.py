@@ -1,9 +1,9 @@
 """Tables of phases C1 (users, sessions, API tokens, audit events, settings),
-C3 (clients and jobs) and C4 (inboxes, raw messages, results, the worker
-heartbeat).
+C3 (clients and jobs), C4 (inboxes, raw messages, results, the worker
+heartbeat) and C5 (parser packs).
 
-Revisions c1_auth, c3_jobs and c4_ingest create them; later phases add their
-tables here. Primary keys are UUIDs, timestamps UTC. No table stores a secret
+Revisions c1_auth, c3_jobs, c4_ingest and c5_packs create them; later phases
+add their tables here. Primary keys are UUIDs, timestamps UTC. No table stores a secret
 in clear text: sessions, API tokens and webhook inbox tokens keep a SHA-256
 hash, passwords an Argon2id hash, and stored credentials (columns ending in
 _enc) Fernet ciphertext.
@@ -39,9 +39,14 @@ WARNING_POLICIES = ("warning_is_attention", "warning_counts_ok")
 INBOX_KINDS = ("smtp", "imap", "webhook", "upload")
 PARSE_STATES = ("pending", "parsed", "unmatched", "error")
 RESULT_STATUSES = ("success", "warning", "failed", "started", "unknown")
+PACK_STATUSES = ("verified", "unverified-synthetic")
+PACK_SOURCES = ("builtin", "custom")
 NAME_LENGTH = 200
 # RFC 5322 allows a header line of 998 characters; a longer Message-ID is not kept.
 MESSAGE_ID_LENGTH = 998
+# A pack id (^[a-z0-9][a-z0-9._-]*$, at most 100) and a JSON Pointer into a pack.
+PACK_ID_LENGTH = 100
+PACK_PATH_LENGTH = 300
 
 
 def name_key(name: str) -> str:
@@ -315,6 +320,14 @@ class RawMessage(Base):
         String(16), default="pending", server_default=text("'pending'")
     )
     purge_after: Mapped[datetime] = mapped_column(index=True)
+    # Written by the worker's parse hook (phase C5): when it parsed the
+    # message, the pack that claimed it, and for unmatched or error the reason
+    # (no-pack, tie, no-records; timeout, deadline, too-many-records, memory,
+    # rejected) and the JSON Pointer of the pattern that failed.
+    parsed_at: Mapped[datetime | None]
+    parse_pack_id: Mapped[str | None] = mapped_column(String(PACK_ID_LENGTH))
+    parse_reason: Mapped[str | None] = mapped_column(String(32))
+    parse_path: Mapped[str | None] = mapped_column(String(PACK_PATH_LENGTH))
 
 
 class JobResult(Base):
@@ -344,6 +357,32 @@ class JobResult(Base):
     details: Mapped[dict[str, Any]] = mapped_column(
         default=dict, server_default=text("'{}'::jsonb")
     )
+
+
+class ParserPack(Base):
+    """A parser pack (phase C5): its Pack YAML and whether it parses mail.
+
+    Built-in packs (app/parsers/packs) are written here at start and stay
+    read-only; a custom pack is stored by an admin or technician. enabled is
+    the user's choice for both and survives the sync. No client data: the
+    table is not in the client delete map.
+    """
+
+    __tablename__ = "parser_pack"
+    __table_args__ = (
+        CheckConstraint(_one_of("status", PACK_STATUSES), name="status"),
+        CheckConstraint(_one_of("source", PACK_SOURCES), name="source"),
+    )
+
+    id: Mapped[str] = mapped_column(String(PACK_ID_LENGTH), primary_key=True)
+    version: Mapped[int]
+    vendor: Mapped[str] = mapped_column(String(NAME_LENGTH))
+    status: Mapped[str] = mapped_column(String(32))
+    source: Mapped[str] = mapped_column(String(16))
+    yaml: Mapped[str] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(default=True, server_default=text("true"))
+    created_at: Mapped[datetime]
+    updated_at: Mapped[datetime]
 
 
 class WorkerHeartbeat(Base):
