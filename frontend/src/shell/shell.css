@@ -474,3 +474,43 @@
     background: var(--bg);
   }
 }
+
+/* Stale-heartbeat banner: signal red, icon plus words, above every signed-in
+   screen (StaleWorkerBanner.tsx). The fill is the brand's danger fill with
+   its text colour (5.3:1); the banner is the one red block of the page. */
+.co-stale {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  max-width: var(--content-max-width);
+  margin: 0 auto var(--space-6);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--danger-fill);
+  color: var(--danger-fill-text);
+  box-shadow: var(--shadow-sm);
+}
+
+.co-stale__icon {
+  display: inline-flex;
+  flex: none;
+  margin-top: 1px;
+}
+
+.co-stale__body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  font-size: var(--text-14);
+  line-height: 1.45;
+}
+
+.co-stale__title {
+  font-size: var(--text-16);
+  font-weight: 600;
+}
+
+.co-stale__time {
+  font-size: var(--text-12);
+  opacity: 0.92;
+}

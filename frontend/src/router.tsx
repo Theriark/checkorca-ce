@@ -4,6 +4,7 @@
  *   /login, /first-run   public
  *   /                    the shell: morning check and the sections
  *   /clients/:id         a client under the shell
+ *   /messages, /messages/:id   the messages of the inboxes, under the shell
  *   /_gallery            test build only (VITE_GALLERY=1)
  *   anything else        404
  *
@@ -14,7 +15,10 @@ import { Outlet, createRootRoute, createRoute, createRouter, type RouterHistory 
 
 import { ClientDetailPage } from './features/clients/ClientDetailPage';
 import { ClientsPage } from './features/clients/ClientsPage';
+import { InboxesPage } from './features/inboxes/InboxesPage';
 import { JobsPage } from './features/jobs/JobsPage';
+import { MessageDetailPage } from './features/messages/MessageDetailPage';
+import { MessagesPage } from './features/messages/MessagesPage';
 import { FirstRunPage } from './routes/FirstRunPage';
 import { GALLERY_ENABLED, GalleryRoute } from './routes/GalleryRoute';
 import { LoginPage } from './routes/LoginPage';
@@ -23,7 +27,7 @@ import { PluginRouteOutlet } from './routes/PluginRouteOutlet';
 import { SectionPage } from './routes/SectionPage';
 import { ShellGate } from './routes/ShellGate';
 import { sanitiseRedirect } from './routes/redirect';
-import { CLIENT_DETAIL_PATH, SECTIONS } from './routes/sections';
+import { CLIENT_DETAIL_PATH, MESSAGE_DETAIL_PATH, MESSAGES_PATH, SECTIONS } from './routes/sections';
 import type { SectionKey } from './shell/navigation';
 
 export const GALLERY_PATH = '/_gallery';
@@ -59,6 +63,7 @@ const shellRoute = createRoute({
 const BUILT: Partial<Record<SectionKey, () => React.JSX.Element>> = {
   clients: ClientsPage,
   jobs: JobsPage,
+  inboxes: InboxesPage,
 };
 
 const sectionRoutes = SECTIONS.map(({ path, key }) =>
@@ -73,6 +78,18 @@ const clientDetailRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: CLIENT_DETAIL_PATH,
   component: ClientDetailPage,
+});
+
+const messagesRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: MESSAGES_PATH,
+  component: MessagesPage,
+});
+
+const messageDetailRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: MESSAGE_DETAIL_PATH,
+  component: MessageDetailPage,
 });
 
 // Plugin routes: one catch-all under the shell that resolves the exact path
@@ -93,7 +110,7 @@ const galleryRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   loginRoute,
   firstRunRoute,
-  shellRoute.addChildren([...sectionRoutes, clientDetailRoute, pluginRoute]),
+  shellRoute.addChildren([...sectionRoutes, clientDetailRoute, messagesRoute, messageDetailRoute, pluginRoute]),
   ...(GALLERY_ENABLED ? [galleryRoute] : []),
 ]);
 

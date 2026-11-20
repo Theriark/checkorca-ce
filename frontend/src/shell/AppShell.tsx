@@ -4,7 +4,7 @@
  * bar under 640 px with the four primary sections and a "More" sheet.
  */
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
-import { LayoutGrid, LogOut, Moon, Search } from 'lucide-react';
+import { LayoutGrid, LogOut, Mail, Moon, Search } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import type { Me } from '../api/auth';
@@ -17,16 +17,21 @@ import { usePluginSlot } from '../plugins/slots';
 import { APP_VERSION, PRODUCT_NAME, strings } from '../strings';
 import { useTheme } from '../theme/useTheme';
 import { Logo } from './Logo';
+import { StaleWorkerBanner } from './StaleWorkerBanner';
 import { ThemeToggle } from './ThemeToggle';
 import { UserMenu } from './UserMenu';
 import { navItemsFor, type NavItem } from './navigation';
 import './shell.css';
 
-function isActive(pathname: string, to: string): boolean {
+function matches(pathname: string, to: string): boolean {
   return to === '/' ? pathname === '/' : pathname === to || pathname.startsWith(`${to}/`);
 }
 
-type LinkItem = Pick<NavItem, 'to' | 'label' | 'icon'>;
+function isActive(pathname: string, item: LinkItem): boolean {
+  return matches(pathname, item.to) || (item.also ?? []).some((path) => matches(pathname, path));
+}
+
+type LinkItem = Pick<NavItem, 'to' | 'label' | 'icon' | 'also'>;
 
 function SectionLink({ item, pathname, onNavigate, rail = false }: {
   readonly item: LinkItem;
@@ -34,7 +39,7 @@ function SectionLink({ item, pathname, onNavigate, rail = false }: {
   readonly onNavigate?: () => void;
   readonly rail?: boolean;
 }) {
-  const active = isActive(pathname, item.to);
+  const active = isActive(pathname, item);
   const Icon = item.icon;
   return (
     <Link
@@ -99,6 +104,14 @@ export function AppShell({ user }: { readonly user: Me }) {
         run: () => void navigate({ to: item.to }),
       };
     });
+    sections.push({
+      id: 'section-/messages',
+      label: strings.messages.title,
+      group: 'sections',
+      icon: <Mail size={16} />,
+      keywords: ['/messages', 'mail'],
+      run: () => void navigate({ to: '/messages' }),
+    });
     const actions: CommandItem[] = [
       {
         id: 'action-theme',
@@ -162,6 +175,7 @@ export function AppShell({ user }: { readonly user: Me }) {
       </nav>
 
       <main id="main" className="co-shell__main" tabIndex={-1}>
+        <StaleWorkerBanner />
         <Outlet />
       </main>
 

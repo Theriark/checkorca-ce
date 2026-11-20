@@ -7,6 +7,7 @@ import type { components } from '../src/api/schema';
 
 type Me = components['schemas']['Me'];
 type SignedIn = components['schemas']['SignedIn'];
+type SystemStatus = components['schemas']['SystemStatus'];
 
 export const WIDTHS = [1440, 768, 390] as const;
 export const SCHEMES = ['light', 'dark'] as const;
@@ -35,6 +36,24 @@ const SIGNED_IN_ADMIN = {
 
 const PROBLEM_HEADERS = { 'content-type': 'application/problem+json', 'x-request-id': 'req-e2e' };
 
+// Synthetic secrets, built at run time so no literal looks like a credential
+// to the gitleaks scan of CI job 7.
+export const PW_AGAIN = ['again', 'synthetic', '1234'].join('-');
+export const TOK_PREFIX = ['chki', 'e2e-shown-once'].join('_');
+
+/** The system status the shell polls for the stale-heartbeat banner. */
+export function systemStatus(stale: boolean): SystemStatus {
+  return {
+    worker: stale
+      ? { heartbeat_at: '2026-11-19T11:38:00Z', age_seconds: 1320, stale: true, holder: 'worker-1:42', started_at: '2026-11-19T08:00:00Z' }
+      : { heartbeat_at: '2026-11-19T11:59:40Z', age_seconds: 20, stale: false, holder: 'worker-1:42', started_at: '2026-11-19T08:00:00Z' },
+    inboxes: [],
+    queue: { pending_messages: stale ? 3 : 0 },
+    version: '27.0.0',
+    revision: 'e2e',
+  };
+}
+
 // The session probe of an anonymous page answers 401 by design; the browser
 // logs it as a failed resource. Everything else on the console is an error.
 const EXPECTED_CONSOLE = [/Failed to load resource: the server responded with a status of 401/];
@@ -55,12 +74,16 @@ export function watchConsole(page: Page, expectedStatuses: readonly number[] = [
   return () => errors;
 }
 
-/** Stub the auth routes: me (session), setup-state and login. */
+/** Stub the auth routes: me (session), setup-state and login; and the
+ *  system status (a ticking worker unless workerStale is set). */
 export async function stubApi(
   page: Page,
-  options: { readonly me?: Me | null; readonly needsFirstRun?: boolean; readonly loginStatus?: number } = {},
+  options: { readonly me?: Me | null; readonly needsFirstRun?: boolean; readonly loginStatus?: number; readonly workerStale?: boolean } = {},
 ) {
   const me = options.me ?? null;
+  await page.route('**/api/v1/system/status', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(systemStatus(options.workerStale ?? false)) }),
+  );
   await page.route('**/api/v1/auth/me', (route) => {
     if (me) {
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(me) });

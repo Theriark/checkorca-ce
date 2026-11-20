@@ -15,12 +15,19 @@ export const SECTIONS = [
 ] as const satisfies readonly { readonly path: string; readonly key: SectionKey }[];
 
 export const CLIENT_DETAIL_PATH = '/clients/$clientId';
+export const MESSAGES_PATH = '/messages';
+export const MESSAGE_DETAIL_PATH = '/messages/$messageId';
 
 /** /clients/<id>: one path segment after /clients, nothing else. */
 export function isClientDetailPath(pathname: string): boolean {
   return /^\/clients\/[^/]+$/.test(pathname);
 }
 
+/** /messages/<id>: one path segment after /messages, nothing else. */
+export function isMessageDetailPath(pathname: string): boolean {
+  return /^\/messages\/[^/]+$/.test(pathname);
+}
+
 export function isSectionPath(pathname: string): boolean {
-  return SECTIONS.some((section) => section.path === pathname) || isClientDetailPath(pathname);
+  return SECTIONS.some((section) => section.path === pathname) || isClientDetailPath(pathname) || pathname === MESSAGES_PATH || isMessageDetailPath(pathname);
 }
