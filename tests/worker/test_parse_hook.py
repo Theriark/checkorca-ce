@@ -321,9 +321,7 @@ async def test_unmatched_and_failed_messages_keep_their_reason(
 async def test_a_redos_pack_fails_its_mail_and_the_tick_goes_on(
     context: WorkerContext, db_engine: AsyncEngine, clock: FakeClock
 ) -> None:
-    await save_pack(
-        db_engine, clock, id="runaway", match={"all": [{"body": RUNAWAY}]}
-    )
+    await save_pack(db_engine, clock, id="runaway", match={"all": [{"body": RUNAWAY}]})
     stalled = await store(db_engine, clock, mail("Report", ONES))
     later = await store(db_engine, clock, nightly())
     started = time.perf_counter()

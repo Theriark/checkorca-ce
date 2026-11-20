@@ -75,7 +75,8 @@ except PackInvalid as invalid:
 ```python
 from app.parsers.engine import ParseFailed, Parsed, Unmatched, mail_from_raw, parse
 
-outcome = await on_parser_thread(parse, packs, mail_from_raw(raw))  # app/worker/parse.py
+# app/worker/parse.py
+outcome = await on_parser_thread(parse, packs, mail_from_raw(raw))
 match outcome:
     case Parsed(pack_id, results):
         ...  # record_result(..., raw_message_id=message.id) for each; parse_state parsed

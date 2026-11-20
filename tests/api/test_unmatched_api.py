@@ -48,7 +48,7 @@ async def add_result(
         details={},
         **times,
     )
-    async with async_sessionmaker(engine)() as db:
+    async with async_sessionmaker(engine, expire_on_commit=False)() as db:
         db.add(result)
         await db.commit()
     clock.advance(seconds=1)
