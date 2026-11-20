@@ -462,6 +462,10 @@ function message(id: string, inboxId: string | null, extra: Partial<MessageDetai
     message_id: `<msg-${id.slice(-4)}@backup.example.test>`,
     size: 18_432,
     parse_state: 'pending',
+    parsed_at: null,
+    parse_pack_id: null,
+    parse_reason: null,
+    parse_path: null,
     subject: '[Success] Nightly server backup - Harbourside Dental (fictional)',
     sender: 'Veeam Backup <veeam@backup.example.test>',
   };
@@ -541,8 +545,8 @@ function headerOf(raw: string, name: string): string | null {
 }
 
 function toMessageOut(item: MessageDetail): MessageOut {
-  const { id, inbox_id, client_id, received_at, message_id, size, parse_state, subject, sender } = item;
-  return { id, inbox_id, client_id, received_at, message_id, size, parse_state, subject, sender };
+  const { id, inbox_id, client_id, received_at, message_id, size, parse_state, parsed_at, parse_pack_id, parse_reason, parse_path, subject, sender } = item;
+  return { id, inbox_id, client_id, received_at, message_id, size, parse_state, parsed_at, parse_pack_id, parse_reason, parse_path, subject, sender };
 }
 
 /** Routes inboxes, messages and the .eml upload to an in-memory store. */
