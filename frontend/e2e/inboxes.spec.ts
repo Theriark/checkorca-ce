@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 import { IMAP_INBOX, SMTP_INBOX, WEBHOOK_INBOX, installFakeApi, installIngestApi } from './fakeApi';
-import { ADMIN, SCHEMES, TECHNICIAN, WIDTHS, expectAccessible, expectNoHorizontalOverflow, setView, shot, stubApi, watchConsole } from './helpers';
+import { ADMIN, PW_AGAIN, SCHEMES, TECHNICIAN, WIDTHS, expectAccessible, expectNoHorizontalOverflow, setView, shot, stubApi, watchConsole } from './helpers';
 
 for (const scheme of SCHEMES) {
   for (const width of WIDTHS) {
@@ -133,13 +133,12 @@ test(`inboxes: an IMAP host change needs the password again, locally and from th
   }, IMAP_INBOX.id);
   expect(await page.evaluate(() => (window as unknown as { __patchStatus: number }).__patchStatus)).toBe(422);
   // With the password the change goes through.
-  await edit.getByLabel('Password').fill('again-synthetic-1234');
+  await edit.getByLabel('Password').fill(PW_AGAIN);
   await edit.getByRole('button', { name: 'Save' }).click();
   await expect(page.locator('.co-toast--success').last()).toContainText('Inbox saved');
   await expect(edit).toBeHidden();
   const patch = store.calls.filter((call) => call.method === 'PATCH').pop();
-  expect(patch?.body).toContain('"host":"imap2.example.test"');
-  expect(patch?.body).toContain('"password":"again-synthetic-1234"');
+  expect(JSON.parse(patch?.body ?? '{}')).toEqual({ imap: { host: 'imap2.example.test', password: PW_AGAIN } });
   await expect(page.getByRole('table').locator('tbody tr').filter({ hasText: 'Alerts mailbox' })).toContainText('imap2.example.test');
 
   // An SMTP inbox: the ready dialog shows the address and URL with copy buttons, no token.

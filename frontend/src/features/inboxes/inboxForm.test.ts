@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { ApiError } from '../../api/client';
 import { strings } from '../../strings';
-import { IMAP_INBOX, makeInbox } from '../../test/fixtures';
+import { IMAP_INBOX, PW_AGAIN, PW_CREATE, PW_NEW, makeInbox } from '../../test/fixtures';
 import { initialState, parseAllowlist, retargetsImap, serverErrors, toBody, toPatch, validate } from './inboxForm';
 
 describe('inbox form', () => {
@@ -25,18 +25,18 @@ describe('inbox form', () => {
   });
 
   it('sends the IMAP settings on create and only the changes on edit; a password is sent only when typed', () => {
-    const state = { ...initialState(null), kind: 'imap' as const, label: ' Mailbox ', host: 'imap.example.test', username: 'u', password: 'p-1234567890', allowlist: '@example.test' };
+    const state = { ...initialState(null), kind: 'imap' as const, label: ' Mailbox ', host: 'imap.example.test', username: 'u', password: PW_CREATE, allowlist: '@example.test' };
     expect(toBody(state)).toEqual({
       kind: 'imap',
       label: 'Mailbox',
       sender_allowlist: ['@example.test'],
       require_auth_results: false,
-      imap: { host: 'imap.example.test', port: 993, username: 'u', password: 'p-1234567890', folder: 'INBOX', poll_seconds: 300, tls: true },
+      imap: { host: 'imap.example.test', port: 993, username: 'u', password: PW_CREATE, folder: 'INBOX', poll_seconds: 300, tls: true },
     });
     const unchanged = initialState(IMAP_INBOX);
     expect(toPatch(unchanged, IMAP_INBOX)).toEqual({});
     expect(toPatch({ ...unchanged, label: 'Renamed', folder: 'Reports', requireAuth: false }, IMAP_INBOX)).toEqual({ label: 'Renamed', require_auth_results: false, imap: { folder: 'Reports' } });
-    expect(toPatch({ ...unchanged, password: 'new-password-1' }, IMAP_INBOX)).toEqual({ imap: { password: 'new-password-1' } });
+    expect(toPatch({ ...unchanged, password: PW_NEW }, IMAP_INBOX)).toEqual({ imap: { password: PW_NEW } });
   });
 
   it('needs the password again for a new host, port, TLS setting or user name (C4-I security F1), not for the folder', () => {
@@ -48,7 +48,7 @@ describe('inbox form', () => {
     expect(retargetsImap({ ...base, tls: false }, IMAP_INBOX)).toBe(true);
     expect(retargetsImap({ ...base, username: 'other' }, IMAP_INBOX)).toBe(true);
     expect(validate({ ...base, host: 'imap2.example.test' }, IMAP_INBOX)).toEqual({ password: strings.inboxForm.passwordAgain });
-    expect(validate({ ...base, host: 'imap2.example.test', password: 'again-1234567' }, IMAP_INBOX)).toEqual({});
+    expect(validate({ ...base, host: 'imap2.example.test', password: PW_AGAIN }, IMAP_INBOX)).toEqual({});
     // An SMTP inbox never asks for a password.
     expect(retargetsImap({ ...initialState(makeInbox()), label: 'x' }, makeInbox())).toBe(false);
   });

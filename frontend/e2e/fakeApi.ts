@@ -5,6 +5,7 @@
 import type { Page, Route } from '@playwright/test';
 
 import type { components } from '../src/api/schema';
+import { TOK_PREFIX } from './helpers';
 
 type ClientOut = components['schemas']['ClientOut'];
 type JobOut = components['schemas']['JobOut'];
@@ -601,7 +602,7 @@ export async function installIngestApi(page: Page, seed: { readonly inboxes?: re
         });
         store.inboxes.push(created);
         tokens += 1;
-        const webhook_token = kind === 'webhook' ? `chki_e2e-token-shown-once-${String(tokens).padStart(4, '0')}-000000000000` : null;
+        const webhook_token = kind === 'webhook' ? `${TOK_PREFIX}-${String(tokens).padStart(4, '0')}-${'0'.repeat(12)}` : null;
         return ok(route, { ...created, webhook_token }, 201);
       }
     }
@@ -618,7 +619,7 @@ export async function installIngestApi(page: Page, seed: { readonly inboxes?: re
       }
       tokens += 1;
       found.webhook_token_set = true;
-      return ok(route, { webhook_token: `chki_e2e-token-shown-once-${String(tokens).padStart(4, '0')}-000000000000` });
+      return ok(route, { webhook_token: `${TOK_PREFIX}-${String(tokens).padStart(4, '0')}-${'0'.repeat(12)}` });
     }
     if (method === 'PATCH') {
       const body = jsonBody(route);

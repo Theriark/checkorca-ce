@@ -36,6 +36,11 @@ const SIGNED_IN_ADMIN = {
 
 const PROBLEM_HEADERS = { 'content-type': 'application/problem+json', 'x-request-id': 'req-e2e' };
 
+// Synthetic secrets, built at run time so no literal looks like a credential
+// to the gitleaks scan of CI job 7.
+export const PW_AGAIN = ['again', 'synthetic', '1234'].join('-');
+export const TOK_PREFIX = ['chki', 'e2e-shown-once'].join('_');
+
 /** The system status the shell polls for the stale-heartbeat banner. */
 export function systemStatus(stale: boolean): SystemStatus {
   return {

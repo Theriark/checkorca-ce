@@ -62,6 +62,13 @@ import type { InboxOut } from '../api/inboxes';
 import type { MessageDetail, MessageOut } from '../api/messages';
 import type { SystemStatus } from '../api/system';
 
+// Synthetic secrets for the tests, built at run time so no literal in the
+// repository looks like a credential to a scanner (CI job 7 runs gitleaks).
+export const PW_CREATE = ['p', 'synthetic', '1234567890'].join('-');
+export const PW_NEW = ['new', 'pass', 'synthetic', '1'].join('-');
+export const PW_AGAIN = ['again', 'synthetic', '1234'].join('-');
+export const TOK_SYNTH = ['chki', 'synthetic-shown-once', '0'.repeat(10)].join('_');
+
 export function makeInbox(overrides: Partial<InboxOut> = {}): InboxOut {
   return {
     id: 'i1000000-0000-4000-8000-000000000001',

@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { strings } from '../../strings';
-import { IMAP_INBOX, WEBHOOK_INBOX, makeInbox, makeStatus } from '../../test/fixtures';
+import { IMAP_INBOX, PW_AGAIN, TOK_SYNTH, WEBHOOK_INBOX, makeInbox, makeStatus } from '../../test/fixtures';
 import { ADMIN, TECHNICIAN, holdFetch, renderApp, stubFetch } from '../../test/render';
 
 const ME = { 'GET /api/v1/auth/me': { status: 200, body: ADMIN } };
@@ -119,7 +119,7 @@ describe('/inboxes', () => {
 
   it('creates a webhook inbox and shows the token this once; the edit drawer only says a token is set', async () => {
     const user = userEvent.setup();
-    const created = { ...WEBHOOK_INBOX, webhook_token: 'chki_synthetic-token-shown-once-0000000000' };
+    const created = { ...WEBHOOK_INBOX, webhook_token: TOK_SYNTH };
     stubFetch({
       ...ME,
       ...STATUS,
@@ -180,12 +180,12 @@ describe('/inboxes', () => {
     expect(within(drawer).getByText(strings.inboxForm.passwordAgain, { selector: '.co-field__error' })).toBeTruthy();
     expect(calls.filter((call) => call.method === 'PATCH')).toHaveLength(0);
     // With a password the request goes out; the API's own 422 lands on the field and above the form.
-    await user.type(password, 'again-1234567');
+    await user.type(password, PW_AGAIN);
     await user.click(within(drawer).getByRole('button', { name: strings.inboxForm.save }));
     const alerts = await within(drawer).findAllByText('Send the IMAP password again to change the host, port, TLS setting or user name.');
     expect(alerts.length).toBeGreaterThanOrEqual(2);
     const sent = JSON.parse(String(calls.find((call) => call.method === 'PATCH')?.init?.body)) as Record<string, unknown>;
-    expect(sent).toEqual({ imap: { host: 'imap2.example.test', password: 'again-1234567' } });
+    expect(sent).toEqual({ imap: { host: 'imap2.example.test', password: PW_AGAIN } });
     await user.click(within(drawer).getByRole('button', { name: strings.inboxForm.save }));
     await waitFor(() => expect(screen.queryByRole('dialog', { name: strings.inboxForm.editTitle })).toBeNull());
     expect(patches).toBe(2);
