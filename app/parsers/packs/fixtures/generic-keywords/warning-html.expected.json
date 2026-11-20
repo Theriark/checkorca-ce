@@ -1,0 +1,11 @@
+[
+  {
+    "status": "warning",
+    "job_name": "Weekly offsite copy",
+    "client_hint": "Fictional Plus Ltd",
+    "started_at": "2026-11-20T02:00:05+01:00",
+    "finished_at": "2026-11-20T02:30:41+01:00",
+    "run_id": null,
+    "details": {"host": "NAS-02", "processed": "8.2 GB"}
+  }
+]

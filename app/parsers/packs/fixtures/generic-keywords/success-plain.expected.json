@@ -1,0 +1,11 @@
+[
+  {
+    "status": "success",
+    "job_name": "Nightly server backup",
+    "client_hint": "Fictional Dental Clinic",
+    "started_at": "2026-11-19T01:00:00+00:00",
+    "finished_at": "2026-11-19T01:42:10+00:00",
+    "run_id": "run-20261119-0100",
+    "details": {"host": "FS-01", "duration": "42 min 10 s", "processed": "120.5 GB"}
+  }
+]

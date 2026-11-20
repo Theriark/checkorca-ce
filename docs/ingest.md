@@ -57,7 +57,7 @@ await db.commit()
 - Duplicates: the same `Message-ID` header, or the same `body_sha256`, in the same inbox, stores nothing and returns `StoredRaw(id=<earlier row>, duplicate=True)`. Two unique constraints decide, so two deliveries at the same moment still store one row (the second waits for the first transaction). `body_sha256` is SHA-256 of the `Date`, `From`, `To` and `Subject` headers and the body with line endings normalised: a forwarded copy with a new Message-ID is a duplicate, while two alerts that differ only in the Subject, or the same words on another day, are not. A message without a `Date` header gets a key of its own, so only its Message-ID can make it a duplicate (the SMTP listener and the HTTP route do not add a Date).
 - A stored message gets `sha256`, `size`, decoded headers (at most 200, values at most 4,000 characters, RFC 2047 decoded, invalid bytes replaced, NUL removed), `body_zlib`, `parse_state` `pending` and `purge_after = received_at + settings.retention_raw_days`; the inbox's `last_message_at` moves forward.
 - Duplicates are counted once: a receiver answers success for a duplicate (250, 202) and records nothing else.
-- The parser (C5-B) reads `parse_state = 'pending'` rows with SKIP LOCKED; `app.ingest.store.raw_bytes(body_zlib)` decompresses with the same 5 MiB cap; `app.ingest.mime.message_text(raw)` gives the text (C4-I's `html_text.py` should replace the HTML branch).
+- The parser (C5-B) reads `parse_state = 'pending'` rows with SKIP LOCKED; `app.ingest.store.raw_bytes(body_zlib)` decompresses with the same 5 MiB cap; `app.parsers.engine.mail_from_raw(raw)` gives the headers and the visible text (`app.ingest.mime.message_text`, HTML through `html_text.py`) the engine reads. The engine is described in [docs/parsers.md](parsers.md).
 
 ## record_result
 
@@ -85,8 +85,8 @@ result_id = await record_result(
 await db.commit()
 ```
 
-- `ParsedResult` fields follow the Interfaces chapter: `status` (`success`, `warning`, `failed`, `started`, `unknown`), `job_name`, `client_hint`, `started_at`, `finished_at` (aware datetimes), `run_id`, `details` (JSON object), `spans` (test bench only, not stored).
-- `ResultRejected` (a `ValueError`; its text names the field, never the value) for an unknown status, a name, hint or run id over 200 characters, a naive datetime, details that are not JSON, hold a NUL character or a lone surrogate, or exceed 16 KiB. Routes answer 422 with it.
+- `ParsedResult` fields follow the Interfaces chapter: `status` (`success`, `warning`, `failed`, `started`, `unknown`), `job_name`, `client_hint`, `started_at`, `finished_at` (aware datetimes), `run_id`, `details` (JSON object), `spans` (test bench only, not stored). A `Span` is `field`, `start`, `end` and `source`: `body` (the visible text, the default) or the `subject`, `from` or `to` header the offsets count in (added by C5-I; additive, the default keeps C4 callers unchanged).
+- `ResultRejected` (a `ValueError`; its text names the field, never the value) for an unknown status, a name, hint or run id over 200 characters, a naive datetime, details that are not JSON, hold a NUL character (in a key or a value at any depth, a tuple or list value included: the check reads the details as they are stored; C5-I, THE-2011 note 1) or a lone surrogate, or exceed 16 KiB. Routes answer 422 with it.
 - Never commits; never changes `parse_state` (C5-B does).
 
 ## Worker: lock, heartbeat, tick hooks, receivers

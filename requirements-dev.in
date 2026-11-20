@@ -10,5 +10,9 @@ hypothesis
 schemathesis
 ruff
 mypy
+# Stubs for mypy strict on app/parsers (C5-I): PyYAML, jsonschema and regex.
+types-PyYAML
+types-jsonschema
+types-regex
 pip-audit
 pip-licenses

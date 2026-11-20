@@ -1,0 +1,12 @@
+From: Backup Server <backup@example.com>
+To: alerts@example.net
+Subject: Nightly server backup: no successful backup in 3 days
+Date: Fri, 20 Nov 2026 06:00:00 +0000
+Message-ID: <gk-failed-no-successful@example.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Synthetic fixture.
+Client: Fictional Dental Clinic
+Host: FS-01
+There was no successful backup in the last 3 days.

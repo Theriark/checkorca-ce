@@ -316,6 +316,10 @@ async def test_record_result_keeps_a_run(
         (ParsedResult(status="failed", details={"at": RECEIVED}), "JSON"),
         (ParsedResult(status="failed", details={"x": "a\0b"}), "NUL"),
         (ParsedResult(status="failed", details={"x": ["a", {"\0": 1}]}), "NUL"),
+        # THE-2011 note 1: a tuple is stored as a list and checked as one.
+        (ParsedResult(status="failed", details={"x": ("a", "b\0")}), "NUL"),
+        (ParsedResult(status="failed", details={"x": [("\0",)]}), "NUL"),
+        (ParsedResult(status="failed", details={"x": {"y": (1, ("\0",))}}), "NUL"),
         # json.loads turns the escape \ud800 of a request body into this.
         (ParsedResult(status="failed", details={"x": "\ud800"}), "Unicode"),
         (ParsedResult(status="failed", details={"x": "a" * 17000}), "bytes"),
@@ -345,6 +349,19 @@ async def test_a_backslash_u0000_text_is_not_a_nul(
         await db.commit()
         row = await db.get(JobResult, result_id)
     assert row is not None and row.details == {"log": path}
+
+
+async def test_a_tuple_in_details_is_stored_as_a_list(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    result = ParsedResult(status="success", details={"files": ("a.vhdx", "b.vhdx")})
+    async with sessions() as db:
+        result_id = await record_result(
+            db, POLICY, SYSTEM, result, received_at=RECEIVED
+        )
+        await db.commit()
+        row = await db.get(JobResult, result_id)
+    assert row is not None and row.details == {"files": ["a.vhdx", "b.vhdx"]}
 
 
 class Refuses(AllowAllPolicy):

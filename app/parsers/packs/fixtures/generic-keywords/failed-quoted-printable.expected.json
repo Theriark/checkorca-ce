@@ -1,0 +1,11 @@
+[
+  {
+    "status": "failed",
+    "job_name": "Database dump job",
+    "client_hint": "Fictional Dental Clinic",
+    "started_at": "2026-11-20T03:00:00+01:00",
+    "finished_at": "2026-11-20T03:05:12+01:00",
+    "run_id": null,
+    "details": {"host": "DB-01", "error": "pg_dump exited with code 1: no space left on device"}
+  }
+]

@@ -1,0 +1,13 @@
+From: Backup Server <backup@example.com>
+To: alerts@example.net
+Subject: Backup report
+Date: Fri, 20 Nov 2026 01:40:00 +0000
+Message-ID: <gk-failed-error-after-colon@example.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Synthetic fixture.
+Client: Fictional Dental Clinic
+Host: FS-01
+Volume C: completed successfully.
+Volume D: Error: No such file or directory

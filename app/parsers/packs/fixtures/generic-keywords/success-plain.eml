@@ -1,0 +1,19 @@
+From: Backup Server <backup@example.com>
+To: alerts@example.net
+Subject: [Success] Nightly server backup
+Date: Thu, 19 Nov 2026 01:42:30 +0000
+Message-ID: <gk-success-plain@example.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Backup summary (synthetic fixture)
+
+Client: Fictional Dental Clinic
+Host: FS-01
+Status: Success
+Started: 2026-11-19 01:00:00
+Finished: 2026-11-19 01:42:10
+Duration: 42 min 10 s
+Processed: 120.5 GB
+Errors: 0
+Run ID: run-20261119-0100
