@@ -20,11 +20,13 @@ from app.parsers.loader import (
     Fixture,
     PackInvalid,
     PackIssue,
+    builtin_pack_texts,
     builtin_packs,
     expected_result,
     load_pack_file,
     pack_fixtures,
     parse_pack,
+    parse_pack_cached,
     schema_issues,
 )
 
@@ -267,7 +269,7 @@ def test_a_field_gives_regex_or_literal(field: dict[str, str], message: str) -> 
 
 @pytest.mark.parametrize(
     "literal",
-    [r'"a\0b"', r'"a\x01b"', r'"a\uD800b"', r'" padded"', r'"two  spaces"'],
+    [r'"a\0b"', r'"a\x01b"', r'"a\U0000D800b"', r'" padded"', r'"two  spaces"'],
 )
 def test_a_literal_is_plain_text(literal: str) -> None:
     text = text_of(minimal()) + f"extract:\n  details:\n    k: {{literal: {literal}}}\n"
@@ -401,7 +403,7 @@ def test_a_pack_over_64_kib_is_refused() -> None:
         ("a: 1\n---\nb: 2\n", "but found another document"),
         ("!!python/object/apply:os.system ['true']\n", "could not determine"),
         ("version: " + "9" * 5000 + "\n", "the text is not valid YAML"),
-        ("id: \ud800\n", "the text is not valid YAML"),
+        ("id: \U0000d800\n", "the text is not valid YAML"),
         ("id: \x00\n", "the text is not valid YAML"),
     ],
 )
@@ -450,6 +452,27 @@ def test_a_pack_file_is_named_after_its_id(tmp_path: Path) -> None:
     ids = [pack.id for pack in builtin_packs(tmp_path)]
     assert ids == ["example-tool", "other-tool"]
     assert load_pack_file(tmp_path / "other-tool.yaml").id == "other-tool"
+    texts = builtin_pack_texts(tmp_path)
+    assert [(pack.id, text) for pack, text in texts] == [
+        ("example-tool", text_of(minimal())),
+        ("other-tool", text_of(other)),
+    ]
+
+
+def test_the_built_in_packs_come_with_their_texts() -> None:
+    texts = builtin_pack_texts()
+    assert [pack.id for pack, _ in texts] == [pack.id for pack in builtin_packs()]
+    for pack, text in texts:
+        assert parse_pack(text).version == pack.version
+
+
+def test_a_cached_pack_is_compiled_once_per_text() -> None:
+    text = text_of(minimal())
+    assert parse_pack_cached(text) is parse_pack_cached(text)
+    assert parse_pack_cached(text).id == "example-tool"
+    for _ in range(2):
+        with pytest.raises(PackInvalid):
+            parse_pack_cached("id: [")
 
 
 def write_fixture(tmp_path: Path, expected: str) -> list[Fixture]:
