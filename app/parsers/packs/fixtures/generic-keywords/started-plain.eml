@@ -1,0 +1,13 @@
+From: Backup Server <backup@example.com>
+To: alerts@example.net
+Subject: Nightly server backup started
+Date: Fri, 20 Nov 2026 01:00:03 +0000
+Message-ID: <gk-started-plain@example.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Synthetic fixture.
+Client: Fictional Dental Clinic
+Host: FS-01
+Started: 2026-11-20 01:00:02
+Run ID: run-20261120-0100

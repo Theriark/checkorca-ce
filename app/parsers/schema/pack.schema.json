@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:checkorca:parser-pack:1",
+  "title": "Checkorca parser pack",
+  "description": "A parser pack turns one kind of alert mail into results (Interfaces chapter of the dev-work-plan, Pack YAML; docs/parsers.md explains every key). The loader (app/parsers/loader.py) also compiles every regex, checks that an extract regex has exactly one named group, that a field gives regex or literal, and that a verified pack has fixtures of at least 3 classes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "version", "vendor", "status", "match", "status_rules"],
+  "properties": {
+    "id": {
+      "description": "Unique pack id; the file name of a built-in pack.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "version": {
+      "description": "Raised by one for every change of the pack.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000000
+    },
+    "vendor": {"type": "string", "minLength": 1, "maxLength": 100},
+    "status": {
+      "description": "verified: checked against fixtures of at least 3 classes; unverified-synthetic: written from documentation with synthetic fixtures only.",
+      "enum": ["verified", "unverified-synthetic"]
+    },
+    "docs_url": {
+      "description": "The vendor documentation the pack follows.",
+      "type": "string",
+      "maxLength": 500,
+      "pattern": "^https://\\S+$"
+    },
+    "description": {"type": "string", "maxLength": 2000},
+    "match": {
+      "description": "Which mail the pack claims: every condition of all, and at least one of any. The pack with the most matching conditions claims the message.",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "all": {"$ref": "#/$defs/conditions"},
+        "any": {"$ref": "#/$defs/conditions"}
+      }
+    },
+    "split": {
+      "description": "Digest mail: every match of record starts a record, which runs to the next match or the end of the body.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["record"],
+      "properties": {"record": {"$ref": "#/$defs/regex"}}
+    },
+    "extract": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "job_name": {"$ref": "#/$defs/field"},
+        "client_hint": {"$ref": "#/$defs/field"},
+        "run_id": {"$ref": "#/$defs/field"},
+        "started_at": {"$ref": "#/$defs/time_field"},
+        "finished_at": {"$ref": "#/$defs/time_field"},
+        "details": {
+          "type": "object",
+          "maxProperties": 16,
+          "propertyNames": {"pattern": "^[a-z][a-z0-9_]{0,39}$"},
+          "additionalProperties": {"$ref": "#/$defs/field"}
+        }
+      }
+    },
+    "status_rules": {
+      "description": "Tried in order on every record; the first that matches gives the status. None matching gives unknown.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["status", "regex"],
+        "properties": {
+          "status": {"enum": ["success", "warning", "failed", "started", "unknown"]},
+          "regex": {"$ref": "#/$defs/regex"},
+          "in": {"$ref": "#/$defs/scope"}
+        }
+      }
+    },
+    "fixtures": {
+      "description": "Sample mails: fixtures/<pack id>/<name>.eml with <name>.expected.json beside it.",
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "origin", "class"],
+        "properties": {
+          "name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,79}$"},
+          "origin": {"enum": ["synthetic", "real"]},
+          "class": {
+            "description": "The kind of mail: the status it reports, digest for several records, or unmatched for mail the pack must not parse.",
+            "enum": ["success", "warning", "failed", "started", "unknown", "digest", "unmatched"]
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"required": ["status"], "properties": {"status": {"const": "verified"}}},
+      "then": {
+        "required": ["fixtures", "docs_url"],
+        "properties": {"fixtures": {"minItems": 3}}
+      }
+    }
+  ],
+  "$defs": {
+    "regex": {
+      "description": "A pattern of the regex module (re syntax); flags inline, such as (?i) or (?m).",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
+    },
+    "condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "maxProperties": 1,
+      "properties": {
+        "from": {"$ref": "#/$defs/regex"},
+        "to": {"$ref": "#/$defs/regex"},
+        "subject": {"$ref": "#/$defs/regex"},
+        "body": {"$ref": "#/$defs/regex"}
+      }
+    },
+    "conditions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 20,
+      "items": {"$ref": "#/$defs/condition"}
+    },
+    "scope": {
+      "description": "Where a regex looks: the record (default; the whole body without split), the whole body, or a header.",
+      "enum": ["record", "body", "subject", "from", "to"]
+    },
+    "field": {
+      "description": "regex: a pattern with exactly one named group, whose text is the value; or literal: a fixed value.",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "regex": {"$ref": "#/$defs/regex"},
+        "in": {"$ref": "#/$defs/scope"},
+        "literal": {"type": "string", "minLength": 1, "maxLength": 200}
+      }
+    },
+    "time_field": {
+      "description": "Like field; format is a strptime format, else ISO 8601 or RFC 2822 is read. A time without a zone takes the zone of the mail's Date header, else UTC.",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "regex": {"$ref": "#/$defs/regex"},
+        "in": {"$ref": "#/$defs/scope"},
+        "format": {"type": "string", "minLength": 2, "maxLength": 100},
+        "literal": {"type": "string", "minLength": 1, "maxLength": 200}
+      }
+    }
+  }
+}

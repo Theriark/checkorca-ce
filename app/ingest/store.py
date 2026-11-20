@@ -147,9 +147,11 @@ def _details(details: Any) -> dict[str, Any]:
         encoded = json.dumps(details, ensure_ascii=False, allow_nan=False)
     except (TypeError, ValueError):
         raise ResultRejected("details must hold JSON values only") from None
+    loaded: dict[str, Any] = json.loads(encoded)
     # PostgreSQL JSONB refuses NUL; checked on the values, so a text holding
-    # a backslash and "u0000" (a Windows path, say) is still accepted.
-    if _has_nul(details):
+    # a backslash and "u0000" (a Windows path, say) is still accepted. Checked
+    # on what is stored, where a tuple has become a list (THE-2011 note 1).
+    if _has_nul(loaded):
         raise ResultRejected("details must not contain NUL characters")
     try:
         size = len(encoded.encode("utf-8"))
@@ -158,7 +160,6 @@ def _details(details: Any) -> dict[str, Any]:
         raise ResultRejected("details must be valid Unicode text") from None
     if size > MAX_DETAILS_BYTES:
         raise ResultRejected(f"details may have at most {MAX_DETAILS_BYTES} bytes")
-    loaded: dict[str, Any] = json.loads(encoded)
     return loaded
 
 

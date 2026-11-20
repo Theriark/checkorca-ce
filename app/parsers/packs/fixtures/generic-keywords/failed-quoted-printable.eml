@@ -1,0 +1,18 @@
+From: cron@db-01.example.com
+To: alerts@example.net
+Subject: Database dump job failed
+Date: Fri, 20 Nov 2026 03:05:30 +0100
+Message-ID: <gk-failed-qp@db-01.example.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+Synthetic fixture.
+Job: Database dump
+Client: Fictional Dental Clinic
+Server: DB-01
+Started at: 2026-11-20T03:00:00+01:00
+Ended at: 2026-11-20 03:05:12
+Status: Failed
+Error: pg_dump exited with code 1: no space left =
+on device

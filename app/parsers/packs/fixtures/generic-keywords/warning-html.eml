@@ -1,0 +1,19 @@
+From: "Storage Box" <nas@example.net>
+To: alerts@example.net
+Subject: Weekly offsite copy: completed with warnings
+Date: Fri, 20 Nov 2026 02:31:00 +0100
+Message-ID: <gk-warning-html@example.net>
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<html><head><title>Status: Failed</title><style>p { color: #333 }</style></head>
+<body>
+<h1>Offsite copy report (synthetic fixture)</h1>
+<p>Customer: Fictional Plus Ltd</p>
+<p>Device: NAS-02</p>
+<p>Start time: Fri, 20 Nov 2026 02:00:05 +0100</p>
+<p>End time: Fri, 20 Nov 2026 02:30:41 +0100</p>
+<p>Transferred: 8.2 GB</p>
+<p>Warnings: 2 files were skipped because they were in use.</p>
+<script>document.write("Status: Failed")</script>
+</body></html>

@@ -18,11 +18,14 @@ RESULT_STATUSES: Final[tuple[ResultStatus, ...]] = (
 
 @dataclass(frozen=True, slots=True)
 class Span:
-    """Where an extracted field was found in the text (test bench only)."""
+    """Where an extracted field was found (test bench only): characters start
+    to end of source, the visible body text or the subject, from or to header.
+    """
 
     field: str
     start: int
     end: int
+    source: str = "body"
 
 
 @dataclass(frozen=True, slots=True)
