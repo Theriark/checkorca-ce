@@ -276,19 +276,29 @@ async def test_results_by_job_id_ping_token_or_names(
     )
     assert by_ping.status_code == 202 and by_ping.json()["job_id"] == job_id
     clock.advance(seconds=1)
+    # Named in other words: the matcher binds it (phase C5).
     by_names = await client.post(
         "/api/v1/results",
-        json={"status": "success", "client_hint": DENTAL, "job_name": JOB},
+        json={"status": "success", "client_hint": DENTAL.upper(), "job_name": JOB},
         headers=bearer(token),
     )
-    assert by_names.status_code == 202 and by_names.json()["job_id"] is None
+    assert by_names.status_code == 202 and by_names.json()["job_id"] == job_id
+    clock.advance(seconds=1)
+    # A job the matcher does not know waits in Unmatched.
+    unknown = await client.post(
+        "/api/v1/results",
+        json={"status": "failed", "client_hint": DENTAL, "job_name": "Other job"},
+        headers=bearer(token),
+    )
+    assert unknown.status_code == 202 and unknown.json()["job_id"] is None
     results = await job_results(client, job_id)
-    assert [item["status"] for item in results] == ["failed", "warning"]
-    assert results[1]["finished_at"] == "2027-01-04T05:41:07Z"
+    assert [item["status"] for item in results] == ["success", "failed", "warning"]
+    assert results[2]["finished_at"] == "2027-01-04T05:41:07Z"
     details = {"processed_gb": 12, "skipped": ["C:\\pagefile.sys"]}
-    assert results[1]["details"] == details
+    assert results[2]["details"] == details
     everything = (await client.get("/api/v1/results")).json()["items"]
-    assert everything[0]["job_name"] == JOB and everything[0]["job_id"] is None
+    assert everything[0]["job_name"] == "Other job"
+    assert everything[0]["job_id"] is None
 
 
 @pytest.mark.parametrize(
