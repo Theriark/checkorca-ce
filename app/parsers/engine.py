@@ -1,8 +1,9 @@
 """The parser engine: which pack claims a mail, and the results it reads.
 
 Pure and synchronous. C5-B calls parse() from the worker's parse hook in a
-thread (asyncio.to_thread; the regex module releases the GIL while it
-matches) and the test bench of C5-F calls apply() on a pasted sample.
+thread, one mail at a time (asyncio.to_thread; the regex module releases the
+GIL while it matches), and the test bench of C5-F calls apply() on a pasted
+sample.
 
 1. Claim: a pack claims a mail when every condition of its match.all and at
    least one of its match.any match. The pack with the most matching
@@ -20,14 +21,17 @@ Mail is hostile and packs are user input, so the cost is bounded:
   HTML through app/ingest/html_text.py), cut at MAX_TEXT characters;
 - every regex evaluation stops after REGEX_TIMEOUT (the regex module's
   timeout, spike 4 of C0-B);
-- all evaluations for one mail share DEADLINE seconds, and a split may give at
-  most MAX_RECORDS records.
+- all evaluations for one mail share DEADLINE seconds, checked again before
+  every record of a split, and a split may give at most MAX_RECORDS records;
+- a value is read from at most 1,600 characters of its match.
 
-A timeout fails the whole mail (ParseFailed names the pattern). It never lets
-a later status rule or a weaker pack decide instead: a failed rule that timed
-out must not turn into success.
+The regex module measures its timeout in CPU time of the whole process, so
+C5-B parses on one thread. A timeout fails the whole mail (ParseFailed names
+the pattern). It never lets a later status rule or a weaker pack decide
+instead: a failed rule that timed out must not turn into success.
 """
 
+import re
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
@@ -39,22 +43,39 @@ import regex
 
 from app.ingest import mime
 from app.ingest.results import ParsedResult, ResultStatus, Span
-from app.parsers.model import TIME_FIELDS, Condition, Extractor, Pack, Scope
+from app.parsers.model import (
+    MAX_VALUE,
+    TIME_FIELDS,
+    Condition,
+    Extractor,
+    Pack,
+    Scope,
+    clean_value,
+)
 
 REGEX_TIMEOUT: Final = 0.05
 DEADLINE: Final = 5.0
 MAX_TEXT: Final = mime.MAX_TEXT
 MAX_RECORDS: Final = 200
-# record_result refuses names, hints and run ids over 200 characters; 16
-# details of at most 200 characters stay under its 16 KiB.
-MAX_VALUE: Final = 200
 
 UnmatchedReason = Literal["no-pack", "tie", "no-records"]
-FailReason = Literal["timeout", "deadline", "too-many-records"]
+FailReason = Literal["timeout", "deadline", "too-many-records", "memory"]
 
-# Control characters other than tab and line feed; JSON would escape each
-# into six bytes.
-_CONTROL = regex.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+__all__ = [
+    "DEADLINE",
+    "MAX_RECORDS",
+    "MAX_TEXT",
+    "MAX_VALUE",
+    "REGEX_TIMEOUT",
+    "Mail",
+    "Outcome",
+    "ParseFailed",
+    "Parsed",
+    "Unmatched",
+    "apply",
+    "mail_from_raw",
+    "parse",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,8 +107,8 @@ class Unmatched:
 
 @dataclass(frozen=True, slots=True)
 class ParseFailed:
-    """A regex ran out of time, or the split found too many records. path is
-    the JSON Pointer of the pattern in the pack."""
+    """A regex ran out of time or memory, or the split found too many records.
+    path is the JSON Pointer of the pattern in the pack."""
 
     pack_id: str
     path: str
@@ -132,12 +153,17 @@ class _Budget:
     deadline: float
     clock: Callable[[], float]
 
-    def search(
-        self, pattern: regex.Pattern[str], text: str, path: str, pos: int = 0
-    ) -> regex.Match[str] | None:
+    def check(self, path: str) -> float:
+        """The seconds left; _Stopped when none are."""
         left = self.deadline - self.clock()
         if left <= 0:
             raise _Stopped(path, "deadline")
+        return left
+
+    def search(
+        self, pattern: regex.Pattern[str], text: str, path: str, pos: int = 0
+    ) -> regex.Match[str] | None:
+        left = self.check(path)
         try:
             return pattern.search(
                 text, pos, concurrent=True, timeout=min(REGEX_TIMEOUT, left)
@@ -145,6 +171,9 @@ class _Budget:
         except TimeoutError:
             reason: FailReason = "timeout" if left > REGEX_TIMEOUT else "deadline"
             raise _Stopped(path, reason) from None
+        except MemoryError:
+            # The module caps its backtracking stack at 1 GiB.
+            raise _Stopped(path, "memory") from None
 
 
 def _text(mail: Mail, where: Scope) -> str:
@@ -173,11 +202,6 @@ def _score(pack: Pack, mail: Mail, budget: _Budget) -> int:
     return len(pack.match_all) + hits
 
 
-def _clean(value: str) -> str:
-    text = _CONTROL.sub(" ", mime.clean_text(value))
-    return " ".join(text.split())[:MAX_VALUE]
-
-
 def _read_time(value: str, time_format: str | None) -> datetime:
     if time_format is not None:
         return datetime.strptime(value, time_format)
@@ -199,8 +223,10 @@ class _Run:
     pack: Pack
     mail: Mail
     budget: _Budget
-    # Matches outside the record are the same for every record of a digest.
+    # Matches and values outside the record are the same for every record of
+    # a digest: read once.
     shared: dict[str, regex.Match[str] | None] = field(default_factory=dict)
+    values: dict[str, tuple[str | None, Span | None]] = field(default_factory=dict)
 
     def find(
         self, pattern: regex.Pattern[str], where: Scope, record: str, path: str
@@ -231,39 +257,60 @@ class _Run:
         if not starts:
             return []
         ends = [*starts[1:], len(body)]
-        return [
+        records = [
             (start, body[start:end]) for start, end in zip(starts, ends, strict=True)
         ]
+        # Only whitespace (an empty match after the last line break) is no record.
+        return [(start, text) for start, text in records if text.strip()]
+
+    def read(
+        self,
+        extractor: Extractor,
+        pattern: regex.Pattern[str],
+        record: tuple[int, str],
+    ) -> tuple[str | None, Span | None]:
+        offset, text = record
+        path = f"{extractor.path}/regex"
+        found = self.find(pattern, extractor.where, text, path)
+        if found is None:
+            return None, None
+        value = found.group(extractor.group)
+        if value is None:
+            return None, None
+        cleaned = clean_value(value)
+        if not cleaned:
+            return None, None
+        start, end = found.span(extractor.group)
+        base, source = _where(extractor.where, offset)
+        # job_name, details.size, ...
+        label = extractor.path.removeprefix("/extract/").replace("/", ".")
+        return cleaned, Span(label, base + start, base + end, source)
 
     def value(
         self, extractor: Extractor, record: tuple[int, str], spans: list[Span]
     ) -> str | None:
         if extractor.pattern is None:
+            # The loader only accepts a literal that clean_value keeps as it is.
             return extractor.literal
-        offset, text = record
-        path = f"{extractor.path}/regex"
-        found = self.find(extractor.pattern, extractor.where, text, path)
-        if found is None:
-            return None
-        value = found.group(extractor.group)
-        if value is None:
-            return None
-        cleaned = _clean(value)
-        if not cleaned:
-            return None
-        start, end = found.span(extractor.group)
-        base, source = _where(extractor.where, offset)
-        # job_name, details.size, ...
-        label = extractor.path.removeprefix("/extract/").replace("/", ".")
-        spans.append(Span(label, base + start, base + end, source))
-        return cleaned
+        if extractor.where == "record":
+            value, span = self.read(extractor, extractor.pattern, record)
+        else:
+            if extractor.path not in self.values:
+                read = self.read(extractor, extractor.pattern, record)
+                self.values[extractor.path] = read
+            value, span = self.values[extractor.path]
+        if span is not None:
+            spans.append(span)
+        return value
 
     def when(self, extractor: Extractor, value: str | None) -> datetime | None:
         if value is None:
             return None
         try:
             parsed = _read_time(value, extractor.time_format)
-        except (TypeError, ValueError, IndexError, OverflowError):
+        except (TypeError, ValueError, IndexError, OverflowError, re.error):
+            # re.error: a format strptime cannot compile (the loader refuses
+            # those; kept for a Pack built another way).
             return None
         if parsed.utcoffset() is not None:
             return parsed
@@ -313,10 +360,16 @@ class _Run:
             records = self.records()
             if not records:
                 return Unmatched("no-records", (self.pack.id,))
-            results = tuple(self.result(record) for record in records)
+            results: list[ParsedResult] = []
+            for record in records:
+                if self.pack.split is not None:
+                    # Values outside the record are cached, so a record can
+                    # cost no search; the deadline still holds.
+                    self.budget.check("/split/record")
+                results.append(self.result(record))
         except _Stopped as stop:
             return ParseFailed(self.pack.id, stop.path, stop.reason)
-        return Parsed(self.pack.id, results)
+        return Parsed(self.pack.id, tuple(results))
 
 
 def _capped(mail: Mail) -> Mail:

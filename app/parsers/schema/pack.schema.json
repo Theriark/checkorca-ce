@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:checkorca:parser-pack:1",
   "title": "Checkorca parser pack",
-  "description": "A parser pack turns one kind of alert mail into results (Interfaces chapter of the dev-work-plan, Pack YAML; docs/parsers.md explains every key). The loader (app/parsers/loader.py) also compiles every regex, checks that an extract regex has exactly one named group, that a field gives regex or literal, and that a verified pack has fixtures of at least 3 classes.",
+  "description": "A parser pack turns one kind of alert mail into results (Interfaces chapter of the dev-work-plan, Pack YAML; docs/parsers.md explains every key). The loader (app/parsers/loader.py) also compiles every regex, checks that an extract regex has exactly one named group, that a field gives regex or literal, that a literal is plain text, that a time format reads back what it writes and that a verified pack has fixtures of at least 3 classes. Name patterns end in (?!\\n) because Python reads $ as the end or a final line break.",
   "type": "object",
   "additionalProperties": false,
   "required": ["id", "version", "vendor", "status", "match", "status_rules"],
@@ -12,7 +12,7 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 100,
-      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+      "pattern": "^[a-z0-9][a-z0-9._-]*$(?!\\n)"
     },
     "version": {
       "description": "Raised by one for every change of the pack.",
@@ -61,7 +61,7 @@
         "details": {
           "type": "object",
           "maxProperties": 16,
-          "propertyNames": {"pattern": "^[a-z][a-z0-9_]{0,39}$"},
+          "propertyNames": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,39}$(?!\\n)"},
           "additionalProperties": {"$ref": "#/$defs/field"}
         }
       }
@@ -91,7 +91,7 @@
         "additionalProperties": false,
         "required": ["name", "origin", "class"],
         "properties": {
-          "name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,79}$"},
+          "name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,79}$(?!\\n)"},
           "origin": {"enum": ["synthetic", "real"]},
           "class": {
             "description": "The kind of mail: the status it reports, digest for several records, or unmatched for mail the pack must not parse.",

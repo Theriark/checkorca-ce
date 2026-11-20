@@ -10,6 +10,7 @@ from typing import Final, Literal
 
 import regex
 
+from app.ingest import mime
 from app.ingest.results import ResultStatus
 
 # A match condition reads a header or the body.
@@ -25,6 +26,21 @@ FixtureClass = Literal[
 # The ParsedResult fields an extract section may fill, besides details.
 FIELDS: Final = ("job_name", "client_hint", "run_id", "started_at", "finished_at")
 TIME_FIELDS: Final = frozenset({"started_at", "finished_at"})
+# record_result refuses names, hints and run ids over 200 characters; 16
+# details of at most 200 characters stay under its 16 KiB.
+MAX_VALUE: Final = 200
+
+# Control characters other than tab and line feed; JSON would escape each
+# into six bytes.
+_CONTROL = regex.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+
+
+def clean_value(value: str) -> str:
+    """A value as a result keeps it: NUL, control characters and invalid text
+    removed, whitespace collapsed, at most MAX_VALUE characters. Only the first
+    8 times MAX_VALUE characters are read, so a long match costs little."""
+    text = _CONTROL.sub(" ", mime.clean_text(value[: MAX_VALUE * 8]))
+    return " ".join(text.split())[:MAX_VALUE]
 
 
 @dataclass(frozen=True, slots=True)

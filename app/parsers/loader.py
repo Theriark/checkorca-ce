@@ -9,12 +9,15 @@ phase C5-B, from a signed-in admin, so it is read defensively:
   document once something walks it (the schema validator, json.dumps);
 - no duplicate keys (YAML would keep the last one silently) and at most
   MAX_DEPTH levels of nesting, checked on the event stream before anything
-  recursive runs.
+  recursive runs;
+- no integer of MAX_NUMBER or more (YAML reads hexadecimal and binary
+  integers of any length, and printing one in a message would fail).
 
 Then pack.schema.json (JSON Schema 2020-12) and the checks a schema cannot
 express: every regex compiles, an extract regex has exactly one named group,
-a field gives regex or literal, fixture names are unique and a verified pack
-has fixtures of at least VERIFIED_CLASSES classes.
+a field gives regex or literal, a literal is plain text that a result keeps as
+it is, a time format reads back what it writes, fixture names are unique and a
+verified pack has fixtures of at least VERIFIED_CLASSES classes.
 
 Every problem is a PackIssue: a JSON Pointer path into the pack ("" for the
 whole document) and a message. C5-B returns them from the API and C5-F shows
@@ -25,7 +28,7 @@ import functools
 import json
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final, cast
 
@@ -47,6 +50,7 @@ from app.parsers.model import (
     PackStatus,
     Scope,
     StatusRule,
+    clean_value,
 )
 
 MAX_PACK_BYTES: Final = 64 * 1024
@@ -55,6 +59,9 @@ MAX_DEPTH: Final = 10
 # A message quotes at most this much of the pack.
 MAX_MESSAGE: Final = 300
 VERIFIED_CLASSES: Final = 3
+MAX_NUMBER: Final = 2**63
+# A time format must read back what it writes for this moment.
+_SAMPLE_TIME: Final = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
 
 PACKS_DIR: Final = Path(__file__).parent / "packs"
 FIXTURES_DIR: Final = PACKS_DIR / "fixtures"
@@ -148,6 +155,27 @@ def _check_keys(root: yaml.Node | None) -> None:
                 stack.append((item, [*parts, index]))
 
 
+def _check_number(value: object, parts: list[str | int]) -> None:
+    if isinstance(value, int) and abs(value) >= MAX_NUMBER:
+        message = "a number must be smaller than 2**63"
+        raise PackInvalid([PackIssue(_pointer(parts), message)])
+
+
+def _check_numbers(document: object) -> None:
+    """Refuse an integer, as a value or a key, that is too large to use."""
+    stack: list[tuple[object, list[str | int]]] = [(document, [])]
+    while stack:
+        value, parts = stack.pop()
+        _check_number(value, parts)
+        if isinstance(value, dict):
+            for key, item in value.items():
+                _check_number(key, parts)
+                stack.append((item, [*parts, str(key)]))
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                stack.append((item, [*parts, index]))
+
+
 def read_yaml(text: str) -> object:
     """The YAML document as plain data; PackInvalid for anything else."""
     if len(text.encode("utf-8", "replace")) > MAX_PACK_BYTES:
@@ -156,7 +184,9 @@ def read_yaml(text: str) -> object:
     try:
         _check_events(text)
         _check_keys(yaml.compose(text, Loader=yaml.SafeLoader))
-        return yaml.load(text, Loader=yaml.SafeLoader)
+        document: object = yaml.load(text, Loader=yaml.SafeLoader)
+        _check_numbers(document)
+        return document
     except PackInvalid:
         raise
     except yaml.MarkedYAMLError as exc:
@@ -173,6 +203,14 @@ def _validator() -> Draft202012Validator:
     schema = json.loads(SCHEMA_PATH.read_text("utf-8"))
     Draft202012Validator.check_schema(schema)
     return Draft202012Validator(schema)
+
+
+def _reads_back(time_format: str) -> bool:
+    try:
+        datetime.strptime(_SAMPLE_TIME.strftime(time_format), time_format)
+    except Exception:  # ValueError, re.error ("%d %d") and whatever else
+        return False
+    return True
 
 
 def schema_issues(document: object) -> list[PackIssue]:
@@ -218,7 +256,19 @@ class _Compiler:
                 message = "in and format apply to a regex, not to a literal"
                 self.issues.append(PackIssue(path, message))
                 return None
+            if clean_value(spec["literal"]) != spec["literal"]:
+                message = (
+                    "must be plain text: no control characters, line breaks, "
+                    "repeated or surrounding spaces"
+                )
+                self.issues.append(PackIssue(f"{path}/literal", message))
+                return None
             return Extractor(name, path, literal=spec["literal"])
+        time_format = spec.get("format")
+        if time_format is not None and not _reads_back(time_format):
+            message = "not a strptime format that reads back what it writes"
+            self.issues.append(PackIssue(f"{path}/format", message))
+            return None
         compiled = self.pattern(f"{path}/regex", spec["regex"])
         if compiled is None:
             return None
@@ -236,7 +286,7 @@ class _Compiler:
             pattern=compiled,
             group=groups[0],
             where=cast(Scope, spec.get("in", "record")),
-            time_format=spec.get("format"),
+            time_format=time_format,
         )
 
     def extractors(self) -> tuple[tuple[Extractor, ...], tuple[Extractor, ...]]:

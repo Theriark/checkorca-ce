@@ -1,0 +1,13 @@
+From: Backup Server <backup@example.com>
+To: alerts@example.net
+Subject: Nightly server backup was not successful
+Date: Fri, 20 Nov 2026 01:20:00 +0000
+Message-ID: <gk-failed-negated@example.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Synthetic fixture.
+Client: Fictional Dental Clinic
+Host: FS-01
+Started: 2026-11-20 01:00:00
+The backup could not complete: the target share was offline.

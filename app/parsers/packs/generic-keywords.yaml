@@ -8,7 +8,7 @@
 # Patterns use possessive quantifiers (*+) and bounded values ({0,199}), so a
 # long line or a run of spaces in a hostile mail costs linear time.
 id: generic-keywords
-version: 1
+version: 2
 vendor: Generic
 status: unverified-synthetic
 description: >-
@@ -23,7 +23,7 @@ extract:
   # the status words at the end, so every run of a job gets the same name.
   job_name:
     in: subject
-    regex: '(?i)^(?:[ \t]*+(?:re|fwd?|aw|wg)[ \t]*+:)*+[ \t]*+(?:\[[^\]\r\n]{0,40}\][ \t]*+)?(?:(?:success|successful|warning|failed|failure|error)[ \t]*+[:|-][ \t]*+)?(?P<job_name>[^\r\n]{1,200}?)(?=[ \t]*+[:|(\[-]?[ \t]*+\b(?:success(?:ful(?:ly)?)?|succeeded|completed?|finished|ended|warnings?|failed|failure|errors?|started|running|ok)\b|[ \t]*+$)'
+    regex: '(?i)^(?:[ \t]*+(?:re|fwd?|aw|wg)[ \t]*+:)*+[ \t]*+(?:\[[^\]\r\n]{0,40}\][ \t]*+)?(?:(?:success|successful|warning|failed|failure|error)[ \t]*+[:|-][ \t]*+)?(?P<job_name>[^\r\n]{1,200}?)(?=[ \t]*+[:|(\[-]?[ \t]*+\b(?:(?:was|is|has|had|have|could|did|can)[ \t]+)?(?:(?:not|never|unable[ \t]+to|[a-z]+n[''’]t)[ \t]+(?:been[ \t]+)?)?(?:success(?:ful(?:ly)?)?|succeeded|completed?|finished|ended|warnings?|failed|failure|errors?|started|running|ok)\b|[ \t]*+\b(?:did[ \t]+not|didn[''’]t)[ \t]+run\b|[ \t]*+$)'
   client_hint:
     regex: '(?im)^[ \t]*+(?:client|customer|tenant|site|company)(?:[ \t]+name)?[ \t]*+:[ \t]*+(?P<client_hint>\S[^\r\n]{0,199})'
   run_id:
@@ -43,20 +43,21 @@ extract:
       regex: '(?im)^[ \t]*+(?:error|reason|failure[ \t]+reason)(?:[ \t]+message)?[ \t]*+:[ \t]*+(?P<error>\S[^\r\n]{0,199})'
 status_rules:
   # The subject first. "0 errors", "no errors", "without errors" and
-  # "Errors: 0" are not failures.
+  # "Errors: 0" are not failures; "not successful", "could not complete",
+  # "has not finished" and "didn't run" are, and never count as success.
   - status: failed
     in: subject
-    regex: '(?i)(?<!\b0 )(?<!\bno )(?<!\bzero )(?<!\bwithout )\b(?:fail(?:ed|ure|ing|s)?|unsuccessful|abort(?:ed)?|errors?|critical|did[ \t]+not[ \t]+(?:complete|finish|run))\b(?![ \t]*+[:=][ \t]*+(?:0|none|no)\b)'
+    regex: '(?i)\b(?<!\b0 )(?<!\bno )(?<!\bzero )(?<!\bwithout )(?:fail(?:ed|ure|ing|s)?|unsuccessful|abort(?:ed)?|errors?|critical)\b(?![ \t]*+[:=][ \t]*+(?:0|none|no)\b)|\b(?:not|never|cannot|unable[ \t]+to|[a-z]+n[''’]t)[ \t]+(?:been[ \t]+|be[ \t]+)?(?:complete[ds]?|finish(?:ed)?|succeed(?:ed|s)?|successful(?:ly)?)\b|\bdid(?:[ \t]+not|n[''’]t)[ \t]+run\b'
   - status: warning
     in: subject
-    regex: '(?i)(?<!\b0 )(?<!\bno )(?<!\bzero )(?<!\bwithout )\b(?:warn(?:ing|ings|s)?|partial(?:ly)?|degraded)\b(?![ \t]*+[:=][ \t]*+(?:0|none|no)\b)'
+    regex: '(?i)\b(?<!\b0 )(?<!\bno )(?<!\bzero )(?<!\bwithout )(?:warn(?:ing|ings|s)?|partial(?:ly)?|degraded)\b(?![ \t]*+[:=][ \t]*+(?:0|none|no)\b)'
   # Before success: "completed (started 01:00)" must not count as success.
   - status: started
     in: subject
     regex: '(?i)\b(?:started|starting|running|in[ \t]+progress)\b'
   - status: success
     in: subject
-    regex: '(?i)\b(?:success(?:ful(?:ly)?)?|succeeded|completed?|finished|ok|done|passed)\b'
+    regex: '(?i)\b(?<!\bnot )(?<!\bnever )(?<!\bbe )(?<!\bbeen )(?:success(?:ful(?:ly)?)?|succeeded|completed?|finished|ok|done|passed)\b'
   # Then a "Status: value" line of the body.
   - status: failed
     regex: '(?im)^[ \t]*+(?:status|result|state|outcome)[ \t]*+:[ \t]*+(?:fail|error|abort|unsuccessful|critical)'
@@ -68,11 +69,11 @@ status_rules:
     regex: '(?im)^[ \t]*+(?:status|result|state|outcome)[ \t]*+:[ \t]*+(?:success|succeeded|ok\b|completed?\b|finished|done|passed)'
   # Last, keywords anywhere in the body; success only in plain words.
   - status: failed
-    regex: '(?i)(?<!\b0 )(?<!\bno )(?<!\bzero )(?<!\bwithout )\b(?:fail(?:ed|ure|ing|s)?|unsuccessful|abort(?:ed)?|errors?|critical|did[ \t]+not[ \t]+(?:complete|finish|run))\b(?![ \t]*+[:=][ \t]*+(?:0|none|no)\b)'
+    regex: '(?i)\b(?<!\b0 )(?<!\bno )(?<!\bzero )(?<!\bwithout )(?:fail(?:ed|ure|ing|s)?|unsuccessful|abort(?:ed)?|errors?|critical)\b(?![ \t]*+[:=][ \t]*+(?:0|none|no)\b)|\b(?:not|never|cannot|unable[ \t]+to|[a-z]+n[''’]t)[ \t]+(?:been[ \t]+|be[ \t]+)?(?:complete[ds]?|finish(?:ed)?|succeed(?:ed|s)?|successful(?:ly)?)\b|\bdid(?:[ \t]+not|n[''’]t)[ \t]+run\b'
   - status: warning
-    regex: '(?i)(?<!\b0 )(?<!\bno )(?<!\bzero )(?<!\bwithout )\b(?:warn(?:ing|ings|s)?|partial(?:ly)?|degraded)\b(?![ \t]*+[:=][ \t]*+(?:0|none|no)\b)'
+    regex: '(?i)\b(?<!\b0 )(?<!\bno )(?<!\bzero )(?<!\bwithout )(?:warn(?:ing|ings|s)?|partial(?:ly)?|degraded)\b(?![ \t]*+[:=][ \t]*+(?:0|none|no)\b)'
   - status: success
-    regex: '(?i)\b(?:(?:completed|finished)[ \t]+successfully|succeeded|successful(?:ly)?)\b'
+    regex: '(?i)\b(?<!\bnot )(?<!\bnever )(?<!\bbe )(?<!\bbeen )(?:(?:completed|finished)[ \t]+successfully|succeeded|successful(?:ly)?)\b'
 fixtures:
   - {name: success-plain, origin: synthetic, class: success}
   - {name: warning-html, origin: synthetic, class: warning}
@@ -80,3 +81,4 @@ fixtures:
   - {name: started-plain, origin: synthetic, class: started}
   - {name: unknown-no-keyword, origin: synthetic, class: unknown}
   - {name: unmatched-not-a-job, origin: synthetic, class: unmatched}
+  - {name: failed-negated-success, origin: synthetic, class: failed}
