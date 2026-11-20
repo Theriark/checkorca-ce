@@ -157,6 +157,7 @@ def test_a_pack_without_status_rules_is_refused() -> None:
         ({"match": {"all": [{"from": "a", "to": "b"}]}}, "/match/all/0"),
         ({"match": {"all": [{"cc": "a"}]}}, "/match/all/0"),
         ({"docs_url": "http://docs.example.com"}, "/docs_url"),
+        ({"docs_url": "https://docs.example.com\n"}, "/docs_url"),
         ({"split": {}}, "/split"),
         ({"extract": {"size": {"literal": "1"}}}, "/extract"),
         ({"extract": {"job_name": {}}}, "/extract/job_name"),

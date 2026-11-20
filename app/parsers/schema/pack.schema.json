@@ -29,7 +29,7 @@
       "description": "The vendor documentation the pack follows.",
       "type": "string",
       "maxLength": 500,
-      "pattern": "^https://\\S+$"
+      "pattern": "^https://\\S+$(?!\\n)"
     },
     "description": {"type": "string", "maxLength": 2000},
     "match": {

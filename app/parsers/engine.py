@@ -249,7 +249,9 @@ class _Run:
             found = self.budget.search(self.pack.split, body, "/split/record", pos)
             if found is None:
                 break
-            if len(starts) == MAX_RECORDS:
+            # One start more than MAX_RECORDS: the empty match after the last
+            # line break, which the filter below drops.
+            if len(starts) > MAX_RECORDS:
                 raise _Stopped("/split/record", "too-many-records")
             starts.append(found.start())
             # An empty match moves on by one character.
@@ -261,7 +263,10 @@ class _Run:
             (start, body[start:end]) for start, end in zip(starts, ends, strict=True)
         ]
         # Only whitespace (an empty match after the last line break) is no record.
-        return [(start, text) for start, text in records if text.strip()]
+        records = [(start, text) for start, text in records if text.strip()]
+        if len(records) > MAX_RECORDS:
+            raise _Stopped("/split/record", "too-many-records")
+        return records
 
     def read(
         self,

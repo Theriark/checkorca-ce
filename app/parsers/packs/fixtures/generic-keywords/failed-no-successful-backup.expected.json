@@ -1,0 +1,11 @@
+[
+  {
+    "status": "failed",
+    "job_name": "Nightly server backup",
+    "client_hint": "Fictional Dental Clinic",
+    "started_at": null,
+    "finished_at": null,
+    "run_id": null,
+    "details": {"host": "FS-01"}
+  }
+]
