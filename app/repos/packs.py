@@ -76,9 +76,7 @@ class PackRepository(Repository):
         }
         statement = (
             insert(ParserPack)
-            .values(
-                id=pack.id, source="custom", enabled=True, created_at=now, **values
-            )
+            .values(id=pack.id, source="custom", enabled=True, created_at=now, **values)
             .on_conflict_do_update(
                 index_elements=[ParserPack.id],
                 set_=values,

@@ -42,6 +42,7 @@ from app.api.pagination import (
 )
 from app.api.problems import FieldProblem, PackProblem, ProblemError
 from app.api.v1.pack_schemas import (
+    MAX_TEST_BODY,
     MAX_TEST_MAIL,
     PackBody,
     PackDetail,
@@ -59,9 +60,6 @@ router = APIRouter(prefix="/packs", tags=["packs"])
 PackIdPath = Annotated[
     str, Path(min_length=1, max_length=100, pattern=r"^[a-z0-9][a-z0-9._-]*$")
 ]
-# The JSON body of packs/test: the mail and a pack, escaped (at most six bytes
-# a character for control characters), and the field names.
-MAX_TEST_BODY: Final = 6 * (MAX_TEST_MAIL + MAX_PACK_BYTES) + 1024
 YAML_MEDIA_TYPE: Final = "application/yaml"
 YAML_RESPONSE: Final[dict[int | str, dict[str, Any]]] = {
     200: {

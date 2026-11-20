@@ -37,6 +37,11 @@ BenchOutcome = Literal["parsed", "unmatched", "error"]
 
 # A pasted mail for the test bench (the store takes 5 MB; a sample is less).
 MAX_TEST_MAIL: Final = 1024 * 1024
+# JSON bodies of the pack routes (app/api/middleware.py lets them through):
+# the text escaped (at most six bytes a character for control characters)
+# and the field names.
+MAX_PACK_BODY: Final = 6 * MAX_PACK_BYTES + 1024
+MAX_TEST_BODY: Final = 6 * (MAX_TEST_MAIL + MAX_PACK_BYTES) + 1024
 
 
 class PackOut(BaseModel):
