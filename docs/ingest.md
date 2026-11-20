@@ -7,11 +7,11 @@ Phase C4-B built the store, the worker loop and the read API. Phase C4-I (Integr
 | Table | Holds | Client delete map |
 | --- | --- | --- |
 | `inbox` | kind (`smtp`, `imap`, `webhook`, `upload`), label, `code`, webhook `token_sha256`, IMAP settings with `imap_password_enc` (Fernet), `sender_allowlist`, `require_auth_results`, `last_message_at` | no (holds no client data) |
-| `raw_message` | `inbox_id` (NULL after the inbox is deleted), `client_id`, `received_at`, `message_id`, `sha256` (of the bytes), `body_sha256` (duplicate key), `size`, `headers` (JSONB `[[name, value], ...]`), `body_zlib`, `parse_state` (`pending`, `parsed`, `unmatched`, `error`), `purge_after` | yes: rows with the client's `client_id` |
+| `raw_message` | `inbox_id` (NULL after the inbox is deleted), `client_id`, `received_at`, `message_id`, `sha256` (of the bytes), `body_sha256` (duplicate key), `size`, `headers` (JSONB `[[name, value], ...]`), `body_zlib`, `parse_state` (`pending`, `parsed`, `unmatched`, `error`), `purge_after`; from C5-B `parsed_at`, `parse_pack_id`, `parse_reason`, `parse_path` (see [docs/parsers.md](parsers.md)) | yes: rows with the client's `client_id` |
 | `job_result` | `job_id` (NULL while unmatched), `client_hint`, `job_name`, `status` (`success`, `warning`, `failed`, `started`, `unknown`), `started_at`, `finished_at`, `received_at`, `raw_message_id`, `run_id`, `details` (JSONB) | yes: results of the client's jobs and of the client's messages |
 | `worker_heartbeat` | one row (id 1): `beat_at`, `holder`, `started_at` | no |
 
-`raw_message.client_id` stays NULL until the matcher (C5-B) binds the message's results. C5-B sets it when every result of the message belongs to jobs of one client; a message that names several clients (a digest) keeps NULL and is removed by the retention purge, not by a client delete.
+`raw_message.client_id` stays NULL until the matcher (C5-B) binds the message's results. The parse hook, assign and create-job set it when every result of the message belongs to jobs of one client; a message that names several clients (a digest) keeps NULL and is removed by the retention purge, not by a client delete.
 
 ## Inboxes
 
@@ -158,7 +158,7 @@ Every 30 seconds the poller polls each imap inbox whose `poll_seconds` have pass
 1. Decrypt the password into a `MailboxAccount` (only here).
 2. `UID SEARCH UNSEEN`, at most 50 messages, sizes first; bodies with `BODY.PEEK[]`, so nothing becomes Seen by being read. A message over 5 MB is not downloaded: it is marked Seen and counted in a warning.
 3. `accept_message` and commit, one message per transaction.
-4. `UID STORE +FLAGS (\Seen)` for what was stored, was a duplicate or was refused. A message whose store failed stays unseen and is fetched again by the next poll. A ref is `UIDVALIDITY:UID`, so a rebuilt folder never gets the wrong message marked.
+4. `UID STORE +FLAGS (\\Seen)` for what was stored, was a duplicate or was refused. A message whose store failed stays unseen and is fetched again by the next poll. A ref is `UIDVALIDITY:UID`, so a rebuilt folder never gets the wrong message marked.
 
 A failed login or a lost connection is logged with the inbox id and the error class and tried again at the inbox's next poll; one failing inbox never stops the others.
 
@@ -167,7 +167,7 @@ A failed login or a lost connection is logged with the inbox id and the error cl
 | Route | Auth | Contract |
 | --- | --- | --- |
 | `POST /api/v1/ingest/email/{inbox_code}` | `Authorization: Bearer` with an ingest-scope API token (any smtp or webhook inbox), or a webhook inbox's own `chki_` token (only its own inbox, else 403) | raw RFC 822 body (`message/rfc822`); 401 without a valid token, 403 for a read token; 404 for an unknown code or another kind; 413 above 5 MiB or 256 KB of headers; 422 for an empty body, a body without From, Subject, Date or Message-ID headers, or the sender rules; 202 `{message_id, duplicate}` |
-| `POST /api/v1/results` | ingest-scope API token | `NewResult`: `status`, `job_id` or `ping_token` (404 when no job has it; not both), else `client_hint` and `job_name` (not blank); `started_at` and `finished_at` with a time zone; `run_id`; `details` (JSON object, at most 16 KiB); 422 for anything else; 202 `{result_id, job_id}` (`job_id` null until the matcher binds it) |
+| `POST /api/v1/results` | ingest-scope API token | `NewResult`: `status`, `job_id` or `ping_token` (404 when no job has it; not both), else `client_hint` and `job_name` (not blank); `started_at` and `finished_at` with a time zone; `run_id`; `details` (JSON object, at most 16 KiB); 422 for anything else; 202 `{result_id, job_id}`; a named result is bound at once when the matcher (C5-B) is sure of the job, else `job_id` is null and the result waits in Unmatched |
 | `GET` or `POST /api/v1/ping/{ping_token}`, `/ping/{ping_token}/start`, `/ping/{ping_token}/fail` | the ping token in the URL | records `success`, `started` or `failed` for the job with `details` `{"source": "ping"}`; 200 `text/plain` `OK`; 404 for an unknown token, 422 for a malformed one |
 | `POST /api/v1/messages/upload` | session with `X-CSRF-Token`, admin or technician | multipart `file` (the .eml, read up to 5 MiB) and `inbox_id` (any kind); 404 for an unknown inbox; the same 413 and 422 rules; audit event `message.upload`; 202 `{message_id, duplicate}` |
 
