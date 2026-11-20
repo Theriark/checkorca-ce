@@ -1193,6 +1193,315 @@ export interface paths {
       };
     };
   };
+  "/api/v1/packs": {
+    get: {
+      /** List Packs */
+      parameters: {
+        query: {
+          cursor?: string | null;
+          limit?: number;
+        };
+        path: never;
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["PackPage"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/packs/import": {
+    post: {
+      /** Import Pack */
+      parameters: {
+        query: never;
+        path: never;
+      };
+      requestBody: {
+        content: {
+          "multipart/form-data": components["schemas"]["Body_import_pack_api_v1_packs_import_post"];
+        };
+      };
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["PackDetail"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/packs/test": {
+    post: {
+      /** Test Pack */
+      parameters: {
+        query: never;
+        path: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": {
+            raw: string;
+            pack?: string | null;
+          };
+        };
+      };
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["PackTestAnswer"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/packs/{pack_id}": {
+    get: {
+      /** Get Pack */
+      parameters: {
+        query: never;
+        path: {
+          pack_id: string;
+        };
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["PackDetail"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+    put: {
+      /** Put Pack */
+      parameters: {
+        query: never;
+        path: {
+          pack_id: string;
+        };
+      };
+      requestBody: {
+        content: {
+          "application/json": components["schemas"]["PackBody"];
+        };
+      };
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["PackDetail"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/packs/{pack_id}/export": {
+    get: {
+      /** Export Pack */
+      parameters: {
+        query: never;
+        path: {
+          pack_id: string;
+        };
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "application/yaml": string;
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/packs/{pack_id}/enable": {
+    post: {
+      /** Enable Pack */
+      parameters: {
+        query: never;
+        path: {
+          pack_id: string;
+        };
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["PackOut"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/packs/{pack_id}/disable": {
+    post: {
+      /** Disable Pack */
+      parameters: {
+        query: never;
+        path: {
+          pack_id: string;
+        };
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["PackOut"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/unmatched": {
+    get: {
+      /** List Unmatched */
+      parameters: {
+        query: {
+          cursor?: string | null;
+          limit?: number;
+        };
+        path: never;
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["UnmatchedPage"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/unmatched/{result_id}/assign": {
+    post: {
+      /** Assign */
+      parameters: {
+        query: never;
+        path: {
+          result_id: string;
+        };
+      };
+      requestBody: {
+        content: {
+          "application/json": components["schemas"]["AssignRequest"];
+        };
+      };
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["Binding"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/unmatched/{result_id}/suggest-schedule": {
+    get: {
+      /** Suggest Schedule */
+      parameters: {
+        query: {
+          timezone?: string | null;
+        };
+        path: {
+          result_id: string;
+        };
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["ScheduleSuggestion"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/unmatched/{result_id}/create-job": {
+    post: {
+      /** Create Job */
+      parameters: {
+        query: never;
+        path: {
+          result_id: string;
+        };
+      };
+      requestBody: {
+        content: {
+          "application/json": components["schemas"]["CreateJobRequest"];
+        };
+      };
+      responses: {
+        "201": {
+          content: {
+            "application/json": components["schemas"]["JobFromResult"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
   "/api/v1/system/status": {
     get: {
       /** System Status */
@@ -1219,8 +1528,58 @@ export interface paths {
 
 export interface components {
   schemas: {
+    AssignRequest: {
+      job_id: string;
+    };
+    /** The mail as the engine reads it: decoded headers and the visible text
+(HTML as text, at most 256 KiB). Span offsets point into these. */
+    BenchMail: {
+      sender: string;
+      to: string;
+      subject: string;
+      body: string;
+      sent_at: string | null;
+    };
+    BenchResult: {
+      status: "success" | "warning" | "failed" | "started" | "unknown";
+      job_name: string | null;
+      client_hint: string | null;
+      started_at: string | null;
+      finished_at: string | null;
+      run_id: string | null;
+      details: Record<string, string>;
+      spans: components["schemas"]["BenchSpan"][];
+    };
+    BenchScore: {
+      pack_id: string;
+      matched: number;
+    };
+    /** Characters start to end of source (body, subject, from or to) hold the
+value of field (job_name, details.size, status, ...). */
+    BenchSpan: {
+      field: string;
+      start: number;
+      end: number;
+      source: string;
+    };
+    /** The result is bound to job_id. match_key_set: the job had no match key
+and now has the result's job name; alias_added: the result's client hint
+became an alias of the client. Both make the next identical mail bind.
+also_bound: other unmatched results with the same names bound as well. */
+    Binding: {
+      result_id: string;
+      job_id: string;
+      client_id: string;
+      match_key_set: boolean;
+      alias_added: boolean;
+      also_bound: number;
+    };
     Body_import_jobs_api_v1_jobs_import_csv_post: {
       /** The CSV file (UTF-8). */
+      file: string;
+    };
+    Body_import_pack_api_v1_packs_import_post: {
+      /** The Pack YAML file. */
       file: string;
     };
     Body_upload_message_api_v1_messages_upload_post: {
@@ -1249,6 +1608,29 @@ export interface components {
       notes?: string | null;
       aliases?: string[] | null;
       archived?: boolean | null;
+    };
+    /** A job made from an unmatched result, for an existing client (client_id)
+or a client by name (client_name: found, or created). name defaults to the
+result's job name and match_key to it as well. Without schedule_kind and
+schedule_expr the job runs daily at the time suggest-schedule gives (from
+one result on); timezone defaults to the digest time zone of Settings. */
+    CreateJobRequest: {
+      client_id?: string | null;
+      client_name?: string | null;
+      name?: string | null;
+      kind?: "backup" | "script" | "other";
+      parser_pack_id?: string | null;
+      match_key?: string | null;
+      schedule_kind?: "cron" | "interval" | "daily" | null;
+      schedule_expr?: string | null;
+      timezone?: string | null;
+      max_runtime_minutes?: number;
+      grace_minutes?: number;
+      escalate_minutes?: number;
+      attribution_basis?: "started" | "finished" | "received";
+      warning_policy?: "warning_is_attention" | "warning_counts_ok";
+      consecutive_failures_to_alert?: number;
+      enabled?: boolean;
     };
     /** The new token with its value. The value is shown this once only. */
     CreatedToken: {
@@ -1367,6 +1749,11 @@ export interface components {
     InboxToken: {
       webhook_token: string;
     };
+    JobFromResult: {
+      job: components["schemas"]["JobOut"];
+      client_created: boolean;
+      binding: components["schemas"]["Binding"];
+    };
     /** A job; its state is paused or unknown until the evaluator keeps it (C7). */
     JobOut: {
       id: string;
@@ -1439,6 +1826,10 @@ parses it (parse_state pending). */
       message_id: string | null;
       size: number;
       parse_state: "pending" | "parsed" | "unmatched" | "error";
+      parsed_at: string | null;
+      parse_pack_id: string | null;
+      parse_reason: string | null;
+      parse_path: string | null;
       subject: string | null;
       sender: string | null;
       headers: components["schemas"]["HeaderOut"][];
@@ -1454,6 +1845,10 @@ parses it (parse_state pending). */
       message_id: string | null;
       size: number;
       parse_state: "pending" | "parsed" | "unmatched" | "error";
+      parsed_at: string | null;
+      parse_pack_id: string | null;
+      parse_reason: string | null;
+      parse_path: string | null;
       subject: string | null;
       sender: string | null;
     };
@@ -1516,6 +1911,61 @@ by ping_token, or by client_hint and job_name for the matcher. */
       password: string;
       role: "admin" | "technician";
     };
+    /** A custom pack as Pack YAML; its id must be the id in the URL. */
+    PackBody: {
+      yaml: string;
+    };
+    PackDetail: {
+      id: string;
+      version: number;
+      vendor: string;
+      status: "verified" | "unverified-synthetic";
+      source: "builtin" | "custom";
+      enabled: boolean;
+      created_at: string;
+      updated_at: string;
+      yaml: string;
+    };
+    PackOut: {
+      id: string;
+      version: number;
+      vendor: string;
+      status: "verified" | "unverified-synthetic";
+      source: "builtin" | "custom";
+      enabled: boolean;
+      created_at: string;
+      updated_at: string;
+    };
+    PackPage: {
+      items: components["schemas"]["PackOut"][];
+      next_cursor: string | null;
+    };
+    /** One problem of a parser pack: a JSON Pointer into the pack ("" for the
+whole document) and why. */
+    PackProblem: {
+      path: string;
+      message: string;
+    };
+    /** What the packs make of the mail.
+
+claimed_by: the pack that claims the mail among the enabled packs (with
+the edited one), null for no claim or a tie. outcome: parsed (results of
+pack_id: the edited pack when one was sent, else the claiming pack),
+unmatched (reason no-pack, tie with the candidates, or no-records) or
+error (reason timeout, deadline, too-many-records or memory, at path).
+skipped: stored packs that no longer load and were left out. */
+    PackTestAnswer: {
+      mail: components["schemas"]["BenchMail"];
+      scores: components["schemas"]["BenchScore"][];
+      claimed_by: string | null;
+      outcome: "parsed" | "unmatched" | "error";
+      pack_id: string | null;
+      reason: string | null;
+      path: string | null;
+      candidates: string[];
+      results: components["schemas"]["BenchResult"][];
+      skipped: string[];
+    };
     /** Without until the job stays paused until it is resumed. */
     PauseRequest: {
       until?: string | null;
@@ -1529,6 +1979,7 @@ by ping_token, or by client_hint and job_name for the matcher. */
       instance?: string | null;
       request_id?: string | null;
       errors?: components["schemas"]["FieldProblem"][] | null;
+      issues?: components["schemas"]["PackProblem"][] | null;
     };
     QueueStatus: {
       pending_messages: number;
@@ -1570,6 +2021,15 @@ by ping_token, or by client_hint and job_name for the matcher. */
       anchor?: string | null;
       after?: string | null;
     };
+    /** A daily schedule at the median time of the job's runs: expr is HH:MM in
+timezone; basis is the time read of each run; results how many runs. */
+    ScheduleSuggestion: {
+      kind: "daily";
+      expr: string;
+      timezone: string;
+      basis: "finished" | "started" | "received";
+      results: number;
+    };
     SetupState: {
       needs_first_run: boolean;
     };
@@ -1595,6 +2055,19 @@ by ping_token, or by client_hint and job_name for the matcher. */
     };
     TokenPage: {
       items: components["schemas"]["TokenOut"][];
+      next_cursor: string | null;
+    };
+    /** A result no job is bound to yet. */
+    UnmatchedOut: {
+      result_id: string;
+      raw_message_id: string | null;
+      received_at: string;
+      job_name: string | null;
+      client_hint: string | null;
+      status: "success" | "warning" | "failed" | "started" | "unknown";
+    };
+    UnmatchedPage: {
+      items: components["schemas"]["UnmatchedOut"][];
       next_cursor: string | null;
     };
     UserOut: {
@@ -1675,5 +2148,17 @@ export type operations = {
   ping_signal_api_v1_ping__ping_token___signal__get: paths["/api/v1/ping/{ping_token}/{signal}"]["get"];
   ping_signal_api_v1_ping__ping_token___signal__post: paths["/api/v1/ping/{ping_token}/{signal}"]["post"];
   upload_message_api_v1_messages_upload_post: paths["/api/v1/messages/upload"]["post"];
+  list_packs_api_v1_packs_get: paths["/api/v1/packs"]["get"];
+  import_pack_api_v1_packs_import_post: paths["/api/v1/packs/import"]["post"];
+  test_pack_api_v1_packs_test_post: paths["/api/v1/packs/test"]["post"];
+  get_pack_api_v1_packs__pack_id__get: paths["/api/v1/packs/{pack_id}"]["get"];
+  put_pack_api_v1_packs__pack_id__put: paths["/api/v1/packs/{pack_id}"]["put"];
+  export_pack_api_v1_packs__pack_id__export_get: paths["/api/v1/packs/{pack_id}/export"]["get"];
+  enable_pack_api_v1_packs__pack_id__enable_post: paths["/api/v1/packs/{pack_id}/enable"]["post"];
+  disable_pack_api_v1_packs__pack_id__disable_post: paths["/api/v1/packs/{pack_id}/disable"]["post"];
+  list_unmatched_api_v1_unmatched_get: paths["/api/v1/unmatched"]["get"];
+  assign_api_v1_unmatched__result_id__assign_post: paths["/api/v1/unmatched/{result_id}/assign"]["post"];
+  suggest_schedule_api_v1_unmatched__result_id__suggest_schedule_get: paths["/api/v1/unmatched/{result_id}/suggest-schedule"]["get"];
+  create_job_api_v1_unmatched__result_id__create_job_post: paths["/api/v1/unmatched/{result_id}/create-job"]["post"];
   system_status_api_v1_system_status_get: paths["/api/v1/system/status"]["get"];
 };
