@@ -1,0 +1,16 @@
+[
+  {
+    "status": "success",
+    "job_name": "Nightly VM Backup",
+    "client_hint": null,
+    "started_at": "2026-11-22T22:00:12+00:00",
+    "finished_at": null,
+    "run_id": null,
+    "details": {
+      "objects": "3 of 3 VMs processed",
+      "duration": "0:14:29",
+      "processed": "180.0 GB",
+      "transferred": "11.9 GB"
+    }
+  }
+]

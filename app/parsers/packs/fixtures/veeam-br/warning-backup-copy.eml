@@ -1,0 +1,27 @@
+From: "VBR Server" <vbr@example.com>
+To: alerts@example.net
+Subject: [Warning] Offsite Copy to Example Cloud (2 machines) 1 warning
+Date: Mon, 23 Nov 2026 03:40:02 +0100
+Message-ID: <veeam-warning-backup-copy@example.com>
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+<html><body>
+<!-- Synthetic fixture written from public documentation; not a real mail. -->
+<table>
+<tr><td>Backup Copy job: Offsite Copy to Example Cloud</td></tr>
+<tr><td>Warning</td><td>2 of 2 VMs processed</td></tr>
+<tr><td>Monday, 23 November 2026 03:00:00</td></tr>
+<tr><td>Success</td><td>1</td><td>Start time</td><td>03:00:00</td><td>Total size</td><td>96.5 GB</td><td>Backup size</td><td>7.0 GB</td></tr>
+<tr><td>Warning</td><td>1</td><td>End time</td><td>03:39:47</td><td>Data read</td><td>9.8 GB</td><td>Dedupe</td><td>1.1x</td></tr>
+<tr><td>Error</td><td>0</td><td>Duration</td><td>0:39:47</td><td>Transferred</td><td>6.9 GB</td><td>Compression</td><td>1.4x</td></tr>
+</table>
+<table>
+<tr><th>Name</th><th>Status</th><th>Start time</th><th>End time</th><th>Size</th><th>Read</th><th>Transferred</th><th>Duration</th><th>Details</th></tr>
+<tr><td>vm-files-02</td><td>Warning</td><td>03:00:05</td><td>03:39:40</td><td>70.0 GB</td><td>7.5 GB</td><td>5.2 GB</td><td>0:39:35</td><td>Warning: Restore point is=
+ older than the copy interval (synthetic)</td></tr>
+<tr><td>vm-print-02</td><td>Success</td><td>03:00:06</td><td>03:12:10</td><td>26.5 GB</td><td>2.3 GB</td><td>1.7 GB</td><td>0:12:04</td><td></td></tr>
+</table>
+<div>Veeam Backup &amp; Replication 12.3 (synthetic fixture for Checkorca-CE)</div>
+</body></html>

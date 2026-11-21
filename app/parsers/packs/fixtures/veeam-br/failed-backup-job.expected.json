@@ -1,0 +1,17 @@
+[
+  {
+    "status": "failed",
+    "job_name": "Nightly VM Backup",
+    "client_hint": null,
+    "started_at": "2026-11-24T22:00:09+00:00",
+    "finished_at": null,
+    "run_id": null,
+    "details": {
+      "objects": "2 of 3 VMs processed",
+      "duration": "0:20:02",
+      "processed": "140.0 GB",
+      "transferred": "8.7 GB",
+      "issue": "Error: Failed to create VM snapshot on host esx-01.example.test (synthetic)"
+    }
+  }
+]
