@@ -1,0 +1,25 @@
+From: "Cyber Protect Server" <ams@example.com>
+To: alerts@example.net
+Subject: Backup succeeded with warnings: WS-ACCT-03 - Workstations daily
+Date: Mon, 23 Nov 2026 13:25:00 -0500
+Message-ID: <acronis-legacy-warning@example.com>
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+<html><body>
+<!-- Synthetic fixture written from public documentation; not a real mail. -->
+<h2>Backup succeeded with warnings</h2>
+<table>
+<tr><td>Device:</td><td>WS-ACCT-03</td></tr>
+<tr><td>Plan:</td><td>Workstations daily</td></tr>
+<tr><td>Status:</td><td>Succeeded with warnings</td></tr>
+<tr><td>Started:</td><td>11/23/2026 1:00:00 PM</td></tr>
+<tr><td>Finished:</td><td>11/23/2026 1:24:19 PM</td></tr>
+<tr><td>Duration:</td><td>24 min 19 sec</td></tr>
+<tr><td>Backed up:</td><td>5.7 GB</td></tr>
+<tr><td>Warning:</td><td>2 files were skipped because they are locked by an=
+other process (synthetic)</td></tr>
+</table>
+<div>Acronis Cyber Protect 16 (synthetic fixture for Checkorca-CE)</div>
+</body></html>

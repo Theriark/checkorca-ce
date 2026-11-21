@@ -1,0 +1,24 @@
+From: "Backup Reports" <reports@example.com>
+To: alerts@example.net
+Subject: Session report: WS-ACCT-03 Files and Folders
+Date: Mon, 23 Nov 2026 20:20:00 +0100
+Message-ID: <cove-warning-completed-with-errors@example.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+Cove Data Protection session report
+(Synthetic fixture written from public documentation; not a real mail.)
+
+Device: WS-ACCT-03
+Customer: Fictional Law Office
+Data source: Files and Folders
+Session status: CompletedWithErrors
+Session start: 2026-11-23 20:00:00
+Session end: 2026-11-23 20:18:42
+Duration: 00:18:42
+Selected size: 88.0 GB
+Processed size: 1.2 GB
+Errors: 3
+Last error: Access is denied to C:\Users\Public\Locked\ledger.db (synthe=
+tic)

@@ -1,0 +1,24 @@
+From: NAS-02 <nas-02@example.net>
+To: alerts@example.net
+Subject: [NAS-02] Hyper Backup - Backup task Offsite to Example Cloud has failed
+Date: Tue, 24 Nov 2026 03:02:18 +0000
+Message-ID: <hb-failed-destination-offline@example.net>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Dear user,
+
+Data backup task Offsite to Example Cloud on NAS-02 has failed.
+
+Task name: Offsite to Example Cloud
+Server: NAS-02
+Destination: backup.example.test/nas-02
+Start time: 2026-11-24 03:00:00
+End time: 2026-11-24 03:02:05
+Error: The backup destination is offline (synthetic)
+
+From Hyper Backup on NAS-02.
+(Synthetic fixture written from public documentation; not a real mail.)
+
+Sincerely,
+Synology DiskStation

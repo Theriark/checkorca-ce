@@ -1,0 +1,26 @@
+From: "VBR Server" <vbr@example.com>
+To: alerts@example.net
+Subject: [Failed] Nightly VM Backup (3 machines) 1 failed
+Date: Tue, 24 Nov 2026 22:20:30 +0000
+Message-ID: <veeam-failed-backup-job@example.com>
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<html><body>
+<!-- Synthetic fixture written from public documentation; not a real mail. -->
+<table>
+<tr><td>Backup job: Nightly VM Backup</td></tr>
+<tr><td>Failed</td><td>2 of 3 VMs processed</td></tr>
+<tr><td>Tuesday, 24 November 2026 22:00:09</td></tr>
+<tr><td>Success</td><td>2</td><td>Start time</td><td>22:00:09</td><td>Total size</td><td>140.0 GB</td><td>Backup size</td><td>9.1 GB</td></tr>
+<tr><td>Warning</td><td>0</td><td>End time</td><td>22:20:11</td><td>Data read</td><td>15.0 GB</td><td>Dedupe</td><td>1.2x</td></tr>
+<tr><td>Error</td><td>1</td><td>Duration</td><td>0:20:02</td><td>Transferred</td><td>8.7 GB</td><td>Compression</td><td>1.9x</td></tr>
+</table>
+<table>
+<tr><th>Name</th><th>Status</th><th>Start time</th><th>End time</th><th>Size</th><th>Read</th><th>Transferred</th><th>Duration</th><th>Details</th></tr>
+<tr><td>vm-app-01</td><td>Success</td><td>22:00:30</td><td>22:05:40</td><td>60.0 GB</td><td>7.9 GB</td><td>4.0 GB</td><td>0:05:10</td><td></td></tr>
+<tr><td>vm-db-01</td><td>Failed</td><td>22:00:31</td><td>22:20:05</td><td>40.0 GB</td><td>0 B</td><td>0 B</td><td>0:19:34</td><td>Error: Failed to create VM snapshot on host esx-01.example.test (synthetic)</td></tr>
+<tr><td>vm-web-01</td><td>Success</td><td>22:05:44</td><td>22:09:58</td><td>40.0 GB</td><td>7.1 GB</td><td>4.7 GB</td><td>0:04:14</td><td></td></tr>
+</table>
+<div>Veeam Backup &amp; Replication 12.3 (synthetic fixture for Checkorca-CE)</div>
+</body></html>

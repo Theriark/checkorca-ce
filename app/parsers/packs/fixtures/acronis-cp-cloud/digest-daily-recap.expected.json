@@ -1,0 +1,29 @@
+[
+  {
+    "status": "success",
+    "job_name": "SRV-DC-01",
+    "client_hint": "Fictional Law Office",
+    "started_at": null,
+    "finished_at": "2026-11-25T01:12:40+00:00",
+    "run_id": null,
+    "details": {"plan": "Servers nightly"}
+  },
+  {
+    "status": "failed",
+    "job_name": "WS-ACCT-03",
+    "client_hint": "Fictional Law Office",
+    "started_at": null,
+    "finished_at": "2026-11-24T20:03:10+00:00",
+    "run_id": null,
+    "details": {"plan": "Workstations daily", "issue": "The workload is offline (synthetic)"}
+  },
+  {
+    "status": "warning",
+    "job_name": "WS-RECEPTION-01",
+    "client_hint": "Fictional Law Office",
+    "started_at": null,
+    "finished_at": "2026-11-24T20:21:55+00:00",
+    "run_id": null,
+    "details": {"plan": "Workstations daily", "issue": "1 file was skipped (synthetic)"}
+  }
+]

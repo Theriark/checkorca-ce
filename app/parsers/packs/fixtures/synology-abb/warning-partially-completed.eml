@@ -1,0 +1,27 @@
+From: NAS-01 <nas-01@example.com>
+To: alerts@example.net
+Subject: [NAS-01] Active Backup for Business - Backup task File Servers has partially completed
+Date: Mon, 23 Nov 2026 02:45:00 +0100
+Message-ID: <abb-warning-partially-completed@example.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+Dear user,
+
+Backup task File Servers on NAS-01 has partially completed. Some files =
+could not be backed up because they were in use.
+
+Task name: File Servers
+Device: FS-02.example.test
+Backup type: File Server
+Server: NAS-01
+Start time: 2026-11-23 02:00:00
+End time: 2026-11-23 02:44:31
+Transferred data: 11.2 GB
+
+This message was sent by Active Backup for Business on NAS-01.
+(Synthetic fixture written from public documentation; not a real mail.)
+
+Sincerely,
+Synology DiskStation

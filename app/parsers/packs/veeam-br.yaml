@@ -1,0 +1,67 @@
+# Veeam Backup & Replication job notifications (dev-work-plan C6-I). Written
+# from Veeam's public documentation of e-mail notifications, not from a real
+# mail: unverified-synthetic until an MSP sends a redacted sample
+# (docs/parser-packs.md). One mail per job session; the default subject is
+# "[%JobResult%] %JobName% (%ObjectCount% machines) %Issues%" and the HTML
+# report holds the job line, the overall result, the session date, a summary
+# table (counts, times, sizes) and a row per machine. The sender is whatever
+# the Veeam server was given, so the claim rests on the subject and the body.
+#
+# Rules look for a failure first (subject, then body), then a warning, then
+# success: a body that reports an error is never read as success, whatever
+# the subject says. Patterns use possessive quantifiers and bounded values.
+id: veeam-br
+version: 1
+vendor: Veeam Backup & Replication
+status: unverified-synthetic
+docs_url: https://helpcenter.veeam.com/docs/backup/vsphere/backup_job_advanced_notify_vm.html
+description: >-
+  Job session report of Veeam Backup & Replication (backup, backup copy,
+  replication and agent jobs): result from the [Result] subject tag or the
+  report, job name, session start, sizes and the first machine issue.
+match:
+  all:
+    - body: '(?i)\bVeeam[ \t]+Backup[ \t]+(?:&|and)[ \t]+Replication\b'
+  any:
+    - subject: '(?i)^[ \t]*+\[(?:Success|Warning|Failed|Error)\][ \t]*+\S'
+    - body: '(?im)^[ \t]*+(?:Backup|Backup[ \t]+Copy|Replication|Agent[ \t]+Backup|File[ \t]+Backup)[ \t]+job:[ \t]*+\S'
+extract:
+  job_name:
+    regex: '(?im)^[ \t]*+(?:Backup|Backup[ \t]+Copy|Replication|Agent[ \t]+Backup|File[ \t]+Backup)[ \t]+job:[ \t]*+(?P<job_name>\S[^\t\r\n]{0,199})'
+  # The session date line under the result: "Sunday, 22 November 2026 22:00:12".
+  started_at:
+    regex: '(?m)^[A-Z][a-z]{2,8}day,[ \t]++(?P<started_at>\d{1,2}[ \t][A-Z][a-z]{2,8}[ \t]\d{4}[ \t]\d{1,2}:\d{2}:\d{2})'
+    format: '%d %B %Y %H:%M:%S'
+  details:
+    objects:
+      regex: '(?m)^(?:Success|Warning|Failed|Error)\t(?P<objects>\d{1,6}[ \t]of[ \t]\d{1,6}[ \t][A-Za-z]{1,20}[ \t]processed)'
+    duration:
+      regex: '\tDuration\t(?P<duration>\d[^\t\r\n]{0,39})'
+    processed:
+      regex: '\tTotal[ \t]size\t(?P<processed>\d[^\t\r\n]{0,39})'
+    transferred:
+      regex: '\tTransferred\t(?P<transferred>\d[^\t\r\n]{0,39})'
+    issue:
+      regex: '\t(?P<issue>(?:Error|Warning):[ \t][^\t\r\n]{1,190})'
+status_rules:
+  - status: failed
+    in: subject
+    regex: '(?i)^[ \t]*+\[(?:Failed|Error)\]'
+  # The overall result row ("Failed<TAB>2 of 3 VMs processed") or a summary
+  # error count above zero ("Error<TAB>1").
+  - status: failed
+    regex: '(?m)^(?:(?:Failed|Error)\t\d{1,6}[ \t]of[ \t]\d|Error\t0*+[1-9])'
+  - status: warning
+    in: subject
+    regex: '(?i)^[ \t]*+\[Warning\]'
+  - status: warning
+    regex: '(?m)^Warning\t(?:\d{1,6}[ \t]of[ \t]\d|0*+[1-9])'
+  - status: success
+    in: subject
+    regex: '(?i)^[ \t]*+\[Success\]'
+  - status: success
+    regex: '(?m)^Success\t\d{1,6}[ \t]of[ \t]\d'
+fixtures:
+  - {name: success-backup-job, origin: synthetic, class: success}
+  - {name: warning-backup-copy, origin: synthetic, class: warning}
+  - {name: failed-backup-job, origin: synthetic, class: failed}

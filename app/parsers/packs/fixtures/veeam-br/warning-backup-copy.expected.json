@@ -1,0 +1,17 @@
+[
+  {
+    "status": "warning",
+    "job_name": "Offsite Copy to Example Cloud",
+    "client_hint": null,
+    "started_at": "2026-11-23T03:00:00+01:00",
+    "finished_at": null,
+    "run_id": null,
+    "details": {
+      "objects": "2 of 2 VMs processed",
+      "duration": "0:39:47",
+      "processed": "96.5 GB",
+      "transferred": "6.9 GB",
+      "issue": "Warning: Restore point is older than the copy interval (synthetic)"
+    }
+  }
+]

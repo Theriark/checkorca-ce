@@ -1,0 +1,29 @@
+From: "VBR Server" <vbr@example.com>
+To: alerts@example.net
+Subject: [Success] Nightly VM Backup (3 machines)
+Date: Sun, 22 Nov 2026 22:14:45 +0000
+Message-ID: <veeam-success-backup-job@example.com>
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<html><head><title>Nightly VM Backup</title></head>
+<body>
+<!-- Synthetic fixture written from public documentation; not a real mail. -->
+<table>
+<tr><td>Backup job: Nightly VM Backup</td></tr>
+<tr><td>Created by EXAMPLE\svc-backup at 03/09/2026 10:15.</td></tr>
+<tr><td>Success</td><td>3 of 3 VMs processed</td></tr>
+<tr><td>Sunday, 22 November 2026 22:00:12</td></tr>
+<tr><td>Success</td><td>3</td><td>Start time</td><td>22:00:12</td><td>Total size</td><td>180.0 GB</td><td>Backup size</td><td>12.4 GB</td></tr>
+<tr><td>Warning</td><td>0</td><td>End time</td><td>22:14:41</td><td>Data read</td><td>24.1 GB</td><td>Dedupe</td><td>1.3x</td></tr>
+<tr><td>Error</td><td>0</td><td>Duration</td><td>0:14:29</td><td>Transferred</td><td>11.9 GB</td><td>Compression</td><td>2.0x</td></tr>
+</table>
+<table>
+<tr><th>Details</th></tr>
+<tr><th>Name</th><th>Status</th><th>Start time</th><th>End time</th><th>Size</th><th>Read</th><th>Transferred</th><th>Duration</th><th>Details</th></tr>
+<tr><td>vm-app-01</td><td>Success</td><td>22:00:40</td><td>22:06:02</td><td>60.0 GB</td><td>8.2 GB</td><td>4.1 GB</td><td>0:05:22</td><td></td></tr>
+<tr><td>vm-db-01</td><td>Success</td><td>22:00:41</td><td>22:13:55</td><td>80.0 GB</td><td>12.6 GB</td><td>6.0 GB</td><td>0:13:14</td><td></td></tr>
+<tr><td>vm-web-01</td><td>Success</td><td>22:06:05</td><td>22:09:30</td><td>40.0 GB</td><td>3.3 GB</td><td>1.8 GB</td><td>0:03:25</td><td></td></tr>
+</table>
+<div>Veeam Backup &amp; Replication 12.3 (synthetic fixture for Checkorca-CE)</div>
+</body></html>

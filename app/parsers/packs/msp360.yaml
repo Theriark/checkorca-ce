@@ -1,0 +1,72 @@
+# MSP360 (formerly CloudBerry) Backup plan notifications (dev-work-plan C6-I).
+# Written from MSP360's public documentation of plan e-mail notifications,
+# not from a real mail: unverified-synthetic until an MSP sends a redacted
+# sample (docs/parser-packs.md). One mail per run of a backup plan on one
+# computer; the subject names the plan and the result, the body is a table of
+# "Label:" rows with the company (the client hint) and file counters.
+#
+# The job name is the plan, the computer a detail. The subject ends in the
+# result. Rules look for a failure first (subject, then the Status row), then
+# a warning, then a running plan, then success. "Not successful" is a failure
+# and "Completed with errors" a warning, never success.
+id: msp360
+version: 1
+vendor: MSP360 Backup
+status: unverified-synthetic
+docs_url: https://help.msp360.com/
+description: >-
+  Backup plan notification of MSP360 Managed Backup and MSP360 (CloudBerry)
+  Backup: result from the subject or the Status row, plan, computer, company,
+  times, duration, file counters and sizes.
+match:
+  all:
+    - body: '(?i)\b(?:MSP360|CloudBerry)\b'
+  any:
+    - subject: '(?i)\b(?:backup|restore)[ \t]+plan\b'
+    - body: '(?im)^[ \t]*+(?:Backup[ \t]+)?Plan(?:[ \t]+name)?[ \t]*+:'
+extract:
+  job_name:
+    regex: '(?im)^[ \t]*+(?:Backup[ \t]+)?Plan(?:[ \t]+name)?[ \t]*+:[ \t]*+(?P<job_name>\S[^\t\r\n]{0,199})'
+  client_hint:
+    regex: '(?im)^[ \t]*+(?:Company|Customer)[ \t]*+:[ \t]*+(?P<client_hint>\S[^\t\r\n]{0,199})'
+  started_at:
+    regex: '(?im)^[ \t]*+Start(?:ed|[ \t]+time)[ \t]*+:[ \t]*+(?P<started_at>\d{1,2}/\d{1,2}/\d{4}[ \t]\d{1,2}:\d{2}:\d{2}[ \t][AP]M)'
+    format: '%m/%d/%Y %I:%M:%S %p'
+  finished_at:
+    regex: '(?im)^[ \t]*+(?:Finish(?:ed)?|End(?:ed)?)(?:[ \t]+time)?[ \t]*+:[ \t]*+(?P<finished_at>\d{1,2}/\d{1,2}/\d{4}[ \t]\d{1,2}:\d{2}:\d{2}[ \t][AP]M)'
+    format: '%m/%d/%Y %I:%M:%S %p'
+  details:
+    host:
+      regex: '(?im)^[ \t]*+(?:Computer|Endpoint)(?:[ \t]+name)?[ \t]*+:[ \t]*+(?P<host>\S[^\t\r\n]{0,99})'
+    duration:
+      regex: '(?im)^[ \t]*+Duration[ \t]*+:[ \t]*+(?P<duration>\d[^\t\r\n]{0,39})'
+    files_copied:
+      regex: '(?im)^[ \t]*+Files[ \t]+(?:copied|uploaded|backed[ \t]+up)[ \t]*+:[ \t]*+(?P<files_copied>\d[\d,.]{0,19})'
+    files_failed:
+      regex: '(?im)^[ \t]*+Files[ \t]+failed[ \t]*+:[ \t]*+(?P<files_failed>\d[\d,.]{0,19})'
+    processed:
+      regex: '(?im)^[ \t]*+(?:Total[ \t]+size|Uploaded(?:[ \t]+size)?)[ \t]*+:[ \t]*+(?P<processed>\d[^\t\r\n]{0,39})'
+    error:
+      regex: '(?im)^[ \t]*+(?:Error|Last[ \t]+error|Warning)(?:[ \t]+message)?[ \t]*+:[ \t]*+(?P<error>\S[^\t\r\n]{0,199})'
+status_rules:
+  - status: failed
+    in: subject
+    regex: '(?i)(?:\b(?:Failed|Failure|Error|Unsuccessful)|\bNot[ \t]+(?:completed[ \t]+)?successful(?:ly)?)[ \t]*+$'
+  - status: failed
+    regex: '(?im)^[ \t]*+(?:Plan[ \t]+)?Status[ \t]*+:[ \t]*+(?:Failed|Failure|Error|Cancell?ed|Interrupted)\b'
+  - status: warning
+    in: subject
+    regex: '(?i)\bWarnings?[ \t]*+$'
+  - status: warning
+    regex: '(?im)^[ \t]*+(?:Plan[ \t]+)?Status[ \t]*+:[ \t]*+(?:Warnings?|(?:Completed|Success(?:ful)?)[ \t]+with[ \t]+(?:warnings?|errors?))\b'
+  - status: started
+    regex: '(?im)^[ \t]*+(?:Plan[ \t]+)?Status[ \t]*+:[ \t]*+(?:Running|In[ \t]+progress)\b'
+  - status: success
+    in: subject
+    regex: '(?i)\b(?:Success|Successful|Completed[ \t]+successfully)[ \t]*+$'
+  - status: success
+    regex: '(?im)^[ \t]*+(?:Plan[ \t]+)?Status[ \t]*+:[ \t]*+(?:Success|Successful|Completed)\b(?![ \t]*+with\b)'
+fixtures:
+  - {name: success-files-plan, origin: synthetic, class: success}
+  - {name: warning-files-skipped, origin: synthetic, class: warning}
+  - {name: failed-image-plan, origin: synthetic, class: failed}

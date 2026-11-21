@@ -1,0 +1,14 @@
+[
+  {
+    "status": "success",
+    "job_name": "WS-ACCT-03",
+    "client_hint": "Fictional Law Office",
+    "started_at": "2026-11-22T20:00:01+00:00",
+    "finished_at": "2026-11-22T20:16:12+00:00",
+    "run_id": null,
+    "details": {
+      "plan": "Workstations daily",
+      "processed": "2.3 GB"
+    }
+  }
+]

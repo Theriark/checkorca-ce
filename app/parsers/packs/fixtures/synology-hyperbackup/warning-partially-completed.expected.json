@@ -1,0 +1,15 @@
+[
+  {
+    "status": "warning",
+    "job_name": "Local USB Copy",
+    "client_hint": null,
+    "started_at": "2026-11-23T04:00:00+01:00",
+    "finished_at": "2026-11-23T04:11:40+01:00",
+    "run_id": null,
+    "details": {
+      "host": "NAS-02",
+      "destination": "USB-Disk-1",
+      "processed": "88.1 GB"
+    }
+  }
+]

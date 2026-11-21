@@ -1,0 +1,66 @@
+# Synology Active Backup for Business task notifications (dev-work-plan C6-I).
+# Written from Synology's public DSM and Active Backup for Business
+# documentation, not from a real mail: unverified-synthetic until an MSP sends
+# a redacted sample (docs/parser-packs.md). DSM sends one plain-text mail per
+# backup task event (completed, partially completed, failed, cancelled), from
+# the sender the NAS was given and signed by the NAS ("Synology DiskStation"),
+# so the claim rests on the product name and the signature.
+#
+# Rules look for a failure first, then a partial completion (warning), then
+# completion: "partially completed" never reads as success. A negated
+# completion ("could not be completed", "was not completed", "has not
+# succeeded") is a failure, and success needs "has", "was" or "is" right
+# before the word, so a task named "Completed Projects" is not a success.
+id: synology-abb
+version: 1
+vendor: Synology Active Backup for Business
+status: unverified-synthetic
+docs_url: https://kb.synology.com/en-global/DSM/help/ActiveBackup/activebackup_business_notification
+description: >-
+  Backup task notification of Synology Active Backup for Business: result from
+  the subject or the notification sentence, task name, device, NAS, times and
+  transferred data.
+match:
+  all:
+    - body: '(?i)\bActive[ \t]+Backup[ \t]+for[ \t]+Business\b'
+  any:
+    - subject: '(?i)\bActive[ \t]+Backup[ \t]+for[ \t]+Business\b'
+    - body: '(?im)^[ \t]*+Synology[ \t]+(?:DiskStation|RackStation|NAS|FlashStation)[ \t]*+\r?$'
+extract:
+  job_name:
+    regex: '(?im)^[ \t]*+Task(?:[ \t]+name)?[ \t]*+:[ \t]*+(?P<job_name>\S[^\r\n]{0,199})'
+  started_at:
+    regex: '(?im)^[ \t]*+Start[ \t]+time[ \t]*+:[ \t]*+(?P<started_at>\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2})?)'
+  finished_at:
+    regex: '(?im)^[ \t]*+End[ \t]+time[ \t]*+:[ \t]*+(?P<finished_at>\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2})?)'
+  details:
+    host:
+      regex: '(?im)^[ \t]*+(?:Server|NAS|Hostname)[ \t]*+:[ \t]*+(?P<host>\S[^\r\n]{0,99})'
+    device:
+      regex: '(?im)^[ \t]*+Device[ \t]*+:[ \t]*+(?P<device>\S[^\r\n]{0,99})'
+    backup_type:
+      regex: '(?im)^[ \t]*+(?:Backup[ \t]+)?type[ \t]*+:[ \t]*+(?P<backup_type>\S[^\r\n]{0,59})'
+    transferred:
+      regex: '(?im)^[ \t]*+Transferred(?:[ \t]+data)?[ \t]*+:[ \t]*+(?P<transferred>\d[^\r\n]{0,59})'
+    error:
+      regex: '(?im)^[ \t]*+(?:Error|Reason)[ \t]*+:[ \t]*+(?P<error>\S[^\r\n]{0,199})'
+status_rules:
+  - status: failed
+    in: subject
+    regex: '(?i)\b(?:failed|cancell?ed|aborted)\b|(?:\b(?:not|never|cannot)|n[''’]t)[ \t]+(?:yet[ \t]+)?(?:be(?:en)?[ \t]+)?(?:complete|succe|run)'
+  - status: failed
+    regex: '(?im)^[ \t]*+(?:The[ \t]+)?backup[ \t]+task\b[^\r\n]{0,240}?(?:\b(?:failed|cancell?ed|aborted)\b|(?:\b(?:not|never|cannot)|n[''’]t)[ \t]+(?:yet[ \t]+)?(?:be(?:en)?[ \t]+)?(?:complete|succe|run))'
+  - status: warning
+    in: subject
+    regex: '(?i)\bpartially[ \t]+(?:completed|successful)\b'
+  - status: warning
+    regex: '(?im)^[ \t]*+(?:The[ \t]+)?backup[ \t]+task\b[^\r\n]{0,240}?\b(?:has[ \t]+|was[ \t]+)?partially[ \t]+(?:completed|successful)\b'
+  - status: success
+    in: subject
+    regex: '(?i)\b(?:has|was|is)[ \t]+(?:been[ \t]+)?(?:completed|succeeded)\b'
+  - status: success
+    regex: '(?im)^[ \t]*+(?:The[ \t]+)?backup[ \t]+task\b[^\r\n]{0,240}?\b(?:has|was|is)[ \t]+(?:been[ \t]+)?(?:completed|succeeded)\b'
+fixtures:
+  - {name: success-pc-task, origin: synthetic, class: success}
+  - {name: warning-partially-completed, origin: synthetic, class: warning}
+  - {name: failed-server-task, origin: synthetic, class: failed}

@@ -1,0 +1,15 @@
+[
+  {
+    "status": "failed",
+    "job_name": "SRV-SQL-01",
+    "client_hint": null,
+    "started_at": "2026-11-24T23:00:02+00:00",
+    "finished_at": "2026-11-24T23:06:30+00:00",
+    "run_id": null,
+    "details": {
+      "plan": "SQL nightly",
+      "duration": "6 min 28 sec",
+      "issue": "The backup location \\\\nas-01.example.test\\backups is not available (synthetic)"
+    }
+  }
+]

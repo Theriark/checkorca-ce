@@ -1,0 +1,26 @@
+From: "Backup Notifications" <backup-notify@example.com>
+To: alerts@example.net
+Subject: Backup plan "Daily Files" on WS-ACCT-03 - Success
+Date: Sun, 22 Nov 2026 20:14:00 +0000
+Message-ID: <msp360-success-files-plan@example.com>
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<html><body>
+<!-- Synthetic fixture written from public documentation; not a real mail. -->
+<h2>Backup plan "Daily Files" completed</h2>
+<table>
+<tr><td>Plan:</td><td>Daily Files</td></tr>
+<tr><td>Computer:</td><td>WS-ACCT-03</td></tr>
+<tr><td>Company:</td><td>Fictional Law Office</td></tr>
+<tr><td>Status:</td><td>Success</td></tr>
+<tr><td>Start time:</td><td>11/22/2026 8:00:00 PM</td></tr>
+<tr><td>End time:</td><td>11/22/2026 8:12:45 PM</td></tr>
+<tr><td>Duration:</td><td>00:12:45</td></tr>
+<tr><td>Files scanned:</td><td>15,230</td></tr>
+<tr><td>Files copied:</td><td>412</td></tr>
+<tr><td>Files failed:</td><td>0</td></tr>
+<tr><td>Total size:</td><td>2.31 GB</td></tr>
+</table>
+<div>MSP360 Managed Backup (synthetic fixture for Checkorca-CE)</div>
+</body></html>

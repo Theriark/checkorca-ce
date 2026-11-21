@@ -1,0 +1,16 @@
+[
+  {
+    "status": "success",
+    "job_name": "Office PCs",
+    "client_hint": null,
+    "started_at": "2026-11-22T01:00:03+00:00",
+    "finished_at": "2026-11-22T01:21:47+00:00",
+    "run_id": null,
+    "details": {
+      "host": "NAS-01",
+      "device": "PC-RECEPTION-01",
+      "backup_type": "PC",
+      "transferred": "3.4 GB"
+    }
+  }
+]

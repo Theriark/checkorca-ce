@@ -1,0 +1,16 @@
+[
+  {
+    "status": "warning",
+    "job_name": "WS-ACCT-03",
+    "client_hint": null,
+    "started_at": "2026-11-23T13:00:00-05:00",
+    "finished_at": "2026-11-23T13:24:19-05:00",
+    "run_id": null,
+    "details": {
+      "plan": "Workstations daily",
+      "duration": "24 min 19 sec",
+      "processed": "5.7 GB",
+      "issue": "2 files were skipped because they are locked by another process (synthetic)"
+    }
+  }
+]

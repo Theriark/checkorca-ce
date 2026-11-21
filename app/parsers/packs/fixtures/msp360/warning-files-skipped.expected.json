@@ -1,0 +1,18 @@
+[
+  {
+    "status": "warning",
+    "job_name": "Shared Drive",
+    "client_hint": "Fictional Plus Ltd",
+    "started_at": "2026-11-23T22:00:00+01:00",
+    "finished_at": "2026-11-23T22:46:58+01:00",
+    "run_id": null,
+    "details": {
+      "host": "FS-02",
+      "duration": "00:46:58",
+      "files_copied": "1,940",
+      "files_failed": "6",
+      "processed": "14.8 GB",
+      "error": "6 files were skipped because they were in use (synthetic)"
+    }
+  }
+]

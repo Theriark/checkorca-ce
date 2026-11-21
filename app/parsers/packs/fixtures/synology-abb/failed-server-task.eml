@@ -1,0 +1,25 @@
+From: NAS-01 <nas-01@example.com>
+To: alerts@example.net
+Subject: [NAS-01] Active Backup for Business - Backup task Physical Servers has failed
+Date: Tue, 24 Nov 2026 01:05:40 +0000
+Message-ID: <abb-failed-server-task@example.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Dear user,
+
+Backup task Physical Servers on NAS-01 has failed.
+
+Task: Physical Servers
+Device: SRV-APP-03
+Backup type: Physical Server
+Server: NAS-01
+Start time: 2026-11-24 01:00:00
+End time: 2026-11-24 01:05:31
+Error: The device is offline or cannot be reached at 192.0.2.30 (synthetic)
+
+This message was sent by Active Backup for Business on NAS-01.
+(Synthetic fixture written from public documentation; not a real mail.)
+
+Sincerely,
+Synology DiskStation

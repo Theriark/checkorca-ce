@@ -45,6 +45,9 @@ from helpers import (
 )
 
 GENERIC = (PACKS_DIR / "generic-keywords.yaml").read_text("utf-8")
+# Every built-in pack (generic-keywords and the C6-I vendor packs), by id.
+BUILTIN = [(pack.id, text) for pack, text in builtin_pack_texts()]
+BUILTIN_IDS = [pack_id for pack_id, _ in BUILTIN]
 RAW = (
     "From: Backup Server <backup@example.com>\r\n"
     "To: alerts@example.net\r\n"
@@ -92,18 +95,16 @@ async def put(client: httpx.AsyncClient, csrf: str, pack_id: str, body: str) -> 
     )
 
 
-async def test_the_built_in_pack_is_listed_and_read(
+async def test_the_built_in_packs_are_listed_and_read(
     client: httpx.AsyncClient, csrf: str
 ) -> None:
     listed = await client.get("/api/v1/packs")
     assert listed.status_code == 200
-    (item,) = listed.json()["items"]
-    assert (item["id"], item["source"], item["enabled"]) == (
-        "generic-keywords",
-        "builtin",
-        True,
-    )
-    assert item["status"] == "unverified-synthetic" and "yaml" not in item
+    items = listed.json()["items"]
+    assert [item["id"] for item in items] == BUILTIN_IDS
+    for item in items:
+        assert (item["source"], item["enabled"]) == ("builtin", True)
+        assert item["status"] == "unverified-synthetic" and "yaml" not in item
     detail = await client.get("/api/v1/packs/generic-keywords")
     assert detail.json()["yaml"] == GENERIC
     assert (await client.get("/api/v1/packs/no-such-pack")).status_code == 404
@@ -114,13 +115,16 @@ async def test_packs_are_paged_by_id(client: httpx.AsyncClient, csrf: str) -> No
     for pack_id in ("alpha-tool", "beta-tool"):
         saved = await put(client, csrf, pack_id, pack_text(pack_id))
         assert saved.status_code == 201
-    first = (await client.get("/api/v1/packs", params={"limit": 2})).json()
-    assert [item["id"] for item in first["items"]] == ["alpha-tool", "beta-tool"]
-    rest = await client.get(
-        "/api/v1/packs", params={"limit": 2, "cursor": first["next_cursor"]}
-    )
-    assert [item["id"] for item in rest.json()["items"]] == ["generic-keywords"]
-    assert rest.json()["next_cursor"] is None
+    pages: list[list[str]] = []
+    params: dict[str, Any] = {"limit": 2}
+    while True:
+        page = (await client.get("/api/v1/packs", params=params)).json()
+        pages.append([item["id"] for item in page["items"]])
+        if page["next_cursor"] is None:
+            break
+        params["cursor"] = page["next_cursor"]
+    every = sorted([*BUILTIN_IDS, "alpha-tool", "beta-tool"])
+    assert pages == [every[start : start + 2] for start in range(0, len(every), 2)]
     bad = await client.get("/api/v1/packs", params={"cursor": "not-a-cursor"})
     assert bad.status_code == 400
 
@@ -273,7 +277,11 @@ async def test_the_bench_shows_the_claim_the_scores_and_the_spans(
     assert response.status_code == 200, response.text
     answer = response.json()
     assert answer["claimed_by"] == "generic-keywords"
-    assert answer["scores"] == [{"pack_id": "generic-keywords", "matched": 1}]
+    # Every enabled pack by id; no vendor pack claims a generic mail.
+    assert answer["scores"] == [
+        {"pack_id": pack_id, "matched": int(pack_id == "generic-keywords")}
+        for pack_id in BUILTIN_IDS
+    ]
     assert (answer["outcome"], answer["pack_id"]) == ("parsed", "generic-keywords")
     (result,) = answer["results"]
     assert (result["job_name"], result["status"]) == ("Nightly server backup", "failed")
@@ -292,17 +300,22 @@ async def test_the_bench_runs_the_pack_being_edited(
 ) -> None:
     response = await bench_test(client, csrf, raw=RAW, pack=pack_text())
     answer = response.json()
-    assert answer["scores"] == [
-        {"pack_id": "example-tool", "matched": 2},
-        {"pack_id": "generic-keywords", "matched": 1},
-    ]
+    matched = {score["pack_id"]: score["matched"] for score in answer["scores"]}
+    assert matched == {
+        **dict.fromkeys(BUILTIN_IDS, 0),
+        "example-tool": 2,
+        "generic-keywords": 1,
+    }
     assert answer["claimed_by"] == "example-tool"
     assert answer["results"][0]["status"] == "failed"
     # A disabled pack is not tried.
     disable = "/api/v1/packs/generic-keywords/disable"
     await client.post(disable, headers={CSRF_HEADER: csrf})
     alone = (await bench_test(client, csrf, raw=RAW)).json()
-    assert alone["scores"] == [] and alone["reason"] == "no-pack"
+    tried = [score["pack_id"] for score in alone["scores"]]
+    assert tried == [item for item in BUILTIN_IDS if item != "generic-keywords"]
+    assert {score["matched"] for score in alone["scores"]} == {0}
+    assert alone["reason"] == "no-pack"
 
 
 async def test_the_bench_refuses_a_pack_that_does_not_load_or_is_too_large(
@@ -496,13 +509,13 @@ async def test_a_child_over_its_memory_limit_answers_memory_and_the_web_serves(
 
 def test_the_largest_test_fits_the_memory_limit_of_the_child() -> None:
     """The real child at its real limits with the largest request the route
-    lets through: a 1 MiB mail, an edited pack of 50 long rules and the
-    built-in pack (it peaked at 53 MiB of its 64, docs/parsers.md)."""
+    lets through: a 1 MiB mail, an edited pack of 50 long rules and every
+    built-in pack (docs/parsers.md)."""
     rules = [{"status": "warning", "regex": "z" * 1000} for _ in range(49)]
     rules.append({"status": "failed", "regex": "(?i)status: failed"})
     raw = (RAW + LONG_BODY + "x" * (100 * 1024)).encode()[:MAX_TEST_MAIL]
     request = {
-        "packs": [["generic-keywords", GENERIC]],
+        "packs": [list(item) for item in BUILTIN],
         "pack": pack_text(status_rules=rules),
         "raw": base64.b64encode(raw).decode(),
     }
@@ -551,7 +564,7 @@ def test_the_largest_digest_fits_the_memory_limit_of_the_child() -> None:
     records = "".join(digest_record(number, keys) for number in range(200))
     raw = (RAW + records).encode()
     request = {
-        "packs": [["generic-keywords", GENERIC]],
+        "packs": [list(item) for item in BUILTIN],
         "pack": pack_text(split={"record": "(?m)^Job: "}, extract=extract),
         "raw": base64.b64encode(raw).decode(),
     }

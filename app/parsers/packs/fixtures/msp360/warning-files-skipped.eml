@@ -1,0 +1,23 @@
+From: "Backup Notifications" <backup-notify@example.com>
+To: alerts@example.net
+Subject: Backup plan "Shared Drive" on FS-02 - Warning
+Date: Mon, 23 Nov 2026 22:47:30 +0100
+Message-ID: <msp360-warning-files-skipped@example.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+MSP360 Managed Backup
+(Synthetic fixture written from public documentation; not a real mail.)
+
+Plan: Shared Drive
+Computer: FS-02
+Company: Fictional Plus Ltd
+Status: Warning
+Start time: 11/23/2026 10:00:00 PM
+End time: 11/23/2026 10:46:58 PM
+Duration: 00:46:58
+Files scanned: 182,004
+Files copied: 1,940
+Files failed: 6
+Total size: 14.8 GB
+Warning: 6 files were skipped because they were in use (synthetic)
