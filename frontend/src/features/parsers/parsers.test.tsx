@@ -123,6 +123,32 @@ describe('/parsers', () => {
     expect(await screen.findByRole('heading', { level: 1, name: CUSTOM_PACK.id })).toBeTruthy();
   });
 
+  it('tells an import 409 apart by its title: a built-in id, else a pack saved meanwhile', async () => {
+    const user = userEvent.setup();
+    let posts = 0;
+    stubFetch({
+      ...ME,
+      ...STATUS,
+      'GET /api/v1/packs': TWO,
+      'POST /api/v1/packs/import': () => {
+        posts += 1;
+        return posts === 1
+          ? { status: 409, body: { title: 'Built-in parser pack', status: 409, detail: 'generic-keywords is built in.' } }
+          : { status: 409, body: { title: 'Parser pack changed meanwhile', status: 409, detail: 'Another request saved acme-backup first.' } };
+      },
+    });
+    renderApp('/parsers');
+    await screen.findByText('generic-keywords');
+    await user.click(screen.getByRole('button', { name: strings.parsers.import }));
+    const dialog = await screen.findByRole('dialog', { name: strings.parsers.importTitle });
+    await user.upload(within(dialog).getByLabelText(strings.parsers.importFile), new File([CUSTOM_PACK.yaml], 'acme-backup.yaml', { type: 'application/yaml' }));
+    await user.click(within(dialog).getByRole('button', { name: strings.parsers.importSubmit }));
+    expect((await within(dialog).findByRole('alert')).textContent).toContain(strings.parsers.detail.builtinConflict);
+    await user.click(within(dialog).getByRole('button', { name: strings.parsers.importSubmit }));
+    await waitFor(() => expect(within(dialog).getByRole('alert').textContent).toContain(strings.parsers.detail.changedMeanwhile));
+    expect(posts).toBe(2);
+  });
+
   it('is the same screen for the technician', async () => {
     stubFetch({ 'GET /api/v1/auth/me': { status: 200, body: TECHNICIAN }, ...STATUS, 'GET /api/v1/packs': TWO });
     renderApp('/parsers');

@@ -51,7 +51,13 @@ const MESSAGES = {
 };
 const KEYED = makeJob({ match_key: 'Old tool name' });
 const OTHER = makeJob({ id: 'j1000000-0000-4000-8000-000000000004', name: 'Cove server', match_key: null });
-const JOBS = { 'GET /api/v1/jobs': { status: 200, body: { items: [KEYED, OTHER], next_cursor: null } } };
+// The job search answers by name, so a term can drop a picked job from the list.
+const JOBS = {
+  'GET /api/v1/jobs': (url: string) => {
+    const q = new URL(url, 'http://localhost').searchParams.get('q')?.toLowerCase() ?? '';
+    return { status: 200, body: { items: [KEYED, OTHER].filter((item) => item.name.toLowerCase().includes(q)), next_cursor: null } };
+  },
+};
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -166,6 +172,16 @@ describe('/unmatched', () => {
     // A job without a key has no choice to make.
     await user.click(within(dialog).getByRole('radio', { name: /Cove server/ }));
     expect(within(dialog).queryByRole('radio', { name: /Keep the job/ })).toBeNull();
+    // A search that drops the picked job hands the tab stop to the first job
+    // listed, so the keyboard still reaches the list; nothing is checked.
+    const searchField = within(dialog).getByLabelText(strings.unmatched.assignSearch);
+    await user.type(searchField, 'Veeam');
+    await waitFor(() => expect(within(dialog).queryByRole('radio', { name: /Cove server/ })).toBeNull());
+    const only = within(dialog).getByRole('radio', { name: /Veeam nightly/ });
+    expect(only.getAttribute('tabindex')).toBe('0');
+    expect(only.getAttribute('aria-checked')).toBe('false');
+    await user.clear(searchField);
+    await within(dialog).findByRole('radio', { name: /Cove server/ });
     await user.click(within(dialog).getByRole('radio', { name: /Veeam nightly/ }));
     await user.click(within(dialog).getByRole('button', { name: strings.unmatched.assignSubmit }));
     const post = await waitFor(() => {

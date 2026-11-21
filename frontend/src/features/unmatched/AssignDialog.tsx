@@ -66,7 +66,9 @@ export function AssignDialog({ open, onOpenChange, result, onBound }: AssignDial
   }, [open, result?.result_id]);
 
   const items = useMemo(() => jobs.data?.items ?? [], [jobs.data]);
-  const job = items.find((item) => item.id === jobId) ?? done?.job ?? null;
+  // -1 when nothing is picked or the picked job is not in the current search results.
+  const pickedIndex = items.findIndex((item) => item.id === jobId);
+  const job = items[pickedIndex] ?? done?.job ?? null;
   const differs = job !== null && result !== null && keyDiffers(job.match_key, result.job_name);
   const busy = assign.isPending;
 
@@ -205,9 +207,11 @@ export function AssignDialog({ open, onOpenChange, result, onBound }: AssignDial
               ) : (
                 <div className="co-assign__list" role="radiogroup" aria-labelledby="assign-jobs-label">
                   {items.map((item, index) => {
-                    const selected = item.id === jobId;
-                    // One tab stop (the picked job, else the first); the arrow keys move and pick.
-                    const stop = jobId === null ? index === 0 : selected;
+                    const selected = index === pickedIndex;
+                    // One tab stop: the picked job when it is listed, else the first; the
+                    // arrow keys move and pick. A picked job that a new search no longer
+                    // lists must not take the stop with it.
+                    const stop = pickedIndex === -1 ? index === 0 : selected;
                     return (
                       <div key={item.id}>
                         <button
