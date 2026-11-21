@@ -10,7 +10,6 @@ import json
 import subprocess
 import sys
 import time
-import warnings
 from typing import Any
 
 import httpx
@@ -495,45 +494,10 @@ async def test_a_child_over_its_memory_limit_answers_memory_and_the_web_serves(
         assert again.json()["claimed_by"] == "generic-keywords"
 
 
-# The real child, reporting what it used (C5-B2 measurement, temporary).
-MEASURED_CHILD = """
-import sys
-def show(label):
-    status = open("/proc/self/status").read().splitlines()
-    kept = [x for x in status if x.startswith(("VmPeak", "VmHWM"))]
-    print(label, " ".join(kept), file=sys.stderr)
-from app.parsers import bench
-show("loaded")
-try:
-    sys.exit(bench.main())
-finally:
-    show("done")
-"""
-# The app's modules and one Argon2 hash (C5-B2 measurement, temporary).
-MEASURED_WEB = """
-import base64
-from argon2 import PasswordHasher
-import app.ingest.imap, app.ingest.smtp, app.worker.loop
-from app.main import create_app
-from app.settings import load_settings
-def show(label):
-    status = open("/proc/self/status").read().splitlines()
-    keep = ("VmPeak", "VmSize", "VmHWM", "VmRSS")
-    print(label, " ".join(x for x in status if x.startswith(keep)))
-key = base64.urlsafe_b64encode(bytes(32)).decode()
-url = "postgresql+asyncpg://unused@127.0.0.1:1/unused"
-settings = load_settings(secret_key="m" * 40, fernet_key=key, database_url=url)
-create_app(settings, static_dir=None).openapi()
-show("app")
-PasswordHasher().hash("x" * 20)
-show("argon2")
-"""
-
-
 def test_the_largest_test_fits_the_memory_limit_of_the_child() -> None:
     """The real child at its real limits with the largest request the route
     lets through: a 1 MiB mail, an edited pack of 50 long rules and the
-    built-in pack."""
+    built-in pack (it peaked at 53 MiB of its 64, docs/parsers.md)."""
     rules = [{"status": "warning", "regex": "z" * 1000} for _ in range(49)]
     rules.append({"status": "failed", "regex": "(?i)status: failed"})
     raw = (RAW + LONG_BODY + "x" * (100 * 1024)).encode()[:MAX_TEST_MAIL]
@@ -543,7 +507,7 @@ def test_the_largest_test_fits_the_memory_limit_of_the_child() -> None:
         "raw": base64.b64encode(raw).decode(),
     }
     child = subprocess.run(
-        [sys.executable, "-c", MEASURED_CHILD],
+        COMMAND,
         input=json.dumps(request).encode(),
         capture_output=True,
         cwd=ROOT,
@@ -551,24 +515,10 @@ def test_the_largest_test_fits_the_memory_limit_of_the_child() -> None:
         timeout=60,
         check=False,
     )
-    warnings.warn(f"bench child: {child.stderr.decode()[-300:]}", stacklevel=1)
     assert child.returncode == 0, child.stderr
     answer = json.loads(child.stdout)
     assert (answer["outcome"], answer["reason"]) == ("parsed", None)
     assert answer["results"][0]["status"] == "failed"
-
-
-def test_measure_the_web_process() -> None:
-    """Temporary (C5-B2 measurement): memory of the app's modules."""
-    child = subprocess.run(
-        [sys.executable, "-c", MEASURED_WEB],
-        capture_output=True,
-        cwd=ROOT,
-        timeout=60,
-        check=False,
-    )
-    output = f"{child.stdout.decode()} {child.stderr.decode()[-300:]}"
-    warnings.warn(f"web: {output}", stacklevel=1)
 
 
 def test_the_child_gets_no_setting_of_the_web_process() -> None:

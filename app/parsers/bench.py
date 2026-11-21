@@ -33,10 +33,10 @@ from app.parsers.loader import PackInvalid, parse_pack_cached
 from app.parsers.model import Pack
 
 # Limits of the child process: CPU seconds and address space. Two children
-# at this limit and the web process fit the web container's 384 MiB
-# (docs/parsers.md, "Test bench memory").
+# at this limit and the web process fit the web container's 384 MiB; the
+# largest test peaks at 53 MiB (docs/parsers.md, "Test bench memory").
 CPU_SECONDS: Final = 20
-MEMORY_BYTES: Final = 96 * 1024 * 1024
+MEMORY_BYTES: Final = 64 * 1024 * 1024
 
 
 def _time(value: datetime | None) -> str | None:
