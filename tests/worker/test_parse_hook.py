@@ -264,7 +264,8 @@ async def test_assign_teaches_the_matcher_the_names_of_the_mail(
     assert assigned.status_code == 200, assigned.text
     binding = assigned.json()
     assert binding["job_id"] == job["id"] and binding["client_id"] == dental["id"]
-    assert binding["match_key_set"] is True and binding["alias_added"] is True
+    assert binding["match_key_set"] is True and binding["client_alias_added"] is True
+    assert binding["reason"] is None
     # The identical mail that was already waiting is bound as well.
     assert binding["also_bound"] == 1
     (other,) = await results_of(db_engine, second)

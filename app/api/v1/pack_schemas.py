@@ -35,6 +35,8 @@ PackSource = Literal["builtin", "custom"]
 PackStatus = Literal["verified", "unverified-synthetic"]
 BenchOutcome = Literal["parsed", "unmatched", "error"]
 SkipReason = Literal["invalid", "timeout", "deadline", "memory"]
+# Why assign or create-job did not add the client hint as an alias.
+AliasReason = Literal["no_client_hint", "already_known", "alias_limit"]
 
 # A pasted mail for the test bench (the store takes 5 MB; a sample is less).
 MAX_TEST_MAIL: Final = 1024 * 1024
@@ -171,20 +173,34 @@ class UnmatchedPage(BaseModel):
 
 
 class AssignRequest(Body):
+    """replace_match_key: a job whose match key names another job name takes
+    the result's job name instead (the old key is answered and audited)."""
+
     job_id: uuid.UUID
+    replace_match_key: bool = False
 
 
 class Binding(BaseModel):
-    """The result is bound to job_id. match_key_set: the job had no match key
-    and now has the result's job name; alias_added: the result's client hint
-    became an alias of the client. Both make the next identical mail bind.
-    also_bound: other unmatched results with the same names bound as well."""
+    """The result is bound to job_id.
+
+    match_key_set: the job's match key is now the result's job name (it had
+    none, or replace_match_key replaced replaced_match_key). current_match_key:
+    the job's match key after the call; when match_key_set is false and it
+    names another job name, the next identical mail binds only if the job's
+    name is that job name. client_alias_added: the result's client hint became
+    an alias of the client; else reason says why not (no_client_hint,
+    already_known, alias_limit). also_bound: other
+    unmatched results with the same names bound as well.
+    """
 
     result_id: uuid.UUID
     job_id: uuid.UUID
     client_id: uuid.UUID
     match_key_set: bool
-    alias_added: bool
+    current_match_key: str | None
+    replaced_match_key: str | None
+    client_alias_added: bool
+    reason: AliasReason | None
     also_bound: int
 
 
