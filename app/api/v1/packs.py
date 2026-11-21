@@ -150,9 +150,18 @@ async def save_pack(
         message = f"must be higher than {stored.version}, the saved version"
         raise pack_invalid((PackIssue("/version", message),))
     now = services.clock.now()
-    saved = await packs.save_custom(context.principal, pack, text, now)
+    saved = await packs.save_custom(
+        context.principal, pack, text, now, new=stored is None
+    )
     if saved is None:
         await db.rollback()
+        if stored is None:
+            # Another save of this id came first; the version rule needs a retry.
+            raise ProblemError(
+                409,
+                "Parser pack changed meanwhile",
+                f"{pack.id} was saved by another request; load it and try again.",
+            )
         raise built_in(pack.id)
     await record_audit(
         services,

@@ -9,8 +9,9 @@ time zone asked for, rounded down to STEP_MINUTES:
   many give started_at, else received (every result has it);
 - times are local wall-clock times, so runs at 23:00 in Lisbon stay 23:00
   across both DST changes;
-- the median is taken around the clock: runs at 23:50 and 00:10 give 00:00,
-  not noon. The largest gap between the sorted times is where the day is cut.
+- the median is taken around the clock: runs at 23:50, 00:00 and 00:10 give
+  00:00, not noon. The largest gap between the sorted times is where the day
+  is cut; of an even count the lower middle time is taken.
 
 Pure code; the API loads the results (app/api/v1/unmatched.py).
 """

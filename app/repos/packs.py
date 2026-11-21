@@ -62,11 +62,18 @@ class PackRepository(Repository):
 
     @guarded("create")
     async def save_custom(
-        self, principal: Principal, pack: Pack, text: str, now: datetime
+        self,
+        principal: Principal,
+        pack: Pack,
+        text: str,
+        now: datetime,
+        *,
+        new: bool = False,
     ) -> ParserPack | None:
-        """Create or replace a custom pack; None when a built-in pack has the id
-        (nothing is written). A new pack is enabled; a replaced one keeps its
-        choice."""
+        """Create or replace a custom pack; None when a built-in pack has the
+        id, or, with new, when any pack has it (a concurrent save came first);
+        nothing is written then. A new pack is enabled; a replaced one keeps
+        its choice."""
         values = {
             "version": pack.version,
             "vendor": pack.vendor,
@@ -74,16 +81,19 @@ class PackRepository(Repository):
             "yaml": text,
             "updated_at": now,
         }
-        statement = (
-            insert(ParserPack)
-            .values(id=pack.id, source="custom", enabled=True, created_at=now, **values)
-            .on_conflict_do_update(
+        inserted = insert(ParserPack).values(
+            id=pack.id, source="custom", enabled=True, created_at=now, **values
+        )
+        if new:
+            upsert = inserted.on_conflict_do_nothing(index_elements=[ParserPack.id])
+        else:
+            upsert = inserted.on_conflict_do_update(
                 index_elements=[ParserPack.id],
                 set_=values,
                 where=ParserPack.source == "custom",
             )
-            .returning(ParserPack)
-            .execution_options(populate_existing=True)
+        statement = upsert.returning(ParserPack).execution_options(
+            populate_existing=True
         )
         saved: ParserPack | None = (await self.db.scalars(statement)).one_or_none()
         return saved

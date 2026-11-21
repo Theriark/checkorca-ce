@@ -123,7 +123,7 @@ The fallback pack for any backup or job alert. It claims mail whose subject name
 
 ## The parse hook (C5-B, `app/worker/parse.py`)
 
-A tick hook of the worker loop (`TICK_HOOKS`). Each tick it syncs the built-in packs, reads the enabled packs and builds the matcher once, then takes up to 200 pending messages, oldest first, one at a time with `FOR UPDATE SKIP LOCKED`, and parses each on the parser thread (one thread for the process, one mail at a time). In the same transaction:
+A tick hook of the worker loop (`TICK_HOOKS`). Each tick it syncs the built-in packs, reads the enabled packs and builds the matcher once, then takes up to 200 pending messages, oldest first, one at a time with `FOR UPDATE SKIP LOCKED`, and parses each on the parser thread (one thread for the process, one mail at a time). It starts no new message once 30 seconds of the tick have passed (`PARSE_BUDGET`), so a slow custom pack that takes the 5 s deadline on every mail cannot hold the tick: the heartbeat stays inside the 3 minutes of `/readyz` and the later hooks run on time; the rest wait for the next tick. In the same transaction:
 
 | Outcome | `parse_state` | Also |
 | --- | --- | --- |
@@ -146,16 +146,16 @@ Admins and technicians alike; lists, gets, export and suggest-schedule also take
 | --- | --- |
 | `GET packs` | packs by id without YAML (`cursor`, `limit`) |
 | `GET packs/{id}` | the pack with `yaml` |
-| `PUT packs/{id}` `{yaml}` | create (201) or replace (200) a custom pack; 422 `issues` (`path`, `message`) when it does not load, the id differs or the version did not rise; 409 for a built-in id |
+| `PUT packs/{id}` `{yaml}` | create (201) or replace (200) a custom pack; 422 `issues` (`path`, `message`) when it does not load, the id differs or the version did not rise; 409 for a built-in id, and for a new id another request saved first (load and retry) |
 | `POST packs/import` (file) | the same, id from the file |
 | `GET packs/{id}/export` | the YAML as a file |
 | `POST packs/{id}/enable`, `/disable` | from the worker's next tick |
 | `POST packs/test` `{raw, pack?}` | `mail` (as the engine reads it), `scores`, `claimed_by`, `outcome`, `pack_id`, `reason`, `path`, `candidates`, `results` with `spans`, `skipped` |
 | `GET unmatched` | `result_id`, `raw_message_id`, `received_at`, `job_name`, `client_hint`, `status`, newest first |
-| `POST unmatched/{result_id}/assign` `{job_id}` | binds; the job takes the result's job name as `match_key` when it had none, the client takes the client hint as an alias when it does not know it, so the next identical mail binds; other unmatched results with the same names bind too (`also_bound`) |
+| `POST unmatched/{result_id}/assign` `{job_id}` | binds; the job takes the result's job name as `match_key` when it had none, the client takes the client hint as an alias when it does not know it, so the next identical mail binds; other unmatched results with the same names bind too (`also_bound`), in one statement that skips a result another user bound meanwhile |
 | `POST unmatched/{result_id}/create-job` | `client_id` or `client_name` (found or created), job fields (name and `match_key` default to the result's job name; without a schedule a daily one at the time suggest-schedule gives from one result on); then binds as assign |
 | `GET unmatched/{result_id}/suggest-schedule?timezone=` | `kind` daily, `expr` HH:MM, `timezone` (default: the digest zone of Settings), `basis` (`finished`, `started` or `received`), `results`: the median local time of the newest 100 runs with the same names, around the clock, rounded down to 5 minutes; 422 below 3 runs |
 
-**Test bench.** `packs/test` never runs in the worker and never on the web process's own threads: the regex timeout is CPU time of the whole process, and `ROLE=all` runs both in one process. The web process starts `python -m app.parsers.bench` per test (`app/api/bench.py`) with the request on stdin, PATH and the locale only (no setting or secret), at most 2 at once, killed after 20 s (503). The child has the engine's 50 ms and 5 s and its own limits (20 s CPU, 768 MiB address space). The route has its own limit (30 tests a minute per user) and body cap; the mail may have 1 MiB, the pack the loader's 64 KiB.
+**Test bench.** `packs/test` never runs in the worker and never on the web process's own threads: the regex timeout is CPU time of the whole process, and `ROLE=all` runs both in one process. The web process starts `python -m app.parsers.bench` per test (`app/api/bench.py`) with the request on stdin, PATH and the locale only (no setting or secret), at most 2 at once (a test that finds no free slot within 5 s answers 503 busy), killed after 20 s (503) or when its request is cancelled. The child has the engine's 50 ms and 5 s and its own limits (20 s CPU, 768 MiB address space). The route has its own limit (30 tests a minute per user) and body cap; the mail may have 1 MiB, the pack the loader's 64 KiB.
 
 **Limits to know.** A message no pack claims has no result, so it is listed by `messages?parse_state=unmatched`, not by `unmatched`. assign sets `match_key` only when the job had none: a job whose key differs from the mail's job name binds the next identical mail only when its name equals it.

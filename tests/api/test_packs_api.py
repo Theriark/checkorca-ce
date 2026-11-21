@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from app.access import SYSTEM, AllowAllPolicy
-from app.api.bench import BenchRunner, child_environment
+from app.api.bench import BenchRunner, BenchUnavailable, child_environment
 from app.db.models import AppUser, AuditEvent
 from app.main import create_app
 from app.parsers.loader import PACKS_DIR, builtin_pack_texts
@@ -163,6 +163,26 @@ async def test_a_pack_that_does_not_load_answers_its_issues(
     assert problem["title"] == "Invalid parser pack"
     assert path in [issue["path"] for issue in problem["issues"]]
     assert all(issue["message"] for issue in problem["issues"])
+
+
+async def test_the_second_of_two_new_saves_of_an_id_gets_409(
+    client: httpx.AsyncClient, csrf: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = await put(client, csrf, "example-tool", pack_text())
+    assert first.status_code == 201
+    get = PackRepository.get
+
+    async def not_yet_saved(*args: Any, **kwargs: Any) -> Any:
+        # The second request looked before the first one committed.
+        return None
+
+    monkeypatch.setattr(PackRepository, "get", not_yet_saved)
+    second = await put(client, csrf, "example-tool", pack_text(vendor="Other"))
+    assert second.status_code == 409
+    assert second.json()["title"] == "Parser pack changed meanwhile"
+    monkeypatch.setattr(PackRepository, "get", get)
+    stored = await client.get("/api/v1/packs/example-tool")
+    assert stored.json()["vendor"] == "Example Tool"
 
 
 async def test_a_built_in_pack_cannot_be_changed(
@@ -383,6 +403,34 @@ async def test_a_child_that_does_not_answer_gives_503(
     assert response.status_code == 503
     assert response.json()["title"] == "Test bench unavailable"
     assert time.perf_counter() - started < timeout + 5
+
+
+async def test_a_full_bench_is_busy_and_a_cancelled_test_kills_its_child(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started: list[asyncio.subprocess.Process] = []
+    start = asyncio.create_subprocess_exec
+
+    async def recorded(*args: Any, **kwargs: Any) -> asyncio.subprocess.Process:
+        child = await start(*args, **kwargs)
+        started.append(child)
+        return child
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", recorded)
+    sleeper = [sys.executable, "-c", "import time; time.sleep(30)"]
+    runner = BenchRunner(command=sleeper, timeout=30, max_running=1, slot_wait=0.2)
+    first = asyncio.create_task(runner.run([], None, b"x"))
+    while not started:
+        await asyncio.sleep(0.02)
+    waited = time.perf_counter()
+    with pytest.raises(BenchUnavailable, match="busy"):
+        await runner.run([], None, b"x")
+    assert time.perf_counter() - waited < 2
+    first.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await first
+    # The child is gone, not left to run out its 30 s; only one ever started.
+    assert len(started) == 1 and started[0].returncode is not None
 
 
 def test_the_child_gets_no_setting_of_the_web_process() -> None:
