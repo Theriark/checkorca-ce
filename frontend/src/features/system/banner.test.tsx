@@ -17,8 +17,12 @@ describe('stale-heartbeat banner', () => {
     stubFetch({ 'GET /api/v1/auth/me': { status: 200, body: ADMIN }, ...CLIENTS, 'GET /api/v1/system/status': { status: 200, body: STALE_STATUS } });
     renderApp('/clients');
     const banner = await screen.findByTestId('stale-worker-banner');
-    expect(banner.getAttribute('role')).toBe('alert');
-    expect(banner.textContent).toContain(strings.worker.staleTitle);
+    // Only the fixed sentence is the alert; the age changes every poll and
+    // sits outside it, so the warning is announced once (C4-F item 3).
+    const alert = banner.querySelector('[role="alert"]') as HTMLElement;
+    expect(alert.textContent).toContain(strings.worker.staleTitle);
+    expect(alert.textContent).toContain(strings.worker.staleLead);
+    expect(alert.textContent).not.toContain('21 minutes');
     expect(banner.textContent).toContain('No heartbeat for 21 minutes.');
     expect(banner.textContent).toContain('Last heartbeat');
     expect(banner.querySelector('svg')).toBeTruthy();

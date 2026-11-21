@@ -7,6 +7,9 @@ import { fill } from '../../lib/format';
 import { strings } from '../../strings';
 
 export const MAX_LABEL_LENGTH = 100;
+/** The API's limits on the sender rules (app.api.v1.ingest_schemas). */
+export const MAX_SENDERS = 100;
+export const MAX_SENDER_LENGTH = 254;
 export const MIN_POLL_SECONDS = 60;
 export const MAX_POLL_SECONDS = 86_400;
 export const DEFAULT_PORT = 993;
@@ -50,9 +53,18 @@ export function initialState(inbox: InboxOut | null): FormState {
 // The API's rule: an address (alerts@example.com) or a whole domain (@example.com).
 const SENDER = /^[a-z0-9!#$%&'*+/=?^_`{|}~.-]*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 
+export interface AllowlistParse {
+  readonly senders: string[];
+  /** The 1-based line of the first entry that is not an address or a domain. */
+  readonly badLine: number | null;
+  /** The 1-based line of the first entry over 254 characters. */
+  readonly longLine: number | null;
+}
+
 /** One sender per line, lower case, trimmed, empty lines dropped, duplicates
- *  dropped. The second value is the 1-based line of the first bad entry. */
-export function parseAllowlist(text: string): { readonly senders: string[]; readonly badLine: number | null } {
+ *  dropped. The API's limits (254 characters an entry, 100 entries) are
+ *  checked here too, so the refusal names the line (C4-F item 2). */
+export function parseAllowlist(text: string): AllowlistParse {
   const senders: string[] = [];
   const lines = text.split(/\r?\n/);
   for (let index = 0; index < lines.length; index += 1) {
@@ -60,14 +72,17 @@ export function parseAllowlist(text: string): { readonly senders: string[]; read
     if (!entry) {
       continue;
     }
+    if (entry.length > MAX_SENDER_LENGTH) {
+      return { senders, badLine: null, longLine: index + 1 };
+    }
     if (!SENDER.test(entry)) {
-      return { senders, badLine: index + 1 };
+      return { senders, badLine: index + 1, longLine: null };
     }
     if (!senders.includes(entry)) {
       senders.push(entry);
     }
   }
-  return { senders, badLine: null };
+  return { senders, badLine: null, longLine: null };
 }
 
 function integer(value: string): number | null {
@@ -124,9 +139,13 @@ export function validate(state: FormState, inbox: InboxOut | null): FormErrors {
       errors.pollSeconds = strings.inboxForm.pollInvalid;
     }
   }
-  const { badLine } = parseAllowlist(state.allowlist);
-  if (badLine !== null) {
+  const { senders, badLine, longLine } = parseAllowlist(state.allowlist);
+  if (longLine !== null) {
+    errors.allowlist = fill(strings.inboxForm.allowlistTooLong, { line: longLine });
+  } else if (badLine !== null) {
     errors.allowlist = fill(strings.inboxForm.allowlistInvalid, { line: badLine });
+  } else if (senders.length > MAX_SENDERS) {
+    errors.allowlist = fill(strings.inboxForm.allowlistTooMany, { count: senders.length });
   }
   return errors;
 }
@@ -219,14 +238,19 @@ const FIELD_MAP: Record<string, keyof FormErrors> = {
 };
 
 /** The server's field errors under the form's keys. A 422 "IMAP password
- *  required" (the C4-I rule) lands on the password field. */
+ *  required" (the C4-I rule) lands on the password field. A field path that
+ *  ends in an index (body.sender_allowlist.3) lands on the list it indexes,
+ *  with the 1-based line in front of the message (C4-F item 2). */
 export function serverErrors(error: ApiError): FormErrors {
   const errors: FormErrors = {};
   for (const item of error.errors) {
-    const last = item.field.split('.').pop() ?? item.field;
+    const parts = item.field.split('.');
+    const named = parts.filter((part) => !/^\d+$/.test(part));
+    const last = named[named.length - 1] ?? item.field;
+    const index = parts[parts.length - 1] ?? '';
     const key = FIELD_MAP[last];
     if (key && !errors[key]) {
-      errors[key] = item.message;
+      errors[key] = key === 'allowlist' && /^\d+$/.test(index) ? `Line ${Number(index) + 1}: ${item.message}` : item.message;
     }
   }
   if (error.status === 422 && Object.keys(errors).length === 0 && /password/i.test(error.title)) {

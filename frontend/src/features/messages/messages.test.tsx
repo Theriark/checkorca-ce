@@ -225,4 +225,39 @@ describe('.eml upload', () => {
     expect(isTooLarge(MAX_MESSAGE_BYTES + 1)).toBe(true);
     expect(tooLargeSentence(7 * 1024 * 1024)).toBe('The file is 7.0 MB; the limit is 5 MB.');
   });
+
+  it("shows the server's 413 as one sentence, and a 404 (inbox deleted meanwhile) on the inbox field (C4-F item 5)", async () => {
+    const user = userEvent.setup();
+    let posts = 0;
+    stubFetch({
+      ...ME,
+      ...STATUS,
+      ...INBOXES,
+      ...CLIENTS,
+      'GET /api/v1/messages': { status: 200, body: { items: [], next_cursor: null } },
+      'POST /api/v1/messages/upload': () => {
+        posts += 1;
+        return posts === 1
+          ? { status: 413, body: { title: 'Message too large', status: 413, detail: 'a message may have at most 5242880 bytes.' } }
+          : { status: 404, body: { title: 'Inbox not found', status: 404 } };
+      },
+    });
+    renderApp('/messages');
+    await user.click((await screen.findAllByRole('button', { name: strings.messages.upload }))[0] as HTMLElement);
+    const dialog = await screen.findByRole('dialog', { name: strings.upload.title });
+    await user.click(within(dialog).getByRole('combobox', { name: strings.upload.inbox }));
+    await user.click(await screen.findByRole('option', { name: /Veeam reports/ }));
+    const input = within(dialog).getByLabelText(strings.upload.file) as HTMLInputElement;
+    await user.upload(input, new File(['From: a@example.test\r\nSubject: Big\r\n\r\nBody'], 'big.eml', { type: 'message/rfc822' }));
+    await user.click(within(dialog).getByRole('button', { name: strings.upload.submit }));
+    const alert = await within(dialog).findByRole('alert');
+    expect(alert.textContent).toContain('a message may have at most 5242880 bytes.');
+    expect(within(dialog).queryByText(strings.upload.inboxGone)).toBeNull();
+    await user.click(within(dialog).getByRole('button', { name: strings.upload.submit }));
+    expect(await within(dialog).findByText(strings.upload.inboxGone)).toBeTruthy();
+    expect(within(dialog).getAllByRole('alert').some((item) => item.textContent?.includes('Inbox not found'))).toBe(true);
+    // The dialog stays open on the form: the file is kept, the inbox is to be changed.
+    expect(within(dialog).getByText('big.eml')).toBeTruthy();
+    expect(posts).toBe(2);
+  });
 });

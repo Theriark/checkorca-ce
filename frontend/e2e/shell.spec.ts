@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test';
 
-import { installFakeApi } from './fakeApi';
+import { installFakeApi, installIngestApi, installParserApi } from './fakeApi';
 import { ADMIN, SCHEMES, TECHNICIAN, WIDTHS, expectAccessible, expectLogo, expectNoHorizontalOverflow, setView, shot, stubApi, watchConsole } from './helpers';
 
 const SECTIONS = ['Morning check', 'Clients', 'Jobs', 'Unmatched', 'Inboxes', 'Parsers', 'Notifications', 'System', 'Settings'];
-// Sections with a built page (C3, C4); the others still show their placeholder.
-const BUILT = ['Clients', 'Jobs', 'Inboxes'];
+// Sections with a built page (C3, C4, C5); the others still show their placeholder.
+const BUILT = ['Clients', 'Jobs', 'Unmatched', 'Inboxes', 'Parsers'];
 
 for (const scheme of SCHEMES) {
   for (const width of WIDTHS) {
@@ -68,14 +68,19 @@ for (const scheme of SCHEMES) {
 
 test('shell: every section link opens its page or a designed placeholder, never a blank page', async ({ page }) => {
   await stubApi(page, { me: ADMIN });
-  await installFakeApi(page);
+  const fake = await installFakeApi(page);
+  const ingest = await installIngestApi(page);
+  await installParserApi(page, { fake, ingest });
   await setView(page, 1440, 'light');
   await page.goto('/');
   const sidebar = page.getByRole('navigation', { name: 'Main navigation' });
   for (const section of SECTIONS) {
     await sidebar.getByRole('link', { name: section }).click();
     await expect(page.getByRole('heading', { level: 1, name: section })).toBeVisible();
-    if (BUILT.includes(section)) {
+    if (section === 'Unmatched') {
+      // A queue and a split view, not a table.
+      await expect(page.getByRole('list', { name: 'Unmatched results' })).toBeVisible();
+    } else if (BUILT.includes(section)) {
       await expect(page.getByRole('table')).toBeVisible();
     } else {
       await expect(page.getByText(/Arrives in phase C\d+/)).toBeVisible();

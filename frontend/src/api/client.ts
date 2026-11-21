@@ -12,6 +12,7 @@ import type { components } from './schema';
 
 export type Problem = components['schemas']['Problem'];
 export type FieldProblem = components['schemas']['FieldProblem'];
+export type PackProblem = components['schemas']['PackProblem'];
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
@@ -29,6 +30,9 @@ export class ApiError extends Error {
   readonly type: string;
   readonly requestId: string | null;
   readonly errors: readonly FieldProblem[];
+  /** The issues of a parser pack that does not load (422 of the pack routes):
+   *  a JSON Pointer into the pack and a message each. */
+  readonly issues: readonly PackProblem[];
   readonly retryAfterSeconds: number | null;
 
   constructor(problem: Problem, options: { requestId?: string | null; retryAfterSeconds?: number | null } = {}) {
@@ -40,6 +44,7 @@ export class ApiError extends Error {
     this.type = problem.type ?? 'about:blank';
     this.requestId = options.requestId ?? problem.request_id ?? null;
     this.errors = problem.errors ?? [];
+    this.issues = problem.issues ?? [];
     this.retryAfterSeconds = options.retryAfterSeconds ?? null;
   }
 
@@ -170,17 +175,18 @@ export const api = {
 };
 
 /**
- * Fetch a file (a CSV export) as a Blob with the session cookie. Errors are
- * problem details like everywhere else; the caller saves the Blob.
+ * Fetch a file (a CSV export, a pack's YAML) as a Blob with the session
+ * cookie. Errors are problem details like everywhere else; the caller saves
+ * the Blob. `accept` names the media type expected (text/csv by default).
  */
-export async function requestBlob(path: string, options: Pick<RequestOptions, 'query' | 'signal'> = {}): Promise<Blob> {
+export async function requestBlob(path: string, options: Pick<RequestOptions, 'query' | 'signal'> & { readonly accept?: string } = {}): Promise<Blob> {
   let response: Response;
   try {
     response = await fetch(buildUrl(path, options.query), {
       method: 'GET',
       credentials: 'same-origin',
       signal: options.signal ?? null,
-      headers: { Accept: 'text/csv, application/problem+json' },
+      headers: { Accept: `${options.accept ?? 'text/csv'}, application/problem+json` },
     });
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {

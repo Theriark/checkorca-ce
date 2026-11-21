@@ -35,7 +35,9 @@ export function InboxReadyDialog({ reveal, onClose }: InboxReadyDialogProps) {
   const open = reveal !== null;
   const rotated = reveal?.reason === 'rotated';
   const title = rotated ? strings.inboxes.tokenTitle : strings.inboxes.readyTitle;
-  const lead = rotated ? strings.inboxes.tokenLead : reveal?.token ? strings.inboxes.readyLead : strings.inboxes.readyLeadNoToken;
+  // The "shown once" sentence is said once, in the alert next to the token;
+  // the lead says something else (C4-F item 6).
+  const lead = rotated ? strings.inboxes.tokenRotatedLead : reveal?.token ? strings.inboxes.readyLead : strings.inboxes.readyLeadNoToken;
   return (
     <Dialog
       open={open}

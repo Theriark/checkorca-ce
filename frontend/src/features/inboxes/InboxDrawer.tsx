@@ -6,7 +6,7 @@
  * A new IMAP host, port, TLS setting or user name asks for the password again
  * before anything is sent; the API's own 422 lands on the same field.
  */
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 
 import { toApiError } from '../../api/client';
 import { INBOX_KINDS, type InboxCreated, type InboxKind, type InboxOut } from '../../api/inboxes';
@@ -36,21 +36,53 @@ export interface InboxDrawerProps {
   readonly onRotateToken?: (inbox: InboxOut) => void;
 }
 
+/** The radio pattern: one tab stop, arrow keys move and check (C4-F item 9). */
 function KindPicker({ value, onChange, disabled }: { readonly value: InboxKind; readonly onChange: (kind: InboxKind) => void; readonly disabled: boolean }) {
+  const refs = useRef<Map<InboxKind, HTMLButtonElement>>(new Map());
+  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    let next: number | null = null;
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+      next = (index + 1) % INBOX_KINDS.length;
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+      next = (index - 1 + INBOX_KINDS.length) % INBOX_KINDS.length;
+    } else if (event.key === 'Home') {
+      next = 0;
+    } else if (event.key === 'End') {
+      next = INBOX_KINDS.length - 1;
+    }
+    if (next === null) {
+      return;
+    }
+    event.preventDefault();
+    const kind = INBOX_KINDS[next];
+    if (kind) {
+      onChange(kind);
+      refs.current.get(kind)?.focus();
+    }
+  };
   return (
     <div className="co-kindpicker" role="radiogroup" aria-label={strings.inboxForm.kind}>
-      {INBOX_KINDS.map((kind) => {
+      {INBOX_KINDS.map((kind, index) => {
         const Icon = KIND_ICONS[kind];
         const selected = kind === value;
         return (
           <button
             key={kind}
+            ref={(node) => {
+              if (node) {
+                refs.current.set(kind, node);
+              } else {
+                refs.current.delete(kind);
+              }
+            }}
             type="button"
             role="radio"
             aria-checked={selected}
+            tabIndex={selected ? 0 : -1}
             className={selected ? 'co-kindpicker__option co-kindpicker__option--selected' : 'co-kindpicker__option'}
             disabled={disabled}
             onClick={() => onChange(kind)}
+            onKeyDown={(event) => onKeyDown(event, index)}
           >
             <span className="co-kindpicker__icon" aria-hidden="true">
               <Icon size={18} strokeWidth={1.75} />
@@ -66,7 +98,13 @@ function KindPicker({ value, onChange, disabled }: { readonly value: InboxKind; 
   );
 }
 
+/** The access card has something to say for SMTP, webhook and upload
+ *  inboxes only; an IMAP inbox has no address, URL or token, so the section
+ *  is left out rather than shown as an empty heading (C4-F item 1). */
 function AccessCard({ inbox, onRotateToken }: { readonly inbox: InboxOut; readonly onRotateToken?: (inbox: InboxOut) => void }) {
+  if (inbox.kind === 'imap') {
+    return null;
+  }
   return (
     <div className="co-form__section">
       <div className="co-form__section-title">{strings.inboxForm.sectionAccess}</div>

@@ -162,3 +162,117 @@ export function makeStatus(overrides: Partial<SystemStatus> = {}): SystemStatus 
 export const STALE_STATUS = makeStatus({
   worker: { heartbeat_at: '2026-11-19T11:40:00Z', age_seconds: 1260, stale: true, holder: 'worker-1:42', started_at: '2026-11-19T08:00:00Z' },
 });
+
+// Unmatched results, bindings, parser packs and bench answers (C5).
+import type { PackDetail, PackOut, PackTestAnswer } from '../api/packs';
+import type { Binding, UnmatchedOut } from '../api/unmatched';
+
+export function makeUnmatched(overrides: Partial<UnmatchedOut> = {}): UnmatchedOut {
+  return {
+    result_id: 'r1000000-0000-4000-8000-000000000001',
+    raw_message_id: 'm1000000-0000-4000-8000-000000000001',
+    received_at: '2026-11-19T23:05:00Z',
+    job_name: 'Nightly server backup',
+    client_hint: 'Harbourside Dental (fictional)',
+    status: 'failed',
+    ...overrides,
+  };
+}
+
+export function makeBinding(overrides: Partial<Binding> = {}): Binding {
+  return {
+    result_id: 'r1000000-0000-4000-8000-000000000001',
+    job_id: 'j1000000-0000-4000-8000-000000000001',
+    client_id: 'c1000000-0000-4000-8000-000000000001',
+    match_key_set: true,
+    current_match_key: 'Nightly server backup',
+    replaced_match_key: null,
+    client_alias_added: true,
+    reason: null,
+    also_bound: 0,
+    ...overrides,
+  };
+}
+
+export const PACK_YAML = [
+  'id: generic-keywords',
+  'version: 3',
+  'vendor: Generic',
+  'status: unverified-synthetic',
+  'match:',
+  '  any:',
+  "    - subject: '(?i)\\b(?:backup|job)\\b'",
+  'extract:',
+  '  job_name:',
+  '    in: subject',
+  "    regex: '^(?P<job_name>[^\\r\\n]{1,200}?)'",
+  'status_rules:',
+  "  - {status: failed, regex: '(?i)\\bfailed\\b', in: subject}",
+  "  - {status: success, regex: '(?i)\\bsuccess\\b'}",
+  'fixtures:',
+  '  - {name: success-plain, origin: synthetic, class: success}',
+  '',
+].join('\n');
+
+export function makePack(overrides: Partial<PackOut> = {}): PackOut {
+  return {
+    id: 'generic-keywords',
+    version: 3,
+    vendor: 'Generic',
+    status: 'unverified-synthetic',
+    source: 'builtin',
+    enabled: true,
+    created_at: '2026-11-20T09:00:00Z',
+    updated_at: '2026-11-20T09:00:00Z',
+    ...overrides,
+  };
+}
+
+export function makePackDetail(overrides: Partial<PackDetail> = {}): PackDetail {
+  return { ...makePack(), yaml: PACK_YAML, ...overrides };
+}
+
+export const CUSTOM_PACK = makePackDetail({
+  id: 'acme-backup',
+  version: 1,
+  vendor: 'Acme Backup (fictional)',
+  source: 'custom',
+  yaml: PACK_YAML.replace('id: generic-keywords', 'id: acme-backup').replace('version: 3', 'version: 1').replace('vendor: Generic', 'vendor: Acme Backup (fictional)'),
+});
+
+export const BENCH_BODY = 'Synthetic sample.\nJob: Nightly server backup\nClient: Harbourside Dental (fictional)\nStatus: Failed\nError: disk full\n';
+
+export function makeBenchAnswer(overrides: Partial<PackTestAnswer> = {}): PackTestAnswer {
+  return {
+    mail: { sender: 'backup@example.com', to: 'alerts@example.com', subject: 'Nightly server backup failed', body: BENCH_BODY, sent_at: '2026-11-20T02:14:00Z' },
+    scores: [
+      { pack_id: 'acme-backup', matched: 0 },
+      { pack_id: 'generic-keywords', matched: 1 },
+    ],
+    claimed_by: 'generic-keywords',
+    outcome: 'parsed',
+    pack_id: 'generic-keywords',
+    reason: null,
+    path: null,
+    candidates: [],
+    results: [
+      {
+        status: 'failed',
+        job_name: 'Nightly server backup',
+        client_hint: 'Harbourside Dental (fictional)',
+        started_at: null,
+        finished_at: null,
+        run_id: null,
+        details: { error: 'disk full' },
+        spans: [
+          { field: 'job_name', start: 0, end: 21, source: 'subject' },
+          { field: 'client_hint', start: BENCH_BODY.indexOf('Harbourside'), end: BENCH_BODY.indexOf('Harbourside') + 'Harbourside Dental (fictional)'.length, source: 'body' },
+          { field: 'details.error', start: BENCH_BODY.indexOf('disk full'), end: BENCH_BODY.indexOf('disk full') + 'disk full'.length, source: 'body' },
+          { field: 'status', start: 22, end: 28, source: 'subject' },
+        ],
+      },
+    ],
+    skipped: [],
+    ...overrides,
+  };
+}

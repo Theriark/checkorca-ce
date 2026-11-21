@@ -78,14 +78,27 @@ export function useArchiveClient(clientId: string) {
   });
 }
 
+/** Delete a client. Its own detail is neither invalidated nor removed here:
+ *  the detail page is still mounted when the answer arrives, and a removed or
+ *  stale query would be fetched again at once and answer 404. The page drops
+ *  it with `useForgetClient` once it has left. */
 export function useDeleteClient(clientId: string) {
   const queryClient = useQueryClient();
+  const own = clientKey(clientId);
   return useMutation({
     mutationFn: (confirmName: string) => clientsApi.remove(clientId, confirmName),
     onSuccess: () => {
-      queryClient.removeQueries({ queryKey: clientKey(clientId) });
-      void queryClient.invalidateQueries({ queryKey: CLIENTS_KEY });
+      void queryClient.invalidateQueries({
+        queryKey: CLIENTS_KEY,
+        predicate: (query) => !(query.queryKey.length === own.length && own.every((part, index) => query.queryKey[index] === part)),
+      });
       void queryClient.invalidateQueries({ queryKey: ['jobs'] });
     },
   });
+}
+
+/** Drop a deleted client's detail from the cache, after its page is gone. */
+export function useForgetClient(clientId: string) {
+  const queryClient = useQueryClient();
+  return () => queryClient.removeQueries({ queryKey: clientKey(clientId) });
 }
