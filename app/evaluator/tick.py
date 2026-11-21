@@ -14,11 +14,12 @@
    of the tick: each batch asks the SuppressionProvider for maintenance
    windows, then in one transaction claims its jobs (EvaluationRepository.
    claim: locks without waiting and leaves out a job that is locked, was
-   deleted or was evaluated by another worker meanwhile), reads their
-   occurrences (and the newest closed ones before the window) and results,
-   evaluates every job (app/evaluator/machine.py) and writes the changes. A
-   batch that fails (a conflicting change, a provider error) is rolled back
-   and evaluated again on the next tick.
+   deleted, changed (updated_at, client, the client's archived flag) or was
+   evaluated by another worker meanwhile), reads their occurrences (and the
+   newest closed ones before the window) and results, evaluates every job
+   (app/evaluator/machine.py) and writes the changes. A batch that fails (a
+   conflicting change, a provider error) is rolled back and evaluated again
+   on the next tick.
 4. After the commit, OccurrenceChanged and FlipCreated go to every
    EventSubscriber (app/ext/events.py); an error of a subscriber is logged
    and never stops the tick.
@@ -179,7 +180,8 @@ class Plan:
     flips: list[dict[str, Any]] = field(default_factory=list)
     events: list[Event] = field(default_factory=list)
     evaluated: int = 0
-    # Jobs left out by the claim: locked, deleted or evaluated meanwhile.
+    # Jobs left out by the claim: locked, deleted, changed or evaluated
+    # meanwhile.
     stale: int = 0
 
     @property

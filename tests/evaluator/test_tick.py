@@ -747,6 +747,8 @@ async def test_a_locked_job_state_row_is_not_taken_for_a_missing_one(
         held = select(JobStateRecord).where(JobStateRecord.job_id == job.id)
         await other.execute(held.with_for_update())
         async with session(db_engine) as batch:
+            # A wait for the held row fails the test instead of hanging it.
+            await batch.execute(text("SET LOCAL lock_timeout = '2s'"))
             repository = EvaluationRepository(batch, AllowAllPolicy())
             assert await repository.claim(SYSTEM, stale) == set()
             await batch.rollback()
@@ -763,11 +765,19 @@ async def test_a_client_being_deleted_is_left_out_without_waiting(
 ) -> None:
     # Without SKIP LOCKED the batch would wait for the delete below for ever;
     # a lock timeout on the worker's connections turns that into an error.
+    # The driver runs the SET in a transaction, so commit it: a rollback (the
+    # first session closing) would undo it on the pooled connection.
     @event.listens_for(context.engine.sync_engine, "connect")
     def bounded(connection: Any, record: Any) -> None:
         cursor = connection.cursor()
         cursor.execute("SET lock_timeout = '2s'")
         cursor.close()
+        connection.commit()
+
+    async with context.sessionmaker() as first:
+        await first.execute(text("SELECT 1"))
+    async with context.sessionmaker() as second:
+        assert await second.scalar(text("SHOW lock_timeout")) == "2s"
 
     client = await add_client(db_engine)
     await add_job(db_engine, client)
