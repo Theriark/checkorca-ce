@@ -1,0 +1,148 @@
+# Daylight saving nights in Europe/Lisbon (28 March and 31 October 2027) and
+# America/New_York (14 March and 7 November 2027), with the DST policy of
+# docs/schedules.md. Deadlines are elapsed time. Synthetic data.
+
+- name: Lisbon daily 01:30 on the spring day runs once at the end of the gap
+  job: {schedule: daily 01:30, timezone: Europe/Lisbon, created: 2027-03-27T12:00:00Z}
+  steps:
+    - at: 2027-03-28T02:00:00Z
+      results:
+        - {id: r1, status: success, finished: 2027-03-28T01:20:00Z, received: 2027-03-28T01:21:00Z}
+      occurrences: {2027-03-28T01:00:00Z: {state: verified, result: r1}}
+      count: 1
+      state: ok
+
+- name: Lisbon daily 01:30 on the autumn day runs once, at the first 01:30
+  job: {schedule: daily 01:30, timezone: Europe/Lisbon, created: 2027-10-30T12:00:00Z}
+  steps:
+    - at: 2027-10-31T03:00:00Z
+      results:
+        - {id: r1, status: success, finished: 2027-10-31T00:45:00Z, received: 2027-10-31T00:46:00Z}
+      occurrences: {2027-10-31T00:30:00Z: verified}
+      absent: [2027-10-31T01:30:00Z]
+      count: 1
+      state: ok
+
+- name: Lisbon nightly 23:00 keeps one run a night across the spring change
+  job: {schedule: daily 23:00, timezone: Europe/Lisbon, created: 2027-03-26T12:00:00Z}
+  steps:
+    - at: 2027-03-29T06:00:00Z
+      results:
+        - {id: r1, status: success, finished: 2027-03-26T23:30:00Z, received: 2027-03-26T23:31:00Z}
+        - {id: r2, status: success, finished: 2027-03-27T23:30:00Z, received: 2027-03-27T23:31:00Z}
+        - {id: r3, status: success, finished: 2027-03-28T22:30:00Z, received: 2027-03-28T22:31:00Z}
+      occurrences:
+        2027-03-26T23:00:00Z: {state: verified, result: r1}
+        2027-03-27T23:00:00Z: {state: verified, result: r2}
+        2027-03-28T22:00:00Z: {state: verified, result: r3}
+      count: 3
+      state: ok
+
+- name: Lisbon deadline across the spring night is elapsed time
+  job: {schedule: daily 23:00, timezone: Europe/Lisbon, created: 2027-03-27T12:00:00Z}
+  steps:
+    - at: 2027-03-28T06:59:00Z
+      occurrences: {2027-03-27T23:00:00Z: pending}
+    - at: 2027-03-28T07:00:00Z
+      occurrences: {2027-03-27T23:00:00Z: overdue}
+    - at: 2027-03-28T07:30:00Z
+      occurrences: {2027-03-27T23:00:00Z: missed}
+      state: missed
+      flips: [unknown>missed]
+
+- name: Lisbon nightly 23:00 across the autumn change
+  job: {schedule: daily 23:00, timezone: Europe/Lisbon, created: 2027-10-30T12:00:00Z}
+  steps:
+    - at: 2027-11-01T06:00:00Z
+      results:
+        - {id: r1, status: success, finished: 2027-10-30T22:30:00Z, received: 2027-10-30T22:31:00Z}
+        - {id: r2, status: failed, finished: 2027-10-31T23:30:00Z, received: 2027-10-31T23:31:00Z}
+      occurrences:
+        2027-10-30T22:00:00Z: {state: verified, result: r1}
+        2027-10-31T23:00:00Z: {state: failed, result: r2}
+      count: 2
+      state: failing
+
+- name: New York daily 02:30 on the spring day runs at 03:00 EDT
+  job: {schedule: daily 02:30, timezone: America/New_York, created: 2027-03-13T12:00:00Z}
+  steps:
+    - at: 2027-03-14T08:00:00Z
+      results:
+        - {id: r1, status: success, finished: 2027-03-14T07:20:00Z, received: 2027-03-14T07:21:00Z}
+      occurrences: {2027-03-14T07:00:00Z: {state: verified, result: r1}}
+      count: 1
+      state: ok
+
+- name: New York daily 01:30 on the autumn day runs once
+  job: {schedule: daily 01:30, timezone: America/New_York, created: 2027-11-06T12:00:00Z}
+  steps:
+    - at: 2027-11-07T07:00:00Z
+      results:
+        - {id: r1, status: success, finished: 2027-11-07T05:50:00Z, received: 2027-11-07T05:51:00Z}
+      occurrences: {2027-11-07T05:30:00Z: verified}
+      absent: [2027-11-07T06:30:00Z]
+      count: 1
+      state: ok
+
+- name: New York nightly 23:00 across the autumn change
+  job: {schedule: daily 23:00, timezone: America/New_York, created: 2027-11-06T12:00:00Z}
+  steps:
+    - at: 2027-11-08T12:00:00Z
+      results:
+        - {id: r1, status: success, finished: 2027-11-07T03:30:00Z, received: 2027-11-07T03:31:00Z}
+        - {id: r2, status: success, finished: 2027-11-08T04:30:00Z, received: 2027-11-08T04:31:00Z}
+      occurrences:
+        2027-11-07T03:00:00Z: {state: verified, result: r1}
+        2027-11-08T04:00:00Z: {state: verified, result: r2}
+      count: 2
+      state: ok
+
+- name: New York hourly through the repeated hour expects both 01:00 runs
+  job:
+    schedule: cron 0 * * * *
+    timezone: America/New_York
+    created: 2027-11-07T04:30:00Z
+    max_runtime: 30
+    grace: 15
+    escalate: 10
+  steps:
+    - at: 2027-11-07T06:30:00Z
+      results:
+        - {id: r1, status: success, finished: 2027-11-07T05:20:00Z, received: 2027-11-07T05:21:00Z}
+      occurrences:
+        2027-11-07T05:00:00Z: {state: verified, result: r1}
+        2027-11-07T06:00:00Z: pending
+      count: 2
+      state: ok
+
+- name: Lisbon cron 30 * on the spring day expects no run for the skipped 01:30
+  job:
+    schedule: cron 30 * * * *
+    timezone: Europe/Lisbon
+    created: 2027-03-27T23:00:00Z
+    max_runtime: 5
+    grace: 5
+    escalate: 5
+  steps:
+    - at: 2027-03-28T02:00:00Z
+      results:
+        - {id: r1, status: success, finished: 2027-03-27T23:35:00Z, received: 2027-03-27T23:35:30Z}
+        - {id: r2, status: success, finished: 2027-03-28T00:35:00Z, received: 2027-03-28T00:35:30Z}
+        - {id: r3, status: success, finished: 2027-03-28T01:35:00Z, received: 2027-03-28T01:35:30Z}
+      occurrences:
+        2027-03-27T23:30:00Z: {state: verified, result: r1}
+        2027-03-28T00:30:00Z: {state: verified, result: r2}
+        2027-03-28T01:30:00Z: {state: verified, result: r3}
+      absent: [2027-03-28T01:00:00Z]
+      count: 3
+      state: ok
+
+- name: Lisbon cron with a fixed hour in the spring gap runs at the end of it
+  job: {schedule: cron 30 1 * * *, timezone: Europe/Lisbon, created: 2027-03-27T12:00:00Z}
+  steps:
+    - at: 2027-03-28T02:00:00Z
+      results:
+        - {id: r1, status: success, finished: 2027-03-28T01:20:00Z, received: 2027-03-28T01:21:00Z}
+      occurrences: {2027-03-28T01:00:00Z: {state: verified, result: r1}}
+      count: 1
+      state: ok

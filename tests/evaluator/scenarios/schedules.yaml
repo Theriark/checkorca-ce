@@ -1,0 +1,176 @@
+# Interval and multi-time schedules, escalation 0, schedule changes, the
+# 14-day window and pings. Synthetic data.
+
+- name: an interval job every 6 hours counts from its creation
+  job:
+    schedule: interval 6h
+    timezone: UTC
+    created: 2027-01-04T00:00:00Z
+    max_runtime: 30
+    grace: 30
+    escalate: 30
+  steps:
+    - at: 2027-01-04T13:30:00Z
+      results:
+        - {id: r1, status: success, finished: 2027-01-04T06:10:00Z, received: 2027-01-04T06:10:05Z}
+        - {id: r2, status: success, finished: 2027-01-04T12:20:00Z, received: 2027-01-04T12:20:05Z}
+      occurrences:
+        2027-01-04T06:00:00Z: {state: verified, result: r1}
+        2027-01-04T12:00:00Z: {state: verified, result: r2}
+      absent: [2027-01-04T00:00:00Z, 2027-01-04T18:00:00Z]
+      count: 2
+      state: ok
+
+- name: an interval job that goes silent is overdue, then missed
+  job:
+    schedule: interval 6h
+    timezone: UTC
+    created: 2027-01-04T00:00:00Z
+    max_runtime: 30
+    grace: 30
+    escalate: 30
+  steps:
+    - at: 2027-01-04T07:00:00Z
+      occurrences: {2027-01-04T06:00:00Z: overdue}
+      flips: []
+    - at: 2027-01-04T07:30:00Z
+      occurrences: {2027-01-04T06:00:00Z: missed}
+      state: missed
+      flips: [unknown>missed]
+
+- name: escalation 0 makes silence missed at the deadline
+  job: {schedule: daily 23:00, created: 2027-01-04T12:00:00Z, escalate: 0}
+  steps:
+    - at: 2027-01-05T06:59:00Z
+      occurrences: {2027-01-04T23:00:00Z: pending}
+    - at: 2027-01-05T07:00:00Z
+      occurrences: {2027-01-04T23:00:00Z: missed}
+      state: missed
+      flips: [unknown>missed]
+
+- name: two daily times, the newest closed run decides
+  job:
+    schedule: daily 06:00, 18:00
+    created: 2027-01-04T00:00:00Z
+    max_runtime: 60
+    grace: 30
+    escalate: 30
+  steps:
+    - at: 2027-01-04T19:00:00Z
+      results:
+        - {id: r1, status: success, finished: 2027-01-04T06:20:00Z, received: 2027-01-04T06:21:00Z}
+      occurrences:
+        2027-01-04T06:00:00Z: verified
+        2027-01-04T18:00:00Z: pending
+      state: ok
+      flips: [unknown>ok]
+    - at: 2027-01-04T20:00:00Z
+      occurrences: {2027-01-04T18:00:00Z: missed}
+      state: missed
+      flips: [ok>missed]
+    - at: 2027-01-05T07:00:00Z
+      results:
+        - {id: r2, status: success, finished: 2027-01-05T06:30:00Z, received: 2027-01-05T06:31:00Z}
+      occurrences: {2027-01-05T06:00:00Z: verified}
+      state: ok
+      flips: [missed>ok]
+      reason: "Recovered: the run due 2027-01-05T06:00:00Z was verified"
+
+- name: a changed schedule removes the open run it no longer has
+  job: {schedule: daily 23:00, created: 2027-01-04T12:00:00Z}
+  steps:
+    - at: 2027-01-05T01:00:00Z
+      occurrences: {2027-01-04T23:00:00Z: pending}
+    - at: 2027-01-05T01:55:00Z
+      job: {schedule: daily 02:00}
+      absent: [2027-01-04T23:00:00Z]
+      occurrences: {2027-01-05T02:00:00Z: pending}
+      count: 1
+
+- name: a changed schedule keeps closed runs as history
+  job: {schedule: daily 23:00, created: 2027-01-04T12:00:00Z}
+  steps:
+    - at: 2027-01-05T01:00:00Z
+      results:
+        - {id: r1, status: success, finished: 2027-01-05T00:30:00Z, received: 2027-01-05T00:31:00Z}
+      state: ok
+    - at: 2027-01-05T01:55:00Z
+      job: {schedule: daily 02:00}
+      occurrences:
+        2027-01-04T23:00:00Z: verified
+        2027-01-05T02:00:00Z: pending
+      count: 2
+      state: ok
+      flips: []
+
+- name: occurrences cover the last 14 days only
+  job: {schedule: daily 23:00, created: 2026-12-01T00:00:00Z}
+  steps:
+    - at: 2027-01-05T00:00:00Z
+      occurrences:
+        2026-12-22T23:00:00Z: missed
+        2027-01-03T23:00:00Z: missed
+        2027-01-04T23:00:00Z: pending
+      absent: [2026-12-21T23:00:00Z]
+      count: 14
+      state: missed
+      consecutive_failures: 13
+      flips: [unknown>missed]
+      reason: was missed; 13 in a row
+
+- name: a run, grace and escalation over 13 days widen the window
+  job:
+    schedule: daily 23:00
+    created: 2026-12-01T00:00:00Z
+    max_runtime: 10080
+    grace: 10080
+    escalate: 0
+  steps:
+    - at: 2027-01-05T00:00:00Z
+      occurrences:
+        2026-12-21T23:00:00Z: missed
+        2026-12-22T23:00:00Z: pending
+      absent: [2026-12-20T23:00:00Z]
+      count: 15
+      state: missed
+
+- name: a ping start then success is running, then verified
+  job: {schedule: daily 23:00, created: 2027-01-04T12:00:00Z}
+  steps:
+    - at: 2027-01-04T23:05:00Z
+      results:
+        - {id: s1, status: started, received: 2027-01-04T23:00:02Z}
+      occurrences: {2027-01-04T23:00:00Z: {state: running, result: s1}}
+      state: unknown
+    - at: 2027-01-04T23:45:00Z
+      results:
+        - {id: r1, status: success, received: 2027-01-04T23:40:00Z}
+      occurrences: {2027-01-04T23:00:00Z: {state: verified, result: r1}}
+      state: ok
+      flips: [unknown>ok]
+
+- name: a ping start then fail is failed
+  job: {schedule: daily 23:00, created: 2027-01-04T12:00:00Z}
+  steps:
+    - at: 2027-01-04T23:45:00Z
+      results:
+        - {id: s1, status: started, received: 2027-01-04T23:00:02Z}
+        - {id: f1, status: failed, received: 2027-01-04T23:40:00Z}
+      occurrences: {2027-01-04T23:00:00Z: {state: failed, result: f1}}
+      state: failing
+      flips: [unknown>failing]
+
+- name: a second result for a verified run makes no new flip
+  job: {schedule: daily 23:00, created: 2027-01-04T12:00:00Z}
+  steps:
+    - at: 2027-01-05T01:00:00Z
+      results:
+        - {id: r1, status: success, finished: 2027-01-05T00:30:00Z, received: 2027-01-05T00:31:00Z}
+      flips: [unknown>ok]
+    - at: 2027-01-05T02:00:00Z
+      results:
+        - {id: r2, status: success, finished: 2027-01-05T01:30:00Z, received: 2027-01-05T01:31:00Z}
+      occurrences: {2027-01-04T23:00:00Z: {state: verified, result: r2}}
+      last_success_at: 2027-01-05T01:30:00Z
+      state: ok
+      flips: []

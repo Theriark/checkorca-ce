@@ -1,0 +1,93 @@
+# consecutive_failures_to_alert: below the threshold a failed or missed run
+# shows as warning; the flip to failing or missed comes once the count
+# reaches it. Daily 23:00 Europe/Lisbon. Synthetic data.
+
+- name: three failures in a row reach a threshold of 3
+  job: {schedule: daily 23:00, created: 2027-01-01T12:00:00Z, threshold: 3}
+  steps:
+    - at: 2027-01-02T01:00:00Z
+      results:
+        - {id: r1, status: failed, finished: 2027-01-02T00:30:00Z, received: 2027-01-02T00:31:00Z}
+      occurrences: {2027-01-01T23:00:00Z: failed}
+      state: warning
+      consecutive_failures: 1
+      flips: [unknown>warning]
+      reason: failed; 1 of 3 failures before an alert
+    - at: 2027-01-03T01:00:00Z
+      results:
+        - {id: r2, status: failed, finished: 2027-01-03T00:30:00Z, received: 2027-01-03T00:31:00Z}
+      state: warning
+      consecutive_failures: 2
+      flips: []
+    - at: 2027-01-04T01:00:00Z
+      results:
+        - {id: r3, status: failed, finished: 2027-01-04T00:30:00Z, received: 2027-01-04T00:31:00Z}
+      state: failing
+      consecutive_failures: 3
+      flips: [warning>failing]
+      reason: failed; 3 in a row
+    - at: 2027-01-05T01:00:00Z
+      results:
+        - {id: r4, status: success, finished: 2027-01-05T00:30:00Z, received: 2027-01-05T00:31:00Z}
+      state: ok
+      consecutive_failures: 0
+      flips: [failing>ok]
+      reason: "Recovered:"
+
+- name: missed runs reach the threshold as missed
+  job: {schedule: daily 23:00, created: 2027-01-01T12:00:00Z, threshold: 2}
+  steps:
+    - at: 2027-01-02T07:30:00Z
+      occurrences: {2027-01-01T23:00:00Z: missed}
+      state: warning
+      flips: [unknown>warning]
+      reason: was missed; 1 of 2 failures before an alert
+    - at: 2027-01-03T07:30:00Z
+      occurrences: {2027-01-02T23:00:00Z: missed}
+      state: missed
+      consecutive_failures: 2
+      flips: [warning>missed]
+
+- name: a success in between resets the count
+  job: {schedule: daily 23:00, created: 2027-01-01T12:00:00Z, threshold: 2}
+  steps:
+    - at: 2027-01-02T01:00:00Z
+      results:
+        - {id: r1, status: failed, finished: 2027-01-02T00:30:00Z, received: 2027-01-02T00:31:00Z}
+      state: warning
+      flips: [unknown>warning]
+    - at: 2027-01-03T01:00:00Z
+      results:
+        - {id: r2, status: success, finished: 2027-01-03T00:30:00Z, received: 2027-01-03T00:31:00Z}
+      state: ok
+      consecutive_failures: 0
+      flips: [warning>ok]
+    - at: 2027-01-04T01:00:00Z
+      results:
+        - {id: r3, status: failed, finished: 2027-01-04T00:30:00Z, received: 2027-01-04T00:31:00Z}
+      state: warning
+      consecutive_failures: 1
+      flips: [ok>warning]
+
+- name: a failure and then a missed run count together
+  job: {schedule: daily 23:00, created: 2027-01-01T12:00:00Z, threshold: 2}
+  steps:
+    - at: 2027-01-02T01:00:00Z
+      results:
+        - {id: r1, status: failed, finished: 2027-01-02T00:30:00Z, received: 2027-01-02T00:31:00Z}
+      state: warning
+    - at: 2027-01-03T07:30:00Z
+      occurrences:
+        2027-01-01T23:00:00Z: failed
+        2027-01-02T23:00:00Z: missed
+      state: missed
+      consecutive_failures: 2
+      flips: [warning>missed]
+
+- name: a threshold of 1 alerts on the first missed run
+  job: {schedule: daily 23:00, created: 2027-01-01T12:00:00Z, threshold: 1}
+  steps:
+    - at: 2027-01-02T07:30:00Z
+      state: missed
+      consecutive_failures: 1
+      flips: [unknown>missed]

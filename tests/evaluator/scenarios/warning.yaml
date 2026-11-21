@@ -1,0 +1,85 @@
+# warning_policy both ways, and unknown results. Daily 23:00 Europe/Lisbon.
+# Synthetic data.
+
+- name: a warning needs attention under the default policy
+  job: {schedule: daily 23:00, created: 2027-01-04T12:00:00Z}
+  steps:
+    - at: 2027-01-05T01:00:00Z
+      results:
+        - {id: r1, status: warning, finished: 2027-01-05T00:30:00Z, received: 2027-01-05T00:31:00Z}
+      occurrences: {2027-01-04T23:00:00Z: {state: warning, result: r1, note: null}}
+      state: warning
+      last_success_at: null
+      flips: [unknown>warning]
+      reason: ended with a warning
+
+- name: a warning counts as success under warning_counts_ok
+  job: {schedule: daily 23:00, created: 2027-01-04T12:00:00Z, warning_policy: warning_counts_ok}
+  steps:
+    - at: 2027-01-05T01:00:00Z
+      results:
+        - {id: r1, status: warning, finished: 2027-01-05T00:30:00Z, received: 2027-01-05T00:31:00Z}
+      occurrences:
+        2027-01-04T23:00:00Z: {state: verified, result: r1, note: warning counted as success}
+      state: ok
+      last_success_at: 2027-01-05T00:30:00Z
+      flips: [unknown>ok]
+
+- name: a warning then a success is verified
+  job: {schedule: daily 23:00, created: 2027-01-04T12:00:00Z}
+  steps:
+    - at: 2027-01-05T01:00:00Z
+      results:
+        - {id: r1, status: warning, finished: 2027-01-05T00:10:00Z, received: 2027-01-05T00:11:00Z}
+        - {id: r2, status: success, finished: 2027-01-05T00:40:00Z, received: 2027-01-05T00:41:00Z}
+      occurrences: {2027-01-04T23:00:00Z: {state: verified, result: r2, note: null}}
+      state: ok
+
+- name: a success then a warning is a warning
+  job: {schedule: daily 23:00, created: 2027-01-04T12:00:00Z}
+  steps:
+    - at: 2027-01-05T01:00:00Z
+      results:
+        - {id: r1, status: success, finished: 2027-01-05T00:10:00Z, received: 2027-01-05T00:11:00Z}
+        - {id: r2, status: warning, finished: 2027-01-05T00:40:00Z, received: 2027-01-05T00:41:00Z}
+      occurrences: {2027-01-04T23:00:00Z: {state: warning, result: r2}}
+      state: warning
+
+- name: a failure then a warning under warning_counts_ok is verified
+  job: {schedule: daily 23:00, created: 2027-01-04T12:00:00Z, warning_policy: warning_counts_ok}
+  steps:
+    - at: 2027-01-05T00:20:00Z
+      results:
+        - {id: r1, status: failed, finished: 2027-01-05T00:10:00Z, received: 2027-01-05T00:11:00Z}
+      state: failing
+    - at: 2027-01-05T01:00:00Z
+      results:
+        - {id: r2, status: warning, finished: 2027-01-05T00:40:00Z, received: 2027-01-05T00:41:00Z}
+      occurrences: {2027-01-04T23:00:00Z: verified}
+      state: ok
+      flips: [failing>ok]
+
+- name: an unknown result never verifies a run
+  job: {schedule: daily 23:00, created: 2027-01-04T12:00:00Z}
+  steps:
+    - at: 2027-01-05T01:00:00Z
+      results:
+        - {id: u1, status: unknown, received: 2027-01-04T23:30:00Z}
+      occurrences:
+        2027-01-04T23:00:00Z: {state: pending, result: null, note: unknown result ignored}
+      state: unknown
+    - at: 2027-01-05T07:30:00Z
+      occurrences:
+        2027-01-04T23:00:00Z: {state: missed, note: unknown result ignored}
+      state: missed
+      flips: [unknown>missed]
+
+- name: a start with an unknown end is still running
+  job: {schedule: daily 23:00, created: 2027-01-04T12:00:00Z}
+  steps:
+    - at: 2027-01-05T01:00:00Z
+      results:
+        - {id: s1, status: started, started: 2027-01-04T23:00:00Z, received: 2027-01-04T23:00:01Z}
+        - {id: u1, status: unknown, received: 2027-01-05T00:30:00Z}
+      occurrences:
+        2027-01-04T23:00:00Z: {state: running, result: s1, note: unknown result ignored}
