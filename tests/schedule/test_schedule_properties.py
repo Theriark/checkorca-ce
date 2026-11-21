@@ -17,6 +17,7 @@ ZONES = (
     "America/New_York",
     "UTC",
     "Australia/Lord_Howe",  # 30-minute DST change
+    "Antarctica/Troll",  # 2-hour DST change: next_n's one-hour probes (L4)
     "Asia/Kolkata",
 )
 # Around the 2027 changes of the zones above, and a quiet day.

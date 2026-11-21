@@ -49,6 +49,9 @@ OPTIONAL_VARIABLES = (
 )
 # Emptied before each database test; settings keeps its single row.
 TABLES = (
+    "flip",
+    "occurrence",
+    "job_state",
     "parser_pack",
     "worker_heartbeat",
     "job_result",

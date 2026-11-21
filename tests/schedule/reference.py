@@ -7,7 +7,8 @@ docs/spikes.md) is applied on top:
 
 - a fixed-hour schedule keeps only the first of the two repeated instances
   (fold 0 after astimezone);
-- a wall time that falls in a gap fires once, at the first instant after it.
+- a wall time that falls in a gap fires once, at the first instant after it,
+  unless the hour is * or */n: such a schedule follows cron and skips it.
 
 Cron support is the plain numeric subset: *, */n, a, a-b, a-b/n and lists, in
 five fields, with day of month and day of week combined by OR when both are
@@ -92,7 +93,11 @@ def cron_occurrences(
     for moment in _minutes(start - MINUTE, end):
         local = moment.astimezone(zone)
         wall = local.replace(tzinfo=None)
-        if previous_wall is not None and wall - previous_wall > MINUTE:
+        if (
+            previous_wall is not None
+            and wall - previous_wall > MINUTE
+            and not cron.wildcard_hour
+        ):
             skipped = previous_wall + MINUTE
             while skipped < wall:
                 if cron.matches(skipped) and moment >= start:

@@ -7,7 +7,7 @@ map.
 """
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -17,7 +17,17 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from app.access import SYSTEM, AllowAllPolicy
 from app.db.base import Base
-from app.db.models import AppUser, AuditEvent, Client, Job, JobResult, RawMessage
+from app.db.models import (
+    AppUser,
+    AuditEvent,
+    Client,
+    Flip,
+    Job,
+    JobResult,
+    JobStateRecord,
+    Occurrence,
+    RawMessage,
+)
 from app.ingest.results import ParsedResult
 from app.ingest.store import record_result, store_raw
 from app.repos.client_delete import CLIENT_DELETE_MAP
@@ -128,6 +138,62 @@ async def add_evidence(
     return shared.id
 
 
+async def add_evaluation(
+    engine: AsyncEngine,
+    client_id: uuid.UUID,
+    job_id: uuid.UUID,
+    other_client: uuid.UUID,
+    other_job: uuid.UUID,
+) -> uuid.UUID:
+    """Evaluator rows around one client; returns the flip that must stay.
+
+    An occurrence of the client's job decided by one of its results, the
+    job's job_state row, a flip of the job, and a flip made while the other
+    client's job still belonged to this client (a moved job).
+    """
+    night = datetime(2027, 1, 3, 23, tzinfo=UTC)
+    async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+        query = select(JobResult.id).where(JobResult.job_id == job_id).limit(1)
+        result_id = (await db.execute(query)).scalar_one()
+        db.add(
+            Occurrence(
+                job_id=job_id,
+                scheduled_for=night,
+                deadline=night + timedelta(hours=8),
+                state="verified",
+                result_id=result_id,
+                evaluated_at=RECEIVED,
+            )
+        )
+        db.add(
+            JobStateRecord(
+                job_id=job_id,
+                state="ok",
+                since=RECEIVED,
+                evaluated_at=RECEIVED,
+                job_updated_at=RECEIVED,
+            )
+        )
+        flips = [
+            Flip(
+                job_id=job,
+                client_id=client,
+                from_state="unknown",
+                to_state="ok",
+                reason="The run due 2027-01-03T23:00:00Z was verified",
+                at=RECEIVED,
+            )
+            for job, client in (
+                (job_id, client_id),
+                (other_job, client_id),
+                (other_job, other_client),
+            )
+        ]
+        db.add_all(flips)
+        await db.commit()
+    return flips[-1].id
+
+
 async def rows_of(engine: AsyncEngine, client_id: uuid.UUID) -> dict[str, int]:
     """For each table of the map, the rows that belong to the client."""
     counts: dict[str, int] = {}
@@ -159,8 +225,23 @@ async def test_delete_removes_the_client_and_its_rows_only(
     kept_message = await add_evidence(
         db_engine, dental_id, uuid.UUID(jobs[0]["id"]), uuid.UUID(kept_job["id"])
     )
+    kept_flip = await add_evaluation(
+        db_engine,
+        dental_id,
+        uuid.UUID(jobs[0]["id"]),
+        uuid.UUID(freight["id"]),
+        uuid.UUID(kept_job["id"]),
+    )
     before = await rows_of(db_engine, dental_id)
-    assert before == {"job_result": 3, "raw_message": 1, "job": 2, "client": 1}
+    assert before == {
+        "flip": 2,
+        "occurrence": 1,
+        "job_state": 1,
+        "job_result": 3,
+        "raw_message": 1,
+        "job": 2,
+        "client": 1,
+    }
 
     wrong = await client.delete(
         f"/api/v1/clients/{dental['id']}",
@@ -177,6 +258,9 @@ async def test_delete_removes_the_client_and_its_rows_only(
     )
     assert deleted.status_code == 204
     assert await rows_of(db_engine, dental_id) == {
+        "flip": 0,
+        "occurrence": 0,
+        "job_state": 0,
         "job_result": 0,
         "raw_message": 0,
         "job": 0,
@@ -196,6 +280,13 @@ async def test_delete_removes_the_client_and_its_rows_only(
         assert results == [uuid.UUID(kept_job["id"])]
         clients = (await connection.execute(select(Client.name))).scalars()
         assert list(clients) == [FREIGHT]
+        # The other client's own flip of its job stays; no evaluator row of the
+        # deleted client is left.
+        kept = (await connection.execute(select(Flip.id))).scalars().all()
+        assert kept == [kept_flip]
+        for table in (Occurrence, JobStateRecord):
+            query = select(func.count()).select_from(table)
+            assert (await connection.execute(query)).scalar_one() == 0
         query = select(AuditEvent).where(AuditEvent.action == "client.delete")
         audit = (await connection.execute(query)).one()
     # Only the id and the user: no name, notes or counts of the client.

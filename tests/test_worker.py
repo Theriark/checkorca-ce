@@ -301,5 +301,6 @@ def test_the_heartbeat_is_stale_after_3_minutes() -> None:
 def test_core_packages_exist_for_the_strict_gates(name: str) -> None:
     # mypy strict and the 95 percent coverage gate apply to these packages.
     exported = importlib.import_module(name).__all__
-    # The schedule library is built (phase C3); the others are still empty.
-    assert bool(exported) == (name == "app.schedule")
+    # The schedule library (C3) and the evaluator (C7) export their API; the
+    # parsers are used through their modules.
+    assert bool(exported) == (name != "app.parsers")

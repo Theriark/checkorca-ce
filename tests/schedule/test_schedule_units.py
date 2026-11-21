@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+import reference
 from app.schedule import (
     ScheduleError,
     ScheduleSpec,
@@ -73,20 +74,51 @@ def test_the_wildcard_hour_rule() -> None:
 
 def test_wall_time_rules_in_lisbon() -> None:
     # Normal, gap (spring) and repeated (autumn) wall times.
-    assert instants(datetime(2027, 1, 4, 23), LISBON, keep_repeat=False) == [
+    assert instants(datetime(2027, 1, 4, 23), LISBON, every_real_hour=False) == [
         datetime(2027, 1, 4, 23, tzinfo=UTC)
     ]
-    assert instants(datetime(2027, 3, 28, 1, 30), LISBON, keep_repeat=True) == [
+    gap = datetime(2027, 3, 28, 1, 30)
+    assert instants(gap, LISBON, every_real_hour=False) == [
         datetime(2027, 3, 28, 1, tzinfo=UTC)
     ]
+    # A * or */n hour follows cron: the skipped wall time does not fire (L1).
+    assert instants(gap, LISBON, every_real_hour=True) == []
     repeated = datetime(2027, 10, 31, 1, 30)
-    assert instants(repeated, LISBON, keep_repeat=False) == [
+    assert instants(repeated, LISBON, every_real_hour=False) == [
         datetime(2027, 10, 31, 0, 30, tzinfo=UTC)
     ]
-    assert instants(repeated, LISBON, keep_repeat=True) == [
+    assert instants(repeated, LISBON, every_real_hour=True) == [
         datetime(2027, 10, 31, 0, 30, tzinfo=UTC),
         datetime(2027, 10, 31, 1, 30, tzinfo=UTC),
     ]
+
+
+@pytest.mark.parametrize(
+    ("expr", "zone", "start", "expected"),
+    [
+        # 01:30 Lisbon does not exist on 28 March 2027: no run for it.
+        ("30 * * * *", "Europe/Lisbon", "2027-03-28T00:00", ["00:30", "01:30"]),
+        ("*/20 * * * *", "Europe/Lisbon", "2027-03-28T00:00", ["00:00", "00:20"]),
+        # 02:30 New York does not exist on 14 March 2027.
+        ("30 * * * *", "America/New_York", "2027-03-14T05:00", ["05:30", "06:30"]),
+        ("*/20 * * * *", "America/New_York", "2027-03-14T06:00", ["06:00", "06:20"]),
+    ],
+)
+def test_an_every_hour_cron_follows_cron_in_the_spring_gap(
+    expr: str, zone: str, start: str, expected: list[str]
+) -> None:
+    """L1 of the C3 review, decided in C7: a * or */n hour skips the wall
+    times of the gap instead of firing at its end, as cron does, so the
+    evaluator expects no extra run there. Compared with the reference too."""
+    begin = datetime.fromisoformat(start).replace(tzinfo=UTC)
+    end = begin + timedelta(hours=3)
+    found = occurrences(parse_spec("cron", expr, zone), begin, end)
+    assert found == reference.cron_occurrences(expr, zone, begin, end)
+    times = [moment.strftime("%H:%M") for moment in found]
+    assert times[: len(expected)] == expected
+    gap_end = {"Europe/Lisbon": "01:00", "America/New_York": "07:00"}[zone]
+    if not expr.startswith("*/"):
+        assert gap_end not in times
 
 
 def test_times_must_be_aware() -> None:

@@ -1,0 +1,151 @@
+# Pause (or archive) and maintenance windows. A suppressed job keeps its
+# state, loses its open runs and makes no flip; when it comes back, runs
+# start again at that moment. Daily 23:00 Europe/Lisbon. Synthetic data.
+
+- name: a paused job keeps its state and loses its open run
+  job: {schedule: daily 23:00, created: 2027-01-03T12:00:00Z}
+  steps:
+    - at: 2027-01-04T01:00:00Z
+      results:
+        - {id: r1, status: success, finished: 2027-01-04T00:00:00Z, received: 2027-01-04T00:01:00Z}
+      state: ok
+    - at: 2027-01-05T07:10:00Z
+      occurrences: {2027-01-04T23:00:00Z: overdue}
+    - at: 2027-01-05T07:20:00Z
+      suppressed: true
+      absent: [2027-01-04T23:00:00Z]
+      occurrences: {2027-01-03T23:00:00Z: verified}
+      count: 1
+      state: ok
+      flips: []
+    - at: 2027-01-06T09:00:00Z
+      count: 1
+      state: ok
+      flips: []
+    - at: 2027-01-06T12:00:00Z
+      suppressed: false
+      count: 1
+      state: ok
+      flips: []
+    - at: 2027-01-06T22:55:00Z
+      occurrences: {2027-01-06T23:00:00Z: pending}
+      absent: [2027-01-04T23:00:00Z, 2027-01-05T23:00:00Z]
+      count: 2
+
+- name: a night spent paused never becomes missed
+  job: {schedule: daily 23:00, created: 2027-01-04T12:00:00Z}
+  steps:
+    - at: 2027-01-04T20:00:00Z
+      count: 0
+    - at: 2027-01-04T22:00:00Z
+      suppressed: true
+      count: 0
+    - at: 2027-01-05T10:00:00Z
+      suppressed: false
+      count: 0
+      state: unknown
+      flips: []
+    - at: 2027-01-05T22:55:00Z
+      occurrences: {2027-01-05T23:00:00Z: pending}
+      absent: [2027-01-04T23:00:00Z]
+      flips: []
+
+- name: a missed job stays missed while paused and after, without a new flip
+  job: {schedule: daily 23:00, created: 2027-01-04T12:00:00Z}
+  steps:
+    - at: 2027-01-05T07:30:00Z
+      state: missed
+      flips: [unknown>missed]
+    - at: 2027-01-05T08:00:00Z
+      suppressed: true
+      occurrences: {2027-01-04T23:00:00Z: missed}
+      state: missed
+      flips: []
+    - at: 2027-01-05T12:00:00Z
+      suppressed: false
+      occurrences: {2027-01-04T23:00:00Z: missed}
+      state: missed
+      flips: []
+
+- name: a job paused from its creation starts when it is resumed
+  job: {schedule: daily 23:00, created: 2027-01-03T12:00:00Z}
+  steps:
+    - at: 2027-01-03T12:00:00Z
+      suppressed: true
+      count: 0
+      state: unknown
+    - at: 2027-01-05T12:00:00Z
+      suppressed: false
+      count: 0
+      state: unknown
+      flips: []
+    - at: 2027-01-06T08:00:00Z
+      occurrences: {2027-01-05T23:00:00Z: missed}
+      count: 1
+      state: missed
+      flips: [unknown>missed]
+
+- name: a run in a maintenance window is maintenance, never verified
+  job:
+    schedule: daily 23:00
+    created: 2027-01-04T12:00:00Z
+    maintenance: [[2027-01-04T22:00:00Z, 2027-01-05T06:00:00Z]]
+  steps:
+    - at: 2027-01-05T01:00:00Z
+      results:
+        - {id: r1, status: success, finished: 2027-01-05T00:30:00Z, received: 2027-01-05T00:31:00Z}
+      occurrences:
+        2027-01-04T23:00:00Z: {state: maintenance, result: r1, note: maintenance window}
+      state: maintenance
+      last_success_at: null
+      flips: [unknown>maintenance]
+      reason: was in a maintenance window
+
+- name: a silent run in a maintenance window is never missed
+  job:
+    schedule: daily 23:00
+    created: 2027-01-04T12:00:00Z
+    maintenance: [[2027-01-04T22:00:00Z, 2027-01-05T06:00:00Z]]
+  steps:
+    - at: 2027-01-05T08:00:00Z
+      occurrences: {2027-01-04T23:00:00Z: {state: maintenance, result: null}}
+      state: maintenance
+
+- name: the night after maintenance is ok again
+  job:
+    schedule: daily 23:00
+    created: 2027-01-04T12:00:00Z
+    maintenance: [[2027-01-04T22:00:00Z, 2027-01-05T06:00:00Z]]
+  steps:
+    - at: 2027-01-05T08:00:00Z
+      state: maintenance
+    - at: 2027-01-06T01:00:00Z
+      results:
+        - {id: r1, status: success, finished: 2027-01-06T00:30:00Z, received: 2027-01-06T00:31:00Z}
+      occurrences:
+        2027-01-04T23:00:00Z: maintenance
+        2027-01-05T23:00:00Z: verified
+      state: ok
+      flips: [maintenance>ok]
+
+- name: failures on both sides of maintenance count in a row
+  job:
+    schedule: daily 23:00
+    created: 2027-01-02T12:00:00Z
+    threshold: 2
+    maintenance: [[2027-01-03T22:00:00Z, 2027-01-04T06:00:00Z]]
+  steps:
+    - at: 2027-01-03T01:00:00Z
+      results:
+        - {id: r1, status: failed, finished: 2027-01-03T00:30:00Z, received: 2027-01-03T00:31:00Z}
+      state: warning
+    - at: 2027-01-04T08:00:00Z
+      occurrences: {2027-01-03T23:00:00Z: maintenance}
+      state: maintenance
+      consecutive_failures: 1
+    - at: 2027-01-05T01:00:00Z
+      results:
+        - {id: r2, status: failed, finished: 2027-01-05T00:30:00Z, received: 2027-01-05T00:31:00Z}
+      state: failing
+      consecutive_failures: 2
+      flips: [maintenance>failing]

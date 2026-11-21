@@ -1,36 +1,25 @@
 """Jobs: what should report, on which schedule, for which client.
 
-Until the evaluator of phase C7 keeps job_state, a job's state is derived
-here: paused while it is paused, otherwise unknown.
+A job's state is paused while it is paused; otherwise the state the evaluator
+keeps in job_state (phase C7), and unknown before its first evaluation.
 """
 
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Final, Literal
+from typing import Any, Final
 
-from sqlalchemy import ColumnElement, and_, false, not_, or_, select, tuple_
+from sqlalchemy import ColumnElement, and_, not_, or_, select, tuple_
 
 from app.access import Principal
-from app.db.models import Client, Job, name_key
+from app.db.models import Client, Job, JobStateRecord, name_key
+from app.evaluator.model import JobState, as_job_state
 from app.matcher import ClientRef, JobRef, Matcher
 from app.repos.base import Repository, guarded
 from app.repos.clients import contains_pattern
 from app.security.tokens import new_ping_token
 
-JobState = Literal[
-    "ok", "warning", "failing", "missed", "unknown", "paused", "maintenance"
-]
-JOB_STATES: Final[tuple[JobState, ...]] = (
-    "ok",
-    "warning",
-    "failing",
-    "missed",
-    "unknown",
-    "paused",
-    "maintenance",
-)
 # Worst first: silent before failed before warning (the dashboard order).
 STATE_SEVERITY: Final[tuple[JobState, ...]] = (
     "missed",
@@ -78,8 +67,11 @@ def paused_clause(now: datetime) -> ColumnElement[bool]:
     return or_(Job.enabled.is_(False), until_later)
 
 
-def job_state(job: Job, now: datetime) -> JobState:
-    return "paused" if is_paused(job, now) else "unknown"
+def job_state(job: Job, now: datetime, record: JobStateRecord | None) -> JobState:
+    """Paused while paused, else the evaluator's state (unknown before it)."""
+    if is_paused(job, now):
+        return "paused"
+    return "unknown" if record is None else as_job_state(record.state)
 
 
 def worst_state(states: Sequence[JobState]) -> JobState | None:
@@ -111,12 +103,13 @@ class JobRepository(Repository):
         filters: JobFilters,
         after: tuple[str, uuid.UUID] | None,
         limit: int,
-    ) -> list[tuple[Job, str]]:
-        """Jobs with their client's name, ordered by job name, after the
-        (name_key, id) cursor."""
+    ) -> list[tuple[Job, str, JobStateRecord | None]]:
+        """Jobs with their client's name and the evaluator's record, ordered
+        by job name, after the (name_key, id) cursor."""
         query = (
-            select(Job, Client.name)
+            select(Job, Client.name, JobStateRecord)
             .join(Client, Client.id == Job.client_id)
+            .outerjoin(JobStateRecord, JobStateRecord.job_id == Job.id)
             .where(Job.archived.is_(filters.archived))
             .order_by(Job.name_key, Job.id)
             .limit(limit)
@@ -134,14 +127,19 @@ class JobRepository(Repository):
         if filters.state == "paused":
             query = query.where(paused_clause(filters.now))
         elif filters.state == "unknown":
-            query = query.where(not_(paused_clause(filters.now)))
+            query = query.where(
+                not_(paused_clause(filters.now)),
+                or_(JobStateRecord.state.is_(None), JobStateRecord.state == "unknown"),
+            )
         elif filters.state is not None:
-            # No job reaches the evaluator's states before phase C7.
-            query = query.where(false())
+            query = query.where(
+                not_(paused_clause(filters.now)), JobStateRecord.state == filters.state
+            )
         if after is not None:
             query = query.where(tuple_(Job.name_key, Job.id) > after)
         query = self.policy.scope(principal, self.resource, query)
-        return [(job, name) for job, name in (await self.db.execute(query)).all()]
+        rows = (await self.db.execute(query)).all()
+        return [(job, name, record) for job, name, record in rows]
 
     @guarded("read")
     async def get(

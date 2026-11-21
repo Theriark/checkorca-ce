@@ -1,12 +1,12 @@
 """Tables of phases C1 (users, sessions, API tokens, audit events, settings),
 C3 (clients and jobs), C4 (inboxes, raw messages, results, the worker
-heartbeat) and C5 (parser packs).
+heartbeat), C5 (parser packs) and C7 (occurrences, job states, flips).
 
-Revisions c1_auth, c3_jobs, c4_ingest and c5_packs create them; later phases
-add their tables here. Primary keys are UUIDs, timestamps UTC. No table stores a secret
-in clear text: sessions, API tokens and webhook inbox tokens keep a SHA-256
-hash, passwords an Argon2id hash, and stored credentials (columns ending in
-_enc) Fernet ciphertext.
+Revisions c1_auth, c3_jobs, c4_ingest, c5_packs and c7_eval create them;
+later phases add their tables here. Primary keys are UUIDs, timestamps UTC.
+No table stores a secret in clear text: sessions, API tokens and webhook
+inbox tokens keep a SHA-256 hash, passwords an Argon2id hash, and stored
+credentials (columns ending in _enc) Fernet ciphertext.
 """
 
 import uuid
@@ -29,6 +29,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.evaluator.model import JOB_STATES, OCCURRENCE_STATES
 from app.ingest.mime import MESSAGE_ID_LENGTH
 
 USER_ROLES = ("admin", "technician")
@@ -46,6 +47,9 @@ NAME_LENGTH = 200
 # A pack id (^[a-z0-9][a-z0-9._-]*$, at most 100) and a JSON Pointer into a pack.
 PACK_ID_LENGTH = 100
 PACK_PATH_LENGTH = 300
+# The evaluator's notes and flip reasons (app/evaluator/machine.py).
+NOTE_LENGTH = 200
+REASON_LENGTH = 300
 
 
 def name_key(name: str) -> str:
@@ -399,3 +403,84 @@ class WorkerHeartbeat(Base):
     holder: Mapped[str] = mapped_column(String(200))
     # When that worker took the lock.
     started_at: Mapped[datetime]
+
+
+class Occurrence(Base):
+    """One expected run of a job (phase C7, rnd-report-2 5.5).
+
+    Written lazily by the evaluator for the last 14 days and up to 10 minutes
+    ahead; the state is one of app/evaluator/model.py. result_id is the result
+    that decided the state; it becomes NULL when that result is purged and
+    the next evaluation decides again.
+    """
+
+    __tablename__ = "occurrence"
+    __table_args__ = (
+        CheckConstraint(_one_of("state", OCCURRENCE_STATES), name="state"),
+    )
+
+    job_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("job.id"), primary_key=True)
+    scheduled_for: Mapped[datetime] = mapped_column(primary_key=True)
+    deadline: Mapped[datetime]
+    state: Mapped[str] = mapped_column(String(16))
+    result_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("job_result.id", ondelete="SET NULL"), index=True
+    )
+    note: Mapped[str | None] = mapped_column(String(NOTE_LENGTH))
+    evaluated_at: Mapped[datetime]
+
+
+class JobStateRecord(Base):
+    """What the evaluator keeps about a job between ticks (phase C7).
+
+    state, since and last_success_at are the job's state, state_since and
+    last_success_at in the API (paused is derived from the job itself).
+    eval_from and suppressed carry pauses and archives (app/evaluator).
+    evaluated_at, due_at, job_updated_at, result_count and result_last_at
+    tell the worker whether the job needs another evaluation.
+    """
+
+    __tablename__ = "job_state"
+    __table_args__ = (CheckConstraint(_one_of("state", JOB_STATES), name="state"),)
+
+    job_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("job.id"), primary_key=True)
+    state: Mapped[str] = mapped_column(String(16))
+    since: Mapped[datetime | None]
+    consecutive_failures: Mapped[int] = mapped_column(
+        default=0, server_default=text("0")
+    )
+    last_success_at: Mapped[datetime | None]
+    eval_from: Mapped[datetime | None]
+    suppressed: Mapped[bool] = mapped_column(
+        default=False, server_default=text("false")
+    )
+    evaluated_at: Mapped[datetime]
+    due_at: Mapped[datetime | None]
+    job_updated_at: Mapped[datetime]
+    result_count: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+    result_last_at: Mapped[datetime | None]
+
+
+class Flip(Base):
+    """One change of a job's state (phase C7): the single source of alerts.
+
+    client_id is the job's client when the state changed. scheduled_for is the
+    occurrence that caused it (C9 puts it in the webhook payload).
+    """
+
+    __tablename__ = "flip"
+    __table_args__ = (
+        CheckConstraint(_one_of("from_state", JOB_STATES), name="from_state"),
+        CheckConstraint(_one_of("to_state", JOB_STATES), name="to_state"),
+        Index("ix_flip_job_id_at", "job_id", "at"),
+        Index("ix_flip_client_id_at", "client_id", "at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    job_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("job.id"))
+    client_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("client.id"))
+    from_state: Mapped[str] = mapped_column(String(16))
+    to_state: Mapped[str] = mapped_column(String(16))
+    reason: Mapped[str] = mapped_column(String(REASON_LENGTH))
+    at: Mapped[datetime] = mapped_column(index=True)
+    scheduled_for: Mapped[datetime | None]

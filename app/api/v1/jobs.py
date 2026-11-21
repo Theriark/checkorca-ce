@@ -45,8 +45,9 @@ from app.api.v1.job_schemas import (
     PauseRequest,
 )
 from app.api.v1.schedule import check_schedule
-from app.db.models import Client, Job, name_key
+from app.db.models import Client, Job, JobStateRecord, name_key
 from app.repos.clients import ClientRepository
+from app.repos.evaluation import JobStateRepository
 from app.repos.jobs import JobFilters, JobRepository, JobState, job_state
 from app.schedule import ScheduleSpec
 
@@ -107,7 +108,10 @@ def job_out(
     client_name: str,
     now: datetime,
     principal: Principal,
+    record: JobStateRecord | None = None,
 ) -> JobOut:
+    """The job with its state; record is the evaluator's (None before the
+    first evaluation)."""
     # Every column JobOut shares with the table, then the derived fields.
     stored = {
         field: getattr(job, field) for field in JobOut.model_fields if field in COLUMNS
@@ -119,10 +123,19 @@ def job_out(
         **stored,
         client_name=client_name,
         ping_url=url,
-        state=job_state(job, now),
-        state_since=None,
-        last_success_at=None,
+        state=job_state(job, now, record),
+        state_since=None if record is None else record.since,
+        last_success_at=None if record is None else record.last_success_at,
     )
+
+
+async def state_record(
+    services: Services, db: AsyncSession, principal: Principal, job: Job
+) -> JobStateRecord | None:
+    records = await JobStateRepository(db, services.policy).for_jobs(
+        principal, [job.id]
+    )
+    return records.get(job.id)
 
 
 def schedule_fields(spec: ScheduleSpec) -> dict[str, str]:
@@ -164,10 +177,13 @@ async def list_jobs(
     items = found[:limit]
     next_cursor = None
     if len(found) > limit:
-        last, _ = items[-1]
+        last, _, _ = items[-1]
         next_cursor = encode_cursor({"name_key": last.name_key, "id": str(last.id)})
     return JobPage(
-        items=[job_out(services, job, name, now, principal) for job, name in items],
+        items=[
+            job_out(services, job, name, now, principal, record)
+            for job, name, record in items
+        ],
         next_cursor=next_cursor,
     )
 
@@ -440,7 +456,8 @@ async def get_job(
     client = await ClientRepository(db, services.policy).get(principal, job.client_id)
     if client is None:
         raise job_not_found()
-    return job_out(services, job, client.name, services.clock.now(), principal)
+    record = await state_record(services, db, principal, job)
+    return job_out(services, job, client.name, services.clock.now(), principal, record)
 
 
 async def save(
@@ -478,7 +495,8 @@ async def save(
         )
     # Without changes this only ends the transaction and its row lock.
     await db.commit()
-    return job_out(services, job, client.name, now, context.principal)
+    record = await state_record(services, db, context.principal, job)
+    return job_out(services, job, client.name, now, context.principal, record)
 
 
 @router.patch("/{job_id}")

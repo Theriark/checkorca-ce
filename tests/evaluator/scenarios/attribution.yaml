@@ -1,0 +1,87 @@
+# Attribution: a result belongs to the latest occurrence at or before its
+# basis time plus 10 minutes. Daily 23:00 Europe/Lisbon (UTC+0 in January).
+# Synthetic data.
+
+- name: a result 10 minutes before its time belongs to that run
+  job: {schedule: daily 23:00, created: 2027-01-04T12:00:00Z}
+  steps:
+    - at: 2027-01-04T22:55:00Z
+      results:
+        - {id: r1, status: success, finished: 2027-01-04T22:50:00Z, received: 2027-01-04T22:51:00Z}
+      occurrences: {2027-01-04T23:00:00Z: {state: verified, result: r1}}
+      # The run is not due yet, so the job has no closed run.
+      state: unknown
+      flips: []
+    - at: 2027-01-04T23:01:00Z
+      state: ok
+      flips: [unknown>ok]
+
+- name: a result 11 minutes early belongs to the run before
+  job: {schedule: daily 23:00, created: 2027-01-03T12:00:00Z}
+  steps:
+    - at: 2027-01-04T22:55:00Z
+      results:
+        - {id: r1, status: success, finished: 2027-01-04T22:49:00Z, received: 2027-01-04T22:49:30Z}
+      occurrences:
+        2027-01-03T23:00:00Z: {state: verified, result: r1, note: late result}
+        2027-01-04T23:00:00Z: {state: pending, result: null}
+      state: ok
+
+- name: basis started attributes by the start time
+  job: {schedule: daily 23:00, created: 2027-01-04T12:00:00Z, basis: started}
+  steps:
+    - at: 2027-01-05T06:00:00Z
+      results:
+        - {id: r1, status: success, started: 2027-01-04T22:52:00Z, finished: 2027-01-05T05:00:00Z, received: 2027-01-05T05:01:00Z}
+      occurrences: {2027-01-04T23:00:00Z: {state: verified, result: r1}}
+      last_success_at: 2027-01-05T05:00:00Z
+      state: ok
+
+- name: basis finished without a finish time uses the receipt time
+  job: {schedule: daily 23:00, created: 2027-01-04T12:00:00Z, basis: finished}
+  steps:
+    - at: 2027-01-05T02:00:00Z
+      results:
+        - {id: r1, status: success, received: 2027-01-05T01:00:00Z}
+      occurrences: {2027-01-04T23:00:00Z: {state: verified, result: r1}}
+      last_success_at: 2027-01-05T01:00:00Z
+
+- name: basis received ignores the times a result reports
+  job: {schedule: daily 23:00, created: 2027-01-03T12:00:00Z, basis: received}
+  steps:
+    - at: 2027-01-05T02:00:00Z
+      results:
+        - {id: r1, status: success, started: 2027-01-03T23:00:00Z, finished: 2027-01-03T23:30:00Z, received: 2027-01-05T01:00:00Z}
+      occurrences:
+        2027-01-03T23:00:00Z: missed
+        2027-01-04T23:00:00Z: {state: verified, result: r1}
+      state: ok
+      consecutive_failures: 0
+
+- name: a late failure after missed keeps the job failing
+  job: {schedule: daily 23:00, created: 2027-01-04T12:00:00Z}
+  steps:
+    - at: 2027-01-05T07:30:00Z
+      state: missed
+      flips: [unknown>missed]
+    - at: 2027-01-05T08:10:00Z
+      results:
+        - {id: r1, status: failed, finished: 2027-01-05T08:00:00Z, received: 2027-01-05T08:01:00Z}
+      occurrences:
+        2027-01-04T23:00:00Z: {state: failed, result: r1, note: late result}
+      state: failing
+      flips: [missed>failing]
+
+- name: each night keeps its own result
+  job: {schedule: daily 23:00, created: 2027-01-03T12:00:00Z}
+  steps:
+    - at: 2027-01-05T00:30:00Z
+      results:
+        - {id: r1, status: success, finished: 2027-01-03T23:30:00Z, received: 2027-01-03T23:31:00Z}
+        - {id: r2, status: success, finished: 2027-01-04T23:40:00Z, received: 2027-01-04T23:41:00Z}
+      occurrences:
+        2027-01-03T23:00:00Z: {state: verified, result: r1}
+        2027-01-04T23:00:00Z: {state: verified, result: r2}
+      count: 2
+      state: ok
+      consecutive_failures: 0

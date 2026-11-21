@@ -30,7 +30,10 @@ from app.access import SYSTEM, AccessPolicy, AllowAllPolicy
 from app.clock import Clock, SystemClock
 from app.db.engine import make_engine
 from app.db.locks import WORKER_LOCK
+from app.evaluator.tick import evaluate_jobs
+from app.ext.events import EventSubscriber
 from app.ext.parsers import ParserPackSource, TablePackSource
+from app.ext.suppression import NoSuppression, SuppressionProvider
 from app.ingest.imap import ImapPoller
 from app.ingest.smtp import SmtpReceiver
 from app.repos.heartbeat import HeartbeatRepository
@@ -49,8 +52,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class WorkerContext:
-    """What hooks and receivers share: settings, database, clock, policy and
-    the parser packs."""
+    """What hooks and receivers share: settings, database, clock, policy, the
+    parser packs, the maintenance windows and the event subscribers."""
 
     settings: Settings
     engine: AsyncEngine
@@ -59,6 +62,9 @@ class WorkerContext:
     policy: AccessPolicy
     secret_box: SecretBox
     pack_source: ParserPackSource = field(default_factory=TablePackSource)
+    suppression: SuppressionProvider = field(default_factory=NoSuppression)
+    # Get FlipCreated and OccurrenceChanged after each evaluator commit.
+    subscribers: tuple[EventSubscriber, ...] = ()
 
 
 type TickHook = Callable[[WorkerContext, datetime], Awaitable[None]]
@@ -80,8 +86,9 @@ class Receiver(Protocol):
 
 type ReceiverFactory = Callable[[WorkerContext], Receiver]
 
-# Phases append their hooks and receivers here. C5-B: parse pending messages.
-TICK_HOOKS: tuple[TickHook, ...] = (parse_messages,)
+# Phases append their hooks and receivers here. C5-B: parse pending messages;
+# C7-B: evaluate the jobs (after the parse, so new results count at once).
+TICK_HOOKS: tuple[TickHook, ...] = (parse_messages, evaluate_jobs)
 # C4-I: the SMTP listener on SMTP_PORT and the IMAP poller.
 RECEIVERS: tuple[ReceiverFactory, ...] = (SmtpReceiver, ImapPoller)
 
