@@ -176,8 +176,10 @@ describe('/unmatched', () => {
     // listed, so the keyboard still reaches the list; nothing is checked.
     const searchField = within(dialog).getByLabelText(strings.unmatched.assignSearch);
     await user.type(searchField, 'Veeam');
+    // The list reloads for the new term (skeleton), then lists Veeam alone.
     await waitFor(() => expect(within(dialog).queryByRole('radio', { name: /Cove server/ })).toBeNull());
-    const only = within(dialog).getByRole('radio', { name: /Veeam nightly/ });
+    const only = await within(dialog).findByRole('radio', { name: /Veeam nightly/ });
+    expect(within(dialog).queryByRole('radio', { name: /Cove server/ })).toBeNull();
     expect(only.getAttribute('tabindex')).toBe('0');
     expect(only.getAttribute('aria-checked')).toBe('false');
     await user.clear(searchField);

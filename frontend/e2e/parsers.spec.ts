@@ -257,7 +257,9 @@ for (const [width, scheme] of [
     // Busy: a note with the wait and a button, never an error page; then the retry answers.
     const busy = page.getByRole('status').filter({ hasText: 'The bench is busy' });
     await expect(busy).toBeVisible();
-    await expect(busy).toContainText('Trying again in 3 s.');
+    // The wait counts down from the Retry-After of 3 s; under load the first
+    // paint may already show 2 or 1.
+    await expect(busy).toContainText(/Trying again in [1-3] s\./);
     await expect(busy.getByRole('button', { name: 'Try again now' })).toBeVisible();
     await expect(page.getByRole('alert')).toHaveCount(0);
     await page.screenshot({ path: shot('bench-busy', width, scheme) });
