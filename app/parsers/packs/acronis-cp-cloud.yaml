@@ -1,0 +1,72 @@
+# Acronis Cyber Protect Cloud backup notifications (dev-work-plan C6-I).
+# Written from Acronis's public documentation of the per-user notification
+# settings (failed backups, backups with warnings, successful backups, daily
+# recap), not from a real mail: unverified-synthetic until an MSP sends a
+# redacted sample (docs/parser-packs.md). An alert covers one workload; the
+# daily recap lists several, one "Workload:" block each, so the pack splits
+# on that row (a single alert is one record). The customer (tenant) is the
+# client hint, read once from the whole body.
+#
+# The job name is the workload: one protection plan runs on many workloads.
+# Rules look for a failure first, then warnings, then a running backup, then
+# success. A recap's subject carries no result, so the subject rules (which
+# hold for every record) only read a "Backup ...:" alert subject.
+id: acronis-cp-cloud
+version: 1
+vendor: Acronis Cyber Protect Cloud
+status: unverified-synthetic
+docs_url: https://www.acronis.com/en-us/support/documentation/CyberProtectionService/
+description: >-
+  Backup alert and daily recap of Acronis Cyber Protect Cloud: result from the
+  alert subject or each workload's Status row, workload, customer, protection
+  plan, times, backed-up size and the error or warning text.
+match:
+  all:
+    - body: '(?i)\bAcronis[ \t]+Cyber[ \t]+Protect(?:ion)?[ \t]+Cloud\b'
+  any:
+    - subject: '(?i)^[ \t]*+(?:Backup[ \t]+(?:succeeded|failed|was[ \t]+cancell?ed|did[ \t]+not[ \t]+start)\b|Daily[ \t]+recap\b)'
+    - body: '(?im)^[ \t]*+Workload[ \t]*+:'
+split:
+  record: '(?im)^[ \t]*+Workload[ \t]*+:'
+extract:
+  job_name:
+    regex: '(?i)^[ \t]*+Workload[ \t]*+:[ \t]*+(?P<job_name>\S[^\t\r\n]{0,199})'
+  client_hint:
+    in: body
+    regex: '(?im)^[ \t]*+(?:Customer|Tenant)[ \t]*+:[ \t]*+(?P<client_hint>\S[^\t\r\n]{0,199})'
+  started_at:
+    regex: '(?im)^[ \t]*+Start(?:ed|[ \t]+time)[ \t]*+:[ \t]*+(?P<started_at>[A-Z][a-z]{2}[ \t]\d{1,2},[ \t]\d{4},[ \t]\d{1,2}:\d{2}:\d{2}[ \t][AP]M)'
+    format: '%b %d, %Y, %I:%M:%S %p'
+  finished_at:
+    regex: '(?im)^[ \t]*+(?:Finish(?:ed)?|End(?:ed)?|Last[ \t]+backup)(?:[ \t]+time)?[ \t]*+:[ \t]*+(?P<finished_at>[A-Z][a-z]{2}[ \t]\d{1,2},[ \t]\d{4},[ \t]\d{1,2}:\d{2}:\d{2}[ \t][AP]M)'
+    format: '%b %d, %Y, %I:%M:%S %p'
+  details:
+    plan:
+      regex: '(?im)^[ \t]*+(?:Protection[ \t]+)?plan[ \t]*+:[ \t]*+(?P<plan>\S[^\t\r\n]{0,199})'
+    processed:
+      regex: '(?im)^[ \t]*+Backed[ \t]+up(?:[ \t]+data)?[ \t]*+:[ \t]*+(?P<processed>\d[^\t\r\n]{0,59})'
+    issue:
+      regex: '(?im)^[ \t]*+(?:Error|Warning)(?:[ \t]+message)?[ \t]*+:[ \t]*+(?P<issue>\S[^\t\r\n]{0,199})'
+status_rules:
+  - status: failed
+    in: subject
+    regex: '(?i)^[ \t]*+Backup[ \t]+(?:failed|was[ \t]+cancell?ed|did[ \t]+not[ \t]+start)\b'
+  - status: failed
+    regex: '(?im)^[ \t]*+Status[ \t]*+:[ \t]*+(?:Failed|Error|Cancell?ed|Not[ \t]+run|Missed|Not[ \t]+started)\b'
+  - status: warning
+    in: subject
+    regex: '(?i)^[ \t]*+Backup[ \t]+succeeded[ \t]+with[ \t]+warnings?\b'
+  - status: warning
+    regex: '(?im)^[ \t]*+Status[ \t]*+:[ \t]*+(?:Succeeded[ \t]+with[ \t]+warnings?|Warning)\b'
+  - status: started
+    regex: '(?im)^[ \t]*+Status[ \t]*+:[ \t]*+(?:Running|In[ \t]+progress)\b'
+  - status: success
+    in: subject
+    regex: '(?i)^[ \t]*+Backup[ \t]+succeeded\b(?![ \t]++with)'
+  - status: success
+    regex: '(?im)^[ \t]*+Status[ \t]*+:[ \t]*+(?:Succeeded|OK)\b(?![ \t]++with)'
+fixtures:
+  - {name: success-workload, origin: synthetic, class: success}
+  - {name: warning-workload, origin: synthetic, class: warning}
+  - {name: failed-workload, origin: synthetic, class: failed}
+  - {name: digest-daily-recap, origin: synthetic, class: digest}

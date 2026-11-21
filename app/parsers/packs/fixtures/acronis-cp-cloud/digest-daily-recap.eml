@@ -1,0 +1,36 @@
+From: "Cyber Protection" <noreply@example.com>
+To: alerts@example.net
+Subject: Daily recap: Fictional Law Office
+Date: Wed, 25 Nov 2026 07:00:00 +0000
+Message-ID: <acronis-cloud-digest-daily-recap@example.com>
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<html><body>
+<!-- Synthetic fixture written from public documentation; not a real mail. -->
+<h2>Daily recap for the last 24 hours</h2>
+<table>
+<tr><td>Customer:</td><td>Fictional Law Office</td></tr>
+</table>
+<table>
+<tr><td>Workload:</td><td>SRV-DC-01</td></tr>
+<tr><td>Protection plan:</td><td>Servers nightly</td></tr>
+<tr><td>Status:</td><td>Succeeded</td></tr>
+<tr><td>Last backup:</td><td>Nov 25, 2026, 1:12:40 AM</td></tr>
+</table>
+<table>
+<tr><td>Workload:</td><td>WS-ACCT-03</td></tr>
+<tr><td>Protection plan:</td><td>Workstations daily</td></tr>
+<tr><td>Status:</td><td>Failed</td></tr>
+<tr><td>Last backup:</td><td>Nov 24, 2026, 8:03:10 PM</td></tr>
+<tr><td>Error:</td><td>The workload is offline (synthetic)</td></tr>
+</table>
+<table>
+<tr><td>Workload:</td><td>WS-RECEPTION-01</td></tr>
+<tr><td>Protection plan:</td><td>Workstations daily</td></tr>
+<tr><td>Status:</td><td>Succeeded with warnings</td></tr>
+<tr><td>Last backup:</td><td>Nov 24, 2026, 8:21:55 PM</td></tr>
+<tr><td>Warning:</td><td>1 file was skipped (synthetic)</td></tr>
+</table>
+<div>Acronis Cyber Protect Cloud (synthetic fixture for Checkorca-CE)</div>
+</body></html>

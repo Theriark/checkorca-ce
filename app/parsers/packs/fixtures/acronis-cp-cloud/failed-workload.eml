@@ -1,0 +1,22 @@
+From: "Cyber Protection" <noreply@example.com>
+To: alerts@example.net
+Subject: Backup failed: SRV-SQL-02
+Date: Tue, 24 Nov 2026 23:04:50 +0000
+Message-ID: <acronis-cloud-failed-workload@example.com>
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<html><body>
+<!-- Synthetic fixture written from public documentation; not a real mail. -->
+<h2>Backup failed</h2>
+<table>
+<tr><td>Customer:</td><td>Fictional Dental Clinic</td></tr>
+<tr><td>Workload:</td><td>SRV-SQL-02</td></tr>
+<tr><td>Protection plan:</td><td>SQL nightly</td></tr>
+<tr><td>Status:</td><td>Failed</td></tr>
+<tr><td>Started:</td><td>Nov 24, 2026, 11:00:03 PM</td></tr>
+<tr><td>Finished:</td><td>Nov 24, 2026, 11:04:31 PM</td></tr>
+<tr><td>Error:</td><td>The cloud storage quota of the customer has been exceeded (synthetic)</td></tr>
+</table>
+<div>Acronis Cyber Protect Cloud (synthetic fixture for Checkorca-CE)</div>
+</body></html>

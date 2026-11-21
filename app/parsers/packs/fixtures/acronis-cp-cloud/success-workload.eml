@@ -1,0 +1,22 @@
+From: "Cyber Protection" <noreply@example.com>
+To: alerts@example.net
+Subject: Backup succeeded: WS-ACCT-03
+Date: Sun, 22 Nov 2026 20:16:30 +0000
+Message-ID: <acronis-cloud-success-workload@example.com>
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<html><body>
+<!-- Synthetic fixture written from public documentation; not a real mail. -->
+<h2>Backup succeeded</h2>
+<table>
+<tr><td>Customer:</td><td>Fictional Law Office</td></tr>
+<tr><td>Workload:</td><td>WS-ACCT-03</td></tr>
+<tr><td>Protection plan:</td><td>Workstations daily</td></tr>
+<tr><td>Status:</td><td>Succeeded</td></tr>
+<tr><td>Started:</td><td>Nov 22, 2026, 8:00:01 PM</td></tr>
+<tr><td>Finished:</td><td>Nov 22, 2026, 8:16:12 PM</td></tr>
+<tr><td>Backed up:</td><td>2.3 GB</td></tr>
+</table>
+<div>Acronis Cyber Protect Cloud (synthetic fixture for Checkorca-CE)</div>
+</body></html>
