@@ -3,15 +3,19 @@
  * server's CSP allows scripts from 'self' only). YAML syntax colours, line
  * numbers, history, Tab indents (Escape then Tab leaves the editor, which
  * CodeMirror announces), and the pack issues of a failed save as lint marks
- * at their line. Read-only for a built-in pack. The editor's colours come
- * from the design tokens through features.css, so both themes work.
+ * at their line. Read-only for a built-in pack. The syntax colours are the
+ * tok- classes of the class highlighter, styled in features.css from the
+ * design tokens, so both themes pass contrast (the default highlight style
+ * has fixed light-theme colours). A read-only editor is still focusable, so
+ * its scrolling text can be reached from the keyboard.
  */
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { yaml } from '@codemirror/lang-yaml';
-import { bracketMatching, defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { bracketMatching, syntaxHighlighting } from '@codemirror/language';
 import { lintGutter, setDiagnostics, type Diagnostic } from '@codemirror/lint';
 import { Compartment, EditorState } from '@codemirror/state';
 import { EditorView, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers } from '@codemirror/view';
+import { classHighlighter } from '@lezer/highlight';
 import { useEffect, useRef } from 'react';
 
 import '../features.css';
@@ -30,6 +34,12 @@ export interface YamlEditorProps {
   readonly label: string;
   readonly marks?: readonly EditorMark[];
   readonly id?: string;
+}
+
+/** Read-only (not editable) and, when read-only, focusable: a contenteditable
+ *  of false is not a tab stop, and the text still scrolls. */
+function editability(readOnly: boolean) {
+  return [EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly), EditorView.contentAttributes.of(readOnly ? { tabindex: '0' } : {})];
 }
 
 export function YamlEditor({ value, onChange, readOnly = false, label, marks = [], id }: YamlEditorProps) {
@@ -53,9 +63,9 @@ export function YamlEditor({ value, onChange, readOnly = false, label, marks = [
         bracketMatching(),
         lintGutter(),
         yaml(),
-        syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+        syntaxHighlighting(classHighlighter),
         keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
-        readOnlyCompartment.current.of([EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)]),
+        readOnlyCompartment.current.of(editability(readOnly)),
         EditorView.lineWrapping,
         EditorView.contentAttributes.of({ 'aria-label': label, ...(id ? { id } : {}) }),
         EditorView.updateListener.of((update) => {
@@ -89,7 +99,7 @@ export function YamlEditor({ value, onChange, readOnly = false, label, marks = [
   }, [value]);
 
   useEffect(() => {
-    view.current?.dispatch({ effects: readOnlyCompartment.current.reconfigure([EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)]) });
+    view.current?.dispatch({ effects: readOnlyCompartment.current.reconfigure(editability(readOnly)) });
   }, [readOnly]);
 
   useEffect(() => {
