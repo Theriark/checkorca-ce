@@ -29,6 +29,13 @@ class SettingsRepository(Repository):
         return self._box.decrypt(row.external_heartbeat_url_enc)
 
     @guarded("update")
+    async def mark_demo_seeded(self, principal: Principal) -> None:
+        """The demo data is in (app/seed/demo.py); it is never seeded again."""
+        row = (await self.db.scalars(select(AppSettings))).one()
+        row.demo_seeded = True
+        await self.db.flush()
+
+    @guarded("update")
     async def set_external_heartbeat_url(
         self, principal: Principal, url: str | None
     ) -> None:

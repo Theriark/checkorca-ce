@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     dev_seed_accounts: str = ""
     dev_seed_password_admin: SecretStr | None = None
     dev_seed_password_technician: SecretStr | None = None
+    # Development and Stage demo data (app/seed/demo.py): 20 fictional clients
+    # and 60 jobs with 14 days of history, seeded once by the worker. Same
+    # host rule as the seed accounts.
+    dev_demo_data: bool = False
 
     @field_validator("secret_key")
     @classmethod
