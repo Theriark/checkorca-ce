@@ -7,7 +7,8 @@
 #
 # The job name is the plan, the computer a detail. The subject ends in the
 # result. Rules look for a failure first (subject, then the Status row), then
-# a warning, then a running plan, then success.
+# a warning, then a running plan, then success. "Not successful" is a failure
+# and "Completed with errors" a warning, never success.
 id: msp360
 version: 1
 vendor: MSP360 Backup
@@ -50,21 +51,21 @@ extract:
 status_rules:
   - status: failed
     in: subject
-    regex: '(?i)\b(?:Failed|Failure|Error)[ \t]*+$'
+    regex: '(?i)(?:\b(?:Failed|Failure|Error|Unsuccessful)|\bNot[ \t]+(?:completed[ \t]+)?successful(?:ly)?)[ \t]*+$'
   - status: failed
     regex: '(?im)^[ \t]*+(?:Plan[ \t]+)?Status[ \t]*+:[ \t]*+(?:Failed|Failure|Error|Cancell?ed|Interrupted)\b'
   - status: warning
     in: subject
     regex: '(?i)\bWarnings?[ \t]*+$'
   - status: warning
-    regex: '(?im)^[ \t]*+(?:Plan[ \t]+)?Status[ \t]*+:[ \t]*+Warnings?\b'
+    regex: '(?im)^[ \t]*+(?:Plan[ \t]+)?Status[ \t]*+:[ \t]*+(?:Warnings?|(?:Completed|Success(?:ful)?)[ \t]+with[ \t]+(?:warnings?|errors?))\b'
   - status: started
     regex: '(?im)^[ \t]*+(?:Plan[ \t]+)?Status[ \t]*+:[ \t]*+(?:Running|In[ \t]+progress)\b'
   - status: success
     in: subject
     regex: '(?i)\b(?:Success|Successful|Completed[ \t]+successfully)[ \t]*+$'
   - status: success
-    regex: '(?im)^[ \t]*+(?:Plan[ \t]+)?Status[ \t]*+:[ \t]*+(?:Success|Successful|Completed)\b'
+    regex: '(?im)^[ \t]*+(?:Plan[ \t]+)?Status[ \t]*+:[ \t]*+(?:Success|Successful|Completed)\b(?![ \t]*+with\b)'
 fixtures:
   - {name: success-files-plan, origin: synthetic, class: success}
   - {name: warning-files-skipped, origin: synthetic, class: warning}
