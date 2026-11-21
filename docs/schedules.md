@@ -21,19 +21,21 @@ A job says when it should report: a schedule kind, an expression and an IANA tim
 | --- | --- | --- |
 | The local time does not exist (spring gap) | Fires once, at the first valid instant after the gap | 01:30 on 28 March 2027 fires at 02:00 WEST |
 | The local time exists twice (autumn repeat) | Fires once, at the first of the two | 01:30 on 31 October 2027 fires at 01:30 WEST, not again at 01:30 WET |
-| Cron with an hour of `*` or `*/n` | Every real hour counts, so both instances of the repeated hour fire | `0 * * * *` fires at 01:00 WEST and 01:00 WET |
+| Cron with an hour of `*` or `*/n` | Follows cron: every real hour counts, so both instances of the repeated hour fire, and a time inside the gap does not fire | `0 * * * *` fires at 01:00 WEST and 01:00 WET; `30 * * * *` on 28 March 2027 fires at 00:30Z and 01:30Z (02:30 WEST), not for the skipped 01:30 |
 
 An hour range such as `0-23` counts as a fixed hour (docs/spikes.md). The rule depends only on the wall time and the zone, so a restart or a different query window never changes the times. croniter is only asked which wall-clock times match an expression (`app/schedule/_cron.py`); turning them into instants is `app/schedule/_wall.py`.
 
-Open question for phase C7 (code review of THE-1997, L1): the gap rule also applies to a cron with a `*` or `*/n` hour whose minutes exclude 0. `30 * * * *` in Europe/Lisbon on 28 March 2027 is expected at 00:30Z, 01:00Z (the skipped 01:30 moved to the end of the gap) and 01:30Z, while cron runs such a job only on the new time. The evaluator must not raise a missed alert for that extra time until the policy is decided.
+Decided in phase C7 (code review of THE-1997, L1): a cron with a `*` or `*/n` hour follows cron in the spring gap. Before, `30 * * * *` in Europe/Lisbon on 28 March 2027 was expected at 00:30Z, 01:00Z (the skipped 01:30 moved to the end of the gap) and 01:30Z; cron runs such a job only at the real hours around the gap, so the evaluator would have reported the extra 01:00Z as missed. Now the skipped wall time gives no expected run. A fixed-hour schedule still fires once at the end of the gap, because cron does too. `tests/schedule/test_schedule_units.py` checks both kinds for Lisbon and New York against the minute-by-minute reference, and the property tests compare every generated cron with it.
 
 ## Next times
 
 `next_n` (the preview and the check on save) walks the wall-clock times from the given moment and stops once the n-th time is settled, so its cost grows with n and not with how dense the schedule is: `* * * 1-3 *` asked in November costs about as much as a daily job. It looks ten years ahead (`NEXT_HORIZON`). `occurrences` lists a whole window and refuses one with more than 100000 times.
 
+The walk bounds the wall times it needs by reading the zone's offsets at one-hour steps (L4). Wall time moves with real time except at a clock change, and clocks never change twice within an hour, so the probe next to the lowest or highest wall time is at most one hour from it whatever the size of the change, including the two-hour changes of Antarctica/Troll. The property tests run Antarctica/Troll beside Lord Howe (30 minutes) and compare `next_n` with `occurrences`. The evaluator uses `next_n` for the moment the next run is written.
+
 ## Deadline
 
-An occurrence without a final result is overdue at `scheduled time + max_runtime_minutes + grace_minutes` (`deadline`), and missed after `escalate_minutes` more (evaluator, phase C7).
+An occurrence without a final result is overdue at `scheduled time + max_runtime_minutes + grace_minutes` (`deadline`), and missed after `escalate_minutes` more ([evaluator.md](evaluator.md), phase C7).
 
 ## Tests
 

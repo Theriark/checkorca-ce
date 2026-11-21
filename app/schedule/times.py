@@ -59,11 +59,11 @@ def _fires(
     with the instants it fires at. Both bounds are naive wall times."""
     zone = spec.zone
     if spec.kind == "cron":
-        keep_repeat = _cron.has_wildcard_hour(spec.expr)
+        every_hour = _cron.has_wildcard_hour(spec.expr)
         # croniter lists the times after its start; cron times are whole minutes.
         for wall in _cron.wall_times(spec.expr, first - _MINUTE, last):
             if wall >= first:
-                yield wall, _wall.instants(wall, zone, keep_repeat=keep_repeat)
+                yield wall, _wall.instants(wall, zone, every_real_hour=every_hour)
         return
     times = sorted(spec.daily_times)
     current: date = first.date()
@@ -71,7 +71,7 @@ def _fires(
         for hour, minute in times:
             wall = datetime(current.year, current.month, current.day, hour, minute)
             if first <= wall <= last:
-                yield wall, _wall.instants(wall, zone, keep_repeat=False)
+                yield wall, _wall.instants(wall, zone, every_real_hour=False)
         current += timedelta(days=1)
 
 
