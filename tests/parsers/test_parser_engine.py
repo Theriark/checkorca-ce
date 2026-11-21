@@ -20,8 +20,10 @@ from app.parsers.engine import (
     Mail,
     Parsed,
     ParseFailed,
+    Score,
     Unmatched,
     apply,
+    bench,
     mail_from_raw,
     parse,
 )
@@ -447,6 +449,54 @@ def test_a_time_format_strptime_cannot_compile_reads_nothing() -> None:
 def test_apply_reads_mail_the_pack_would_not_claim() -> None:
     outcome = apply(make_pack(), mail("success", sender="other@example.org"))
     assert only(outcome).status == "success"
+
+
+# The test bench
+
+
+def test_the_bench_shows_every_score_and_the_claim() -> None:
+    one = make_pack("one")
+    two = make_pack(
+        "two", match={"all": [{"from": "example"}, {"subject": "(?i)report"}]}
+    )
+    other = make_pack("other", match={"all": [{"from": r"@example\.net"}]})
+    alerts = mail("Status: success")
+    shown = bench([one, two, other], alerts)
+    assert shown.scores == (Score("one", 1), Score("two", 2), Score("other", 0))
+    assert shown.claimed_by == "two"
+    assert shown.outcome == parse([one, two, other], alerts)
+
+
+def test_the_bench_applies_the_pack_being_edited() -> None:
+    alerts = mail("Job failed", sender="alerts@example.org")
+    edited = make_pack("edited", match={"all": [{"from": r"@example\.org"}]})
+    shown = bench([make_pack("one")], alerts, pack=edited)
+    assert shown.scores == (Score("one", 0),)
+    assert shown.claimed_by is None
+    assert only(shown.outcome).status == "failed"
+    # Without a pack the outcome is the one parse gives.
+    assert bench([make_pack("one")], alerts).outcome == Unmatched("no-pack")
+
+
+def test_the_bench_shows_a_tie_and_a_failed_claim() -> None:
+    tie = bench([make_pack("one"), make_pack("two")], mail("success"))
+    assert tie.claimed_by is None
+    assert tie.outcome == Unmatched("tie", ("one", "two"))
+    runaway = make_pack("runaway", match={"all": [{"body": RUNAWAY}]})
+    started = time.perf_counter()
+    failed = bench([make_pack("one"), runaway], mail(ONES))
+    assert time.perf_counter() - started < 1.0
+    assert failed.scores == (Score("one", 1),)
+    assert failed.claimed_by is None
+    assert failed.outcome == ParseFailed("runaway", "/match/all/0/body", "timeout")
+
+
+def test_the_bench_keeps_one_deadline_for_the_claim_and_the_pack() -> None:
+    edited = make_pack("edited")
+    shown = bench([make_pack("one")], mail(), pack=edited, deadline=0)
+    assert shown.scores == ()
+    deadline = ParseFailed("edited", "/status_rules/0/regex", "deadline")
+    assert shown.outcome == deadline
 
 
 # Reading a raw message

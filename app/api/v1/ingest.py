@@ -49,6 +49,7 @@ from app.ingest.store import (
     StoredRaw,
     record_result,
 )
+from app.matcher import Bound
 from app.repos.inboxes import InboxRepository
 from app.repos.jobs import JobRepository
 from app.security.tokens import INBOX_TOKEN_PREFIX
@@ -164,8 +165,8 @@ async def create_result(
     body: NewResult, principal: IngestDep, services: ServicesDep, db: DbDep
 ) -> ResultAccepted:
     """Record a run. With job_id or ping_token the result belongs to that job
-    (404 when there is none); with client_hint and job_name it waits for the
-    matcher."""
+    (404 when there is none); with client_hint and job_name the matcher binds
+    it when it is sure of the job, else it waits in Unmatched (job_id null)."""
     jobs = JobRepository(db, services.policy)
     job: Job | None = None
     if body.job_id is not None:
@@ -175,6 +176,9 @@ async def create_result(
     if job is None and (body.job_id is not None or body.ping_token is not None):
         raise ProblemError(404, "Job not found")
     job_id = None if job is None else job.id
+    if job is None:
+        found = (await jobs.matcher(principal)).match(body.job_name, body.client_hint)
+        job_id = found.job_id if isinstance(found, Bound) else None
     result = ParsedResult(
         status=body.status,
         job_name=body.job_name,

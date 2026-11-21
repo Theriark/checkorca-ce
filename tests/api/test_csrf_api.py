@@ -109,6 +109,13 @@ def test_the_route_list_is_complete() -> None:
         ("DELETE", "/api/v1/inboxes/{inbox_id}"),
         ("POST", "/api/v1/inboxes/{inbox_id}/token"),
         ("POST", "/api/v1/messages/upload"),
+        ("PUT", "/api/v1/packs/{pack_id}"),
+        ("POST", "/api/v1/packs/import"),
+        ("POST", "/api/v1/packs/test"),
+        ("POST", "/api/v1/packs/{pack_id}/enable"),
+        ("POST", "/api/v1/packs/{pack_id}/disable"),
+        ("POST", "/api/v1/unmatched/{result_id}/assign"),
+        ("POST", "/api/v1/unmatched/{result_id}/create-job"),
     }
 
 

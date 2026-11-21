@@ -2096,7 +2096,7 @@
           "ingest"
         ],
         "summary": "Create Result",
-        "description": "Record a run. With job_id or ping_token the result belongs to that job\n(404 when there is none); with client_hint and job_name it waits for the\nmatcher.",
+        "description": "Record a run. With job_id or ping_token the result belongs to that job\n(404 when there is none); with client_hint and job_name the matcher binds\nit when it is sure of the job, else it waits in Unmatched (job_id null).",
         "operationId": "create_result_api_v1_results_post",
         "requestBody": {
           "required": true,
@@ -2527,6 +2527,650 @@
         }
       }
     },
+    "/api/v1/packs": {
+      "get": {
+        "tags": [
+          "packs"
+        ],
+        "summary": "List Packs",
+        "description": "Parser packs ordered by id, built-in and custom, without their YAML.",
+        "operationId": "list_packs_api_v1_packs_get",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 512
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PackPage"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/packs/import": {
+      "post": {
+        "tags": [
+          "packs"
+        ],
+        "summary": "Import Pack",
+        "description": "Save a custom pack from a Pack YAML file, under the id it names; 201\nwhen it is new. The same rules as PUT.",
+        "operationId": "import_pack_api_v1_packs_import_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_import_pack_api_v1_packs_import_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PackDetail"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/packs/test": {
+      "post": {
+        "tags": [
+          "packs"
+        ],
+        "summary": "Test Pack",
+        "description": "Run the enabled packs, and the pack being edited, on a pasted mail:\nevery pack's score, the pack that claims it and the results with their\nspans. 30 tests a minute per user; 503 when the bench does not answer\nwithin its time.",
+        "operationId": "test_pack_api_v1_packs_test_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "raw": {
+                    "type": "string",
+                    "maxLength": 1048576,
+                    "minLength": 1,
+                    "title": "Raw"
+                  },
+                  "pack": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 65536,
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Pack"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "raw"
+                ],
+                "title": "PackTestRequest",
+                "description": "A mail (RFC 822 text as pasted) and, optionally, the Pack YAML being\nedited, which takes the place of the stored pack with its id."
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PackTestAnswer"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/packs/{pack_id}": {
+      "get": {
+        "tags": [
+          "packs"
+        ],
+        "summary": "Get Pack",
+        "operationId": "get_pack_api_v1_packs__pack_id__get",
+        "parameters": [
+          {
+            "name": "pack_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100,
+              "pattern": "^[a-z0-9][a-z0-9._-]*$",
+              "title": "Pack Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PackDetail"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "packs"
+        ],
+        "summary": "Put Pack",
+        "description": "Create or replace a custom pack (201 when new). Built-in packs answer\n409; a changed pack must raise its version.",
+        "operationId": "put_pack_api_v1_packs__pack_id__put",
+        "parameters": [
+          {
+            "name": "pack_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100,
+              "pattern": "^[a-z0-9][a-z0-9._-]*$",
+              "title": "Pack Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PackBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PackDetail"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/packs/{pack_id}/export": {
+      "get": {
+        "tags": [
+          "packs"
+        ],
+        "summary": "Export Pack",
+        "description": "The pack as a Pack YAML file (import takes it back).",
+        "operationId": "export_pack_api_v1_packs__pack_id__export_get",
+        "parameters": [
+          {
+            "name": "pack_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100,
+              "pattern": "^[a-z0-9][a-z0-9._-]*$",
+              "title": "Pack Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The Pack YAML as a file.",
+            "content": {
+              "application/yaml": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/packs/{pack_id}/enable": {
+      "post": {
+        "tags": [
+          "packs"
+        ],
+        "summary": "Enable Pack",
+        "description": "The pack parses mail again (from the worker's next tick).",
+        "operationId": "enable_pack_api_v1_packs__pack_id__enable_post",
+        "parameters": [
+          {
+            "name": "pack_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100,
+              "pattern": "^[a-z0-9][a-z0-9._-]*$",
+              "title": "Pack Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PackOut"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/packs/{pack_id}/disable": {
+      "post": {
+        "tags": [
+          "packs"
+        ],
+        "summary": "Disable Pack",
+        "description": "The pack stops parsing mail (from the worker's next tick).",
+        "operationId": "disable_pack_api_v1_packs__pack_id__disable_post",
+        "parameters": [
+          {
+            "name": "pack_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100,
+              "pattern": "^[a-z0-9][a-z0-9._-]*$",
+              "title": "Pack Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PackOut"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/unmatched": {
+      "get": {
+        "tags": [
+          "unmatched"
+        ],
+        "summary": "List Unmatched",
+        "description": "Results no job is bound to, newest first.",
+        "operationId": "list_unmatched_api_v1_unmatched_get",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 512
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnmatchedPage"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/unmatched/{result_id}/assign": {
+      "post": {
+        "tags": [
+          "unmatched"
+        ],
+        "summary": "Assign",
+        "description": "Bind the result to a job; 422 for an unknown job, 409 when the result\nis bound already.",
+        "operationId": "assign_api_v1_unmatched__result_id__assign_post",
+        "parameters": [
+          {
+            "name": "result_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Result Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Binding"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/unmatched/{result_id}/suggest-schedule": {
+      "get": {
+        "tags": [
+          "unmatched"
+        ],
+        "summary": "Suggest Schedule",
+        "description": "A daily schedule at the median time of the runs with this result's job\nname and client hint (the result included), in timezone (default: the\ndigest zone of Settings). 422 with fewer than 3 runs.",
+        "operationId": "suggest_schedule_api_v1_unmatched__result_id__suggest_schedule_get",
+        "parameters": [
+          {
+            "name": "result_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Result Id"
+            }
+          },
+          {
+            "name": "timezone",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Timezone"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleSuggestion"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/unmatched/{result_id}/create-job": {
+      "post": {
+        "tags": [
+          "unmatched"
+        ],
+        "summary": "Create Job",
+        "description": "Create a job from the result and bind the result to it. 409 when the\nclient has a job of that name, or the result is bound already.",
+        "operationId": "create_job_api_v1_unmatched__result_id__create_job_post",
+        "parameters": [
+          {
+            "name": "result_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Result Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateJobRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobFromResult"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/system/status": {
       "get": {
         "tags": [
@@ -2562,6 +3206,250 @@
   },
   "components": {
     "schemas": {
+      "AssignRequest": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Job Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "job_id"
+        ],
+        "title": "AssignRequest"
+      },
+      "BenchMail": {
+        "properties": {
+          "sender": {
+            "type": "string",
+            "title": "Sender"
+          },
+          "to": {
+            "type": "string",
+            "title": "To"
+          },
+          "subject": {
+            "type": "string",
+            "title": "Subject"
+          },
+          "body": {
+            "type": "string",
+            "title": "Body"
+          },
+          "sent_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sent At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sender",
+          "to",
+          "subject",
+          "body",
+          "sent_at"
+        ],
+        "title": "BenchMail",
+        "description": "The mail as the engine reads it: decoded headers and the visible text\n(HTML as text, at most 256 KiB). Span offsets point into these."
+      },
+      "BenchResult": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "success",
+              "warning",
+              "failed",
+              "started",
+              "unknown"
+            ],
+            "title": "Status"
+          },
+          "job_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Name"
+          },
+          "client_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Hint"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "details": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Details"
+          },
+          "spans": {
+            "items": {
+              "$ref": "#/components/schemas/BenchSpan"
+            },
+            "type": "array",
+            "title": "Spans"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "job_name",
+          "client_hint",
+          "started_at",
+          "finished_at",
+          "run_id",
+          "details",
+          "spans"
+        ],
+        "title": "BenchResult"
+      },
+      "BenchScore": {
+        "properties": {
+          "pack_id": {
+            "type": "string",
+            "title": "Pack Id"
+          },
+          "matched": {
+            "type": "integer",
+            "title": "Matched"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pack_id",
+          "matched"
+        ],
+        "title": "BenchScore"
+      },
+      "BenchSpan": {
+        "properties": {
+          "field": {
+            "type": "string",
+            "title": "Field"
+          },
+          "start": {
+            "type": "integer",
+            "title": "Start"
+          },
+          "end": {
+            "type": "integer",
+            "title": "End"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          }
+        },
+        "type": "object",
+        "required": [
+          "field",
+          "start",
+          "end",
+          "source"
+        ],
+        "title": "BenchSpan",
+        "description": "Characters start to end of source (body, subject, from or to) hold the\nvalue of field (job_name, details.size, status, ...)."
+      },
+      "Binding": {
+        "properties": {
+          "result_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Result Id"
+          },
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Job Id"
+          },
+          "client_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Client Id"
+          },
+          "match_key_set": {
+            "type": "boolean",
+            "title": "Match Key Set"
+          },
+          "alias_added": {
+            "type": "boolean",
+            "title": "Alias Added"
+          },
+          "also_bound": {
+            "type": "integer",
+            "title": "Also Bound"
+          }
+        },
+        "type": "object",
+        "required": [
+          "result_id",
+          "job_id",
+          "client_id",
+          "match_key_set",
+          "alias_added",
+          "also_bound"
+        ],
+        "title": "Binding",
+        "description": "The result is bound to job_id. match_key_set: the job had no match key\nand now has the result's job name; alias_added: the result's client hint\nbecame an alias of the client. Both make the next identical mail bind.\nalso_bound: other unmatched results with the same names bound as well."
+      },
       "Body_import_jobs_api_v1_jobs_import_csv_post": {
         "properties": {
           "file": {
@@ -2576,6 +3464,21 @@
           "file"
         ],
         "title": "Body_import_jobs_api_v1_jobs_import_csv_post"
+      },
+      "Body_import_pack_api_v1_packs_import_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "description": "The Pack YAML file."
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_import_pack_api_v1_packs_import_post"
       },
       "Body_upload_message_api_v1_messages_upload_post": {
         "properties": {
@@ -2774,6 +3677,182 @@
         "type": "object",
         "title": "ClientPatch",
         "description": "Only the fields sent change."
+      },
+      "CreateJobRequest": {
+        "properties": {
+          "client_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Id"
+          },
+          "client_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Name"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "backup",
+              "script",
+              "other"
+            ],
+            "title": "Kind",
+            "default": "backup"
+          },
+          "parser_pack_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100,
+                "pattern": "^[a-z0-9][a-z0-9._-]*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parser Pack Id"
+          },
+          "match_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Match Key"
+          },
+          "schedule_kind": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "cron",
+                  "interval",
+                  "daily"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule Kind"
+          },
+          "schedule_expr": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule Expr"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
+          },
+          "max_runtime_minutes": {
+            "type": "integer",
+            "maximum": 10080.0,
+            "minimum": 1.0,
+            "title": "Max Runtime Minutes",
+            "default": 360
+          },
+          "grace_minutes": {
+            "type": "integer",
+            "maximum": 10080.0,
+            "minimum": 0.0,
+            "title": "Grace Minutes",
+            "default": 120
+          },
+          "escalate_minutes": {
+            "type": "integer",
+            "maximum": 10080.0,
+            "minimum": 0.0,
+            "title": "Escalate Minutes",
+            "default": 30
+          },
+          "attribution_basis": {
+            "type": "string",
+            "enum": [
+              "started",
+              "finished",
+              "received"
+            ],
+            "title": "Attribution Basis",
+            "default": "finished"
+          },
+          "warning_policy": {
+            "type": "string",
+            "enum": [
+              "warning_is_attention",
+              "warning_counts_ok"
+            ],
+            "title": "Warning Policy",
+            "default": "warning_is_attention"
+          },
+          "consecutive_failures_to_alert": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Consecutive Failures To Alert",
+            "default": 1
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "CreateJobRequest",
+        "description": "A job made from an unmatched result, for an existing client (client_id)\nor a client by name (client_name: found, or created). name defaults to the\nresult's job name and match_key to it as well. Without schedule_kind and\nschedule_expr the job runs daily at the time suggest-schedule gives (from\none result on); timezone defaults to the digest time zone of Settings."
       },
       "CreatedToken": {
         "properties": {
@@ -3593,6 +4672,27 @@
         "title": "InboxToken",
         "description": "A webhook inbox's new token, shown this once; the old one stops working."
       },
+      "JobFromResult": {
+        "properties": {
+          "job": {
+            "$ref": "#/components/schemas/JobOut"
+          },
+          "client_created": {
+            "type": "boolean",
+            "title": "Client Created"
+          },
+          "binding": {
+            "$ref": "#/components/schemas/Binding"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job",
+          "client_created",
+          "binding"
+        ],
+        "title": "JobFromResult"
+      },
       "JobOut": {
         "properties": {
           "id": {
@@ -4181,6 +5281,51 @@
             ],
             "title": "Parse State"
           },
+          "parsed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parsed At"
+          },
+          "parse_pack_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parse Pack Id"
+          },
+          "parse_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parse Reason"
+          },
+          "parse_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parse Path"
+          },
           "subject": {
             "anyOf": [
               {
@@ -4235,6 +5380,10 @@
           "message_id",
           "size",
           "parse_state",
+          "parsed_at",
+          "parse_pack_id",
+          "parse_reason",
+          "parse_path",
           "subject",
           "sender",
           "headers",
@@ -4305,6 +5454,51 @@
             ],
             "title": "Parse State"
           },
+          "parsed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parsed At"
+          },
+          "parse_pack_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parse Pack Id"
+          },
+          "parse_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parse Reason"
+          },
+          "parse_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parse Path"
+          },
           "subject": {
             "anyOf": [
               {
@@ -4337,6 +5531,10 @@
           "message_id",
           "size",
           "parse_state",
+          "parsed_at",
+          "parse_pack_id",
+          "parse_reason",
+          "parse_path",
           "subject",
           "sender"
         ],
@@ -4784,6 +5982,294 @@
         ],
         "title": "NewUser"
       },
+      "PackBody": {
+        "properties": {
+          "yaml": {
+            "type": "string",
+            "maxLength": 65536,
+            "minLength": 1,
+            "title": "Yaml"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "yaml"
+        ],
+        "title": "PackBody",
+        "description": "A custom pack as Pack YAML; its id must be the id in the URL."
+      },
+      "PackDetail": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "vendor": {
+            "type": "string",
+            "title": "Vendor"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "verified",
+              "unverified-synthetic"
+            ],
+            "title": "Status"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "builtin",
+              "custom"
+            ],
+            "title": "Source"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "yaml": {
+            "type": "string",
+            "title": "Yaml"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "version",
+          "vendor",
+          "status",
+          "source",
+          "enabled",
+          "created_at",
+          "updated_at",
+          "yaml"
+        ],
+        "title": "PackDetail"
+      },
+      "PackOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "vendor": {
+            "type": "string",
+            "title": "Vendor"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "verified",
+              "unverified-synthetic"
+            ],
+            "title": "Status"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "builtin",
+              "custom"
+            ],
+            "title": "Source"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "version",
+          "vendor",
+          "status",
+          "source",
+          "enabled",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "PackOut"
+      },
+      "PackPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PackOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "PackPage"
+      },
+      "PackProblem": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "message"
+        ],
+        "title": "PackProblem",
+        "description": "One problem of a parser pack: a JSON Pointer into the pack (\"\" for the\nwhole document) and why."
+      },
+      "PackTestAnswer": {
+        "properties": {
+          "mail": {
+            "$ref": "#/components/schemas/BenchMail"
+          },
+          "scores": {
+            "items": {
+              "$ref": "#/components/schemas/BenchScore"
+            },
+            "type": "array",
+            "title": "Scores"
+          },
+          "claimed_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Claimed By"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "parsed",
+              "unmatched",
+              "error"
+            ],
+            "title": "Outcome"
+          },
+          "pack_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pack Id"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "candidates": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Candidates"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/BenchResult"
+            },
+            "type": "array",
+            "title": "Results"
+          },
+          "skipped": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Skipped"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mail",
+          "scores",
+          "claimed_by",
+          "outcome",
+          "pack_id",
+          "reason",
+          "path",
+          "candidates",
+          "results",
+          "skipped"
+        ],
+        "title": "PackTestAnswer",
+        "description": "What the packs make of the mail.\n\nclaimed_by: the pack that claims the mail among the enabled packs (with\nthe edited one), null for no claim or a tie. outcome: parsed (results of\npack_id: the edited pack when one was sent, else the claiming pack),\nunmatched (reason no-pack, tie with the candidates, or no-records) or\nerror (reason timeout, deadline, too-many-records or memory, at path).\nskipped: stored packs that no longer load and were left out."
+      },
       "PauseRequest": {
         "properties": {
           "until": {
@@ -4865,6 +6351,20 @@
               }
             ],
             "title": "Errors"
+          },
+          "issues": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PackProblem"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issues"
           }
         },
         "type": "object",
@@ -5184,6 +6684,46 @@
         ],
         "title": "SchedulePreviewRequest"
       },
+      "ScheduleSuggestion": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "daily",
+            "title": "Kind"
+          },
+          "expr": {
+            "type": "string",
+            "title": "Expr"
+          },
+          "timezone": {
+            "type": "string",
+            "title": "Timezone"
+          },
+          "basis": {
+            "type": "string",
+            "enum": [
+              "finished",
+              "started",
+              "received"
+            ],
+            "title": "Basis"
+          },
+          "results": {
+            "type": "integer",
+            "title": "Results"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "expr",
+          "timezone",
+          "basis",
+          "results"
+        ],
+        "title": "ScheduleSuggestion",
+        "description": "A daily schedule at the median time of the job's runs: expr is HH:MM in\ntimezone; basis is the time read of each run; results how many runs."
+      },
       "SetupState": {
         "properties": {
           "needs_first_run": {
@@ -5355,6 +6895,104 @@
           "next_cursor"
         ],
         "title": "TokenPage"
+      },
+      "UnmatchedOut": {
+        "properties": {
+          "result_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Result Id"
+          },
+          "raw_message_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Message Id"
+          },
+          "received_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Received At"
+          },
+          "job_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Name"
+          },
+          "client_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Hint"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "success",
+              "warning",
+              "failed",
+              "started",
+              "unknown"
+            ],
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "result_id",
+          "raw_message_id",
+          "received_at",
+          "job_name",
+          "client_hint",
+          "status"
+        ],
+        "title": "UnmatchedOut",
+        "description": "A result no job is bound to yet."
+      },
+      "UnmatchedPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/UnmatchedOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "UnmatchedPage"
       },
       "UserOut": {
         "properties": {

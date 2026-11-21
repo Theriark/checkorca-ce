@@ -56,6 +56,10 @@ def message_out(message: RawMessage) -> MessageOut:
         message_id=message.message_id,
         size=message.size,
         parse_state=cast(ParseState, message.parse_state),
+        parsed_at=message.parsed_at,
+        parse_pack_id=message.parse_pack_id,
+        parse_reason=message.parse_reason,
+        parse_path=message.parse_path,
         subject=first_header(message, "subject"),
         sender=first_header(message, "from"),
     )

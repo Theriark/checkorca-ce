@@ -14,6 +14,7 @@ from sqlalchemy import ColumnElement, and_, false, not_, or_, select, tuple_
 
 from app.access import Principal
 from app.db.models import Client, Job, name_key
+from app.matcher import ClientRef, JobRef, Matcher
 from app.repos.base import Repository, guarded
 from app.repos.clients import contains_pattern
 from app.security.tokens import new_ping_token
@@ -170,6 +171,30 @@ class JobRepository(Repository):
         query = select(Job).where(Job.ping_token == token)
         query = self.policy.scope(principal, self.resource, query)
         return (await self.db.scalars(query)).one_or_none()
+
+    @guarded("list")
+    async def matcher(self, principal: Principal) -> Matcher:
+        """The matcher over every job that is not archived, of a client that is
+        not archived (phase C5)."""
+        jobs = (
+            select(Job.id, Job.client_id, Job.name, Job.match_key)
+            .join(Client, Client.id == Job.client_id)
+            .where(Job.archived.is_(False), Client.archived.is_(False))
+        )
+        jobs = self.policy.scope(principal, self.resource, jobs)
+        clients = select(Client.id, Client.name, Client.aliases).where(
+            Client.archived.is_(False)
+        )
+        clients = self.policy.scope(principal, "client", clients)
+        job_refs = [
+            JobRef(row.id, row.client_id, row.name, row.match_key)
+            for row in (await self.db.execute(jobs)).all()
+        ]
+        client_refs = [
+            ClientRef(row.id, row.name, tuple(row.aliases))
+            for row in (await self.db.execute(clients)).all()
+        ]
+        return Matcher(job_refs, client_refs)
 
     @guarded("list")
     async def for_clients(

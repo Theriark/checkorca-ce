@@ -27,6 +27,14 @@ class FieldProblem(BaseModel):
     message: str
 
 
+class PackProblem(BaseModel):
+    """One problem of a parser pack: a JSON Pointer into the pack ("" for the
+    whole document) and why."""
+
+    path: str
+    message: str
+
+
 class Problem(BaseModel):
     """An RFC 9457 problem details document."""
 
@@ -37,6 +45,8 @@ class Problem(BaseModel):
     instance: str | None = None
     request_id: str | None = None
     errors: list[FieldProblem] | None = None
+    # Parser pack routes: what is wrong with the pack, line by line.
+    issues: list[PackProblem] | None = None
 
 
 # Shared by every /api/v1 route in the OpenAPI document; problem_media_type
@@ -70,6 +80,7 @@ class ProblemError(Exception):
         detail: str | None = None,
         headers: dict[str, str] | None = None,
         errors: list[FieldProblem] | None = None,
+        issues: list[PackProblem] | None = None,
     ) -> None:
         super().__init__(title)
         self.status = status
@@ -77,6 +88,7 @@ class ProblemError(Exception):
         self.detail = detail
         self.headers = headers
         self.errors = errors
+        self.issues = issues
 
 
 def problem_response(
@@ -86,6 +98,7 @@ def problem_response(
     detail: str | None = None,
     headers: Mapping[str, str] | None = None,
     errors: list[FieldProblem] | None = None,
+    issues: list[PackProblem] | None = None,
 ) -> JSONResponse:
     problem = Problem(
         title=title or HTTPStatus(status).phrase,
@@ -94,6 +107,7 @@ def problem_response(
         instance=path,
         request_id=request_id_var.get(),
         errors=errors,
+        issues=issues,
     )
     return JSONResponse(
         problem.model_dump(exclude_none=True),
@@ -111,6 +125,7 @@ async def handle_problem(request: Request, error: ProblemError) -> JSONResponse:
         error.detail,
         error.headers,
         error.errors,
+        error.issues,
     )
 
 

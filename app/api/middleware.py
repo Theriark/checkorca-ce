@@ -7,7 +7,8 @@ class and stack frames (app/logging.py drops the text) and answered with a 500
 problem document; it is not re-raised, so the server never logs it again.
 Request bodies under /api/ are limited to 64 KiB (413): sign-in and first run
 are anonymous and would otherwise read any body into memory. The CSV import
-takes up to 1 MiB of file, raw mail and the .eml upload up to 5 MiB
+takes up to 1 MiB of file, raw mail and the .eml upload up to 5 MiB, the pack
+routes a 64 KiB pack and packs/test a 1 MiB mail besides
 (BODY_LIMITS, BODY_LIMIT_PREFIXES).
 """
 
@@ -21,8 +22,10 @@ from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.api.problems import problem_response
+from app.api.v1.pack_schemas import MAX_PACK_BODY, MAX_TEST_BODY
 from app.ingest.store import MAX_MESSAGE_BYTES
 from app.logging import request_id_var
+from app.parsers.loader import MAX_PACK_BYTES
 from app.security.headers import SECURITY_HEADERS
 
 logger = logging.getLogger("app.http")
@@ -33,10 +36,16 @@ MAX_API_BODY = 64 * 1024
 BODY_LIMITS = {
     "/api/v1/jobs/import.csv": 1024 * 1024 + 16 * 1024,
     "/api/v1/messages/upload": MAX_MESSAGE_BYTES + 16 * 1024,
+    "/api/v1/packs/import": MAX_PACK_BYTES + 16 * 1024,
+    # packs/test caps its body itself, before it parses it.
+    "/api/v1/packs/test": MAX_TEST_BODY,
 }
 # Routes with a path parameter, by prefix: POST ingest/email takes the message
-# itself as the body.
-BODY_LIMIT_PREFIXES = (("/api/v1/ingest/email/", MAX_MESSAGE_BYTES),)
+# itself as the body; PUT packs/{pack_id} a Pack YAML of up to 64 KiB as JSON.
+BODY_LIMIT_PREFIXES = (
+    ("/api/v1/ingest/email/", MAX_MESSAGE_BYTES),
+    ("/api/v1/packs/", MAX_PACK_BODY),
+)
 # Sent only when BASE_URL is https: a plain-http install must not pin HTTPS.
 HSTS_HEADER = (b"strict-transport-security", b"max-age=31536000")
 # A request id from the proxy is kept when it looks like one; else a new one.

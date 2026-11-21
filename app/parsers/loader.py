@@ -371,6 +371,14 @@ def parse_pack(text: str) -> Pack:
     return _Compiler(cast(dict[str, Any], document)).pack()
 
 
+@functools.lru_cache(maxsize=256)
+def parse_pack_cached(text: str) -> Pack:
+    """parse_pack, remembered by text: the worker and the test bench compile
+    the same packs for every mail. A Pack is immutable and its compiled
+    patterns are safe to share between threads; PackInvalid is not cached."""
+    return parse_pack(text)
+
+
 def load_pack_file(path: Path) -> Pack:
     """A pack file; its id must be its file name without .yaml."""
     pack = parse_pack(path.read_text("utf-8"))
@@ -383,6 +391,15 @@ def load_pack_file(path: Path) -> Pack:
 def builtin_packs(directory: Path = PACKS_DIR) -> tuple[Pack, ...]:
     """Every pack file of the directory, in file name order."""
     return tuple(load_pack_file(path) for path in sorted(directory.glob("*.yaml")))
+
+
+def builtin_pack_texts(directory: Path = PACKS_DIR) -> tuple[tuple[Pack, str], ...]:
+    """Every pack file of the directory with its text, in file name order (the
+    built-in rows of the parser_pack table)."""
+    found: list[tuple[Pack, str]] = []
+    for path in sorted(directory.glob("*.yaml")):
+        found.append((load_pack_file(path), path.read_text("utf-8")))
+    return tuple(found)
 
 
 def _time(value: object, where: str) -> datetime | None:

@@ -1,6 +1,6 @@
 # Parser packs and the parser engine
 
-Phase C5-I (Integration and Protocol Engineer) built the pack format, the loader, the engine and the `generic-keywords` pack. C5-B adds the `parser_pack` table, the matcher and the worker's parse hook; C5-F the Unmatched and parser screens; C6-I the vendor packs. Source: dev-work-plan rev 35, section C5 and the Interfaces chapter (Pack YAML, ParsedResult).
+Phase C5-I (Integration and Protocol Engineer) built the pack format, the loader, the engine and the `generic-keywords` pack. C5-B (Backend Developer) added the `parser_pack` table, the matcher, the worker's parse hook, the test bench and the packs and Unmatched API (chapters below); C5-F builds the Unmatched and parser screens; C6-I the vendor packs. Source: dev-work-plan rev 35, section C5 and the Interfaces chapter (Pack YAML, ParsedResult).
 
 ## Files
 
@@ -75,7 +75,8 @@ except PackInvalid as invalid:
 ```python
 from app.parsers.engine import ParseFailed, Parsed, Unmatched, mail_from_raw, parse
 
-outcome = await asyncio.to_thread(parse, packs, mail_from_raw(raw))
+# app/worker/parse.py
+outcome = await on_parser_thread(parse, packs, mail_from_raw(raw))
 match outcome:
     case Parsed(pack_id, results):
         ...  # record_result(..., raw_message_id=message.id) for each; parse_state parsed
@@ -85,7 +86,7 @@ match outcome:
         ...  # parse_state error; reason timeout, deadline, too-many-records, memory
 ```
 
-1. **Claim.** A pack claims the mail when every `match.all` condition and at least one `match.any` condition match. Its score is the number of matching conditions. The highest score wins; a tie between the best packs gives `Unmatched("tie", ids)`, no claim gives `Unmatched("no-pack")`. `apply(pack, mail)` skips the claim (a job's own pack, the test bench).
+1. **Claim.** A pack claims the mail when every `match.all` condition and at least one `match.any` condition match. Its score is the number of matching conditions. The highest score wins; a tie between the best packs gives `Unmatched("tie", ids)`, no claim gives `Unmatched("no-pack")`. `apply(pack, mail)` skips the claim (a job's own pack). `bench(packs, mail, pack=None)` gives the test bench every pack's `Score(pack_id, matched)`, the claiming pack and the outcome (of `apply(pack)` when a pack is given, else of `parse`), on one deadline.
 2. **Split.** Without `split` the body is one record. With it, every match of `record` starts a record that runs to the next match; text before the first match belongs to no record, and a record of only whitespace (an empty match after the last line break) is dropped. No record gives `Unmatched("no-records")`; more than 200 records give `ParseFailed(..., "too-many-records")`.
 3. **Extract.** Per record. A value is read from at most 1,600 characters of the named group: NUL and control characters removed, whitespace collapsed, cut at 200 characters (so `record_result` accepts 16 details); an empty value is `None`. A time without a zone takes the zone of the mail's Date header, else UTC; one that cannot be read is `None`. Matches and values outside the record are read once per mail.
 4. **Status.** The first rule that matches gives the status; none gives `unknown`. Unknown never becomes success.
@@ -111,3 +112,50 @@ Drop `app/parsers/packs/<id>.yaml` and `app/parsers/packs/fixtures/<id>/` in; `t
 ## generic-keywords
 
 The fallback pack for any backup or job alert. It claims mail whose subject names a backup, job, task, copy, dump, sync and the like (one condition), takes the job name from the subject without a `[tag]`, `Re:` or the status words, the client, times, run id and details (`host`, `duration`, `processed`, `error`) from `Label: value` lines, and the status from the subject first (failed, warning, started, success), then a `Status:` line of the body, then keywords in the body. `0 errors`, `no errors`, `without errors`, `Errors: 0` and `Errors: none` at the end of a value are not failures; `Error: No such file` is one. `not successful`, `not yet completed`, `could not be completed`, `no successful backup`, `finished without success`, `didn't run` and other negated success words (up to two words such as yet, be or fully may sit after the negation) are failures and never count as success. Its fixtures are synthetic.
+
+## Packs in the database (C5-B)
+
+`parser_pack` (revision `c5_packs`): `id`, `version`, `vendor`, `status`, `source` (`builtin` or `custom`), `yaml`, `enabled`, `created_at`, `updated_at`. No client data, so it is not in the client delete map.
+
+- **Built-in packs** are written from `app/parsers/packs` by `PackRepository.sync_builtin`, on every worker tick before parsing (a row that is already equal is not written). A new built-in pack is enabled; a changed one is updated in place and keeps the user's `enabled`; a built-in row the release no longer ships is removed. A custom pack whose id a later release ships stays custom.
+- **Custom packs** are saved through the API. The text must load (`parse_pack`), its `id` must be the id in the URL, and a changed text must raise `version`.
+- **ParserPackSource** (`app/ext/parsers.py`) gives the enabled packs as `PackText(id, source, yaml)` in id order; CE's `TablePackSource` reads the table. The worker and the test bench compile what it gives with `parse_pack_cached` (the same text is compiled once); a pack that no longer loads is left out and logged.
+
+## The parse hook (C5-B, `app/worker/parse.py`)
+
+A tick hook of the worker loop (`TICK_HOOKS`). Each tick it syncs the built-in packs, reads the enabled packs and builds the matcher once, then takes up to 200 pending messages, oldest first, one at a time with `FOR UPDATE SKIP LOCKED`, and parses each on the parser thread (one thread for the process, one mail at a time). It starts no new message once 30 seconds of the tick have passed (`PARSE_BUDGET`), so a slow custom pack that takes the 5 s deadline on every mail cannot hold the tick: the heartbeat stays inside the 3 minutes of `/readyz` and the later hooks run on time; the rest wait for the next tick. In the same transaction:
+
+| Outcome | `parse_state` | Also |
+| --- | --- | --- |
+| `Parsed(pack_id, results)` | `parsed` | `record_result` per result with `received_at` of the message, bound to its job when the matcher is sure; `parse_pack_id`; `raw_message.client_id` when every result is bound to jobs of one client |
+| `Unmatched(reason)` | `unmatched` | `parse_reason` `no-pack`, `tie` or `no-records`; no result |
+| `ParseFailed(pack_id, path, reason)` | `error` | `parse_reason` `timeout`, `deadline`, `too-many-records` or `memory`; `parse_path`, `parse_pack_id` |
+| anything else for one message | `error` | `parse_reason` `unreadable` (stored message over 5 MiB), `rejected` (a result the table refuses) or `internal`; logged by id, never with content |
+
+`parsed_at` is the tick's time. A failing message never stops the tick. The message list and detail return the four columns.
+
+## The matcher (C5-B, `app/matcher/`)
+
+Pure code. `tokens(text)`: NFKC, case folded, split at every run of characters that are not letters or digits. A result binds to a job when its `job_name` equals, token for token, the job's `match_key` or `name`, and its `client_hint` equals the client's name or one of its aliases; without a hint, no other job may have that name. Exactly one such job binds; none or several leave `job_id` NULL (the result waits in Unmatched). Archived jobs and jobs of archived clients are left out. `POST /results` with `client_hint` and `job_name` binds the same way at once.
+
+## Packs and Unmatched API (C5-B)
+
+Admins and technicians alike; lists, gets, export and suggest-schedule also take a read token; every change needs the CSRF token.
+
+| Route | Does |
+| --- | --- |
+| `GET packs` | packs by id without YAML (`cursor`, `limit`) |
+| `GET packs/{id}` | the pack with `yaml` |
+| `PUT packs/{id}` `{yaml}` | create (201) or replace (200) a custom pack; 422 `issues` (`path`, `message`) when it does not load, the id differs or the version did not rise; 409 for a built-in id, and for a new id another request saved first (load and retry) |
+| `POST packs/import` (file) | the same, id from the file |
+| `GET packs/{id}/export` | the YAML as a file |
+| `POST packs/{id}/enable`, `/disable` | from the worker's next tick |
+| `POST packs/test` `{raw, pack?}` | `mail` (as the engine reads it), `scores`, `claimed_by`, `outcome`, `pack_id`, `reason`, `path`, `candidates`, `results` with `spans`, `skipped` |
+| `GET unmatched` | `result_id`, `raw_message_id`, `received_at`, `job_name`, `client_hint`, `status`, newest first |
+| `POST unmatched/{result_id}/assign` `{job_id}` | binds; the job takes the result's job name as `match_key` when it had none, the client takes the client hint as an alias when it does not know it, so the next identical mail binds; other unmatched results with the same names bind too (`also_bound`), in one statement that skips a result another user bound meanwhile |
+| `POST unmatched/{result_id}/create-job` | `client_id` or `client_name` (found or created), job fields (name and `match_key` default to the result's job name; without a schedule a daily one at the time suggest-schedule gives from one result on); then binds as assign |
+| `GET unmatched/{result_id}/suggest-schedule?timezone=` | `kind` daily, `expr` HH:MM, `timezone` (default: the digest zone of Settings), `basis` (`finished`, `started` or `received`), `results`: the median local time of the newest 100 runs with the same names, around the clock, rounded down to 5 minutes; 422 below 3 runs |
+
+**Test bench.** `packs/test` never runs in the worker and never on the web process's own threads: the regex timeout is CPU time of the whole process, and `ROLE=all` runs both in one process. The web process starts `python -m app.parsers.bench` per test (`app/api/bench.py`) with the request on stdin, PATH and the locale only (no setting or secret), at most 2 at once (a test that finds no free slot within 5 s answers 503 busy), killed after 20 s (503) or when its request is cancelled. The child has the engine's 50 ms and 5 s and its own limits (20 s CPU, 768 MiB address space). The route has its own limit (30 tests a minute per user) and body cap; the mail may have 1 MiB, the pack the loader's 64 KiB.
+
+**Limits to know.** A message no pack claims has no result, so it is listed by `messages?parse_state=unmatched`, not by `unmatched`. assign sets `match_key` only when the job had none: a job whose key differs from the mail's job name binds the next identical mail only when its name equals it.

@@ -10,10 +10,12 @@ from app.api.v1 import (
     ingest,
     jobs,
     messages,
+    packs,
     results,
     schedule,
     system,
     tokens,
+    unmatched,
     users,
 )
 
@@ -28,4 +30,6 @@ router.include_router(inboxes.router)
 router.include_router(messages.router)
 router.include_router(results.router)
 router.include_router(ingest.router)
+router.include_router(packs.router)
+router.include_router(unmatched.router)
 router.include_router(system.router)
