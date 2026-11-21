@@ -454,6 +454,8 @@ const VEEAM_TEXT = [
 ].join('\n');
 
 function message(id: string, inboxId: string | null, extra: Partial<MessageDetail> = {}): MessageDetail {
+  // The overrides apply before the headers are derived, so the Message-ID,
+  // Subject and From headers always agree with the summary fields (C4-F item 7).
   const base: MessageOut = {
     id,
     inbox_id: inboxId,
@@ -468,6 +470,7 @@ function message(id: string, inboxId: string | null, extra: Partial<MessageDetai
     parse_path: null,
     subject: '[Success] Nightly server backup - Harbourside Dental (fictional)',
     sender: 'Veeam Backup <veeam@backup.example.test>',
+    ...Object.fromEntries(Object.entries(extra).filter(([key]) => !['headers', 'text', 'text_truncated', 'results'].includes(key))),
   };
   return {
     ...base,
@@ -739,6 +742,424 @@ export async function installIngestApi(page: Page, seed: { readonly inboxes?: re
       return problem(route, 404, 'Message not found');
     }
     return ok(route, found);
+  });
+
+  return store;
+}
+
+// ---------- Parser packs, the test bench and Unmatched (C5) ----------
+
+type PackOut = components['schemas']['PackOut'];
+type PackDetail = components['schemas']['PackDetail'];
+type PackProblem = components['schemas']['PackProblem'];
+type PackTestAnswer = components['schemas']['PackTestAnswer'];
+type BenchSpan = components['schemas']['BenchSpan'];
+type ResultOut = components['schemas']['ResultOut'];
+type UnmatchedOut = components['schemas']['UnmatchedOut'];
+type Binding = components['schemas']['Binding'];
+
+/** A Pack YAML (docs/parsers.md) with the id, version and vendor given. */
+export function packYaml(id: string, version: number, vendor: string, extraRule = ''): string {
+  return [
+    `id: ${id}`,
+    `version: ${version}`,
+    `vendor: ${vendor}`,
+    'status: unverified-synthetic',
+    'match:',
+    '  any:',
+    "    - subject: '(?i)\\b(?:backup|job)\\b'",
+    'extract:',
+    '  job_name:',
+    '    in: body',
+    "    regex: '^Job: (?P<job_name>[^\\r\\n]{1,200})'",
+    '  client_hint:',
+    '    in: body',
+    "    regex: '^Client: (?P<client_hint>[^\\r\\n]{1,200})'",
+    'status_rules:',
+    ...(extraRule ? [extraRule] : []),
+    "  - {status: failed, regex: '(?i)\\bfailed\\b'}",
+    "  - {status: success, regex: '(?i)\\bsuccess\\b'}",
+    'fixtures:',
+    '  - {name: failed-plain, origin: synthetic, class: failed}',
+    '',
+  ].join('\n');
+}
+
+function packOf(id: string, vendor: string, version: number, source: PackOut['source'], extra: Partial<PackDetail> = {}): PackDetail {
+  return {
+    id,
+    version,
+    vendor,
+    status: 'unverified-synthetic',
+    source,
+    enabled: true,
+    created_at: '2026-11-20T09:00:00Z',
+    updated_at: '2026-11-20T09:00:00Z',
+    yaml: packYaml(id, version, vendor),
+    ...extra,
+  };
+}
+
+export const GENERIC_PACK = packOf('generic-keywords', 'Generic', 3, 'builtin');
+export const ACME_PACK = packOf('acme-backup', 'Acme Backup (fictional)', 1, 'custom', { enabled: false, created_at: '2026-11-20T10:00:00Z', updated_at: '2026-11-20T10:00:00Z' });
+
+function resultOf(id: string, messageId: string | null, jobName: string, clientHint: string | null, status: ResultOut['status'], receivedAt: string, extra: Partial<ResultOut> = {}): ResultOut {
+  return {
+    id,
+    job_id: null,
+    client_hint: clientHint,
+    job_name: jobName,
+    status,
+    started_at: null,
+    finished_at: null,
+    received_at: receivedAt,
+    raw_message_id: messageId,
+    run_id: null,
+    details: {},
+    ...extra,
+  };
+}
+
+/** Three results of one unknown job (so a suggestion has its three runs and
+ *  an assign binds the other two), and one of another job that came in
+ *  through the API without a mail. */
+export const SEED_UNMATCHED: readonly ResultOut[] = [
+  resultOf('r1000000-0000-4000-8000-000000000001', 'm1000000-0000-4000-8000-000000000001', 'Nightly server backup', 'Harbourside Dental (fictional)', 'success', '2026-11-19T23:05:00Z', { started_at: '2026-11-19T22:00:00Z', finished_at: '2026-11-19T23:04:00Z', run_id: 'run-9001', details: { vms: 12 } }),
+  resultOf('r1000000-0000-4000-8000-000000000004', 'm1000000-0000-4000-8000-000000000003', 'Nightly server backup', 'Harbourside Dental (fictional)', 'success', '2026-11-19T23:06:00Z'),
+  resultOf('r1000000-0000-4000-8000-000000000002', 'm1000000-0000-4000-8000-000000000004', 'Nightly server backup', 'Harbourside Dental (fictional)', 'failed', '2026-11-18T23:05:00Z', { details: { error: 'VSS writer timed out.' } }),
+  resultOf('r1000000-0000-4000-8000-000000000003', null, 'Archive copy', 'Blue Fern Studio (fictional)', 'warning', '2026-11-17T04:10:00Z', { details: { warnings: 2 } }),
+];
+
+export interface ParserStore {
+  packs: PackDetail[];
+  results: ResultOut[];
+  /** How many bench runs answer 503 (busy) before one succeeds. */
+  busyRuns: number;
+  readonly calls: { readonly method: string; readonly url: string; readonly body: string | null }[];
+}
+
+function packProblem(route: Route, issues: readonly PackProblem[]) {
+  const body: Problem = { type: 'about:blank', title: 'Pack does not load', status: 422, detail: `The pack has ${issues.length} issue${issues.length === 1 ? '' : 's'}.`, request_id: 'req-e2e', errors: null, issues: [...issues] };
+  return route.fulfill({ status: 422, headers: PROBLEM_HEADERS, body: JSON.stringify(body) });
+}
+
+function toPackOut(item: PackDetail): PackOut {
+  const { id, version, vendor, status, source, enabled, created_at, updated_at } = item;
+  return { id, version, vendor, status, source, enabled, created_at, updated_at };
+}
+
+function yamlValue(yaml: string, key: string): string | null {
+  const match = new RegExp(`^${key}:[ \\t]*['"]?([^'"\\r\\n]*)`, 'm').exec(yaml);
+  return match ? (match[1] ?? '').trim() : null;
+}
+
+/** The loader's checks, as far as the e2e needs them: the id matches the
+ *  route, the version is a number above the stored one, and a rule's regex
+ *  of a lone "(" does not compile. */
+function packIssues(yaml: string, expectedId: string | null, stored: PackDetail | undefined): PackProblem[] {
+  const issues: PackProblem[] = [];
+  const id = yamlValue(yaml, 'id');
+  if (!id || !/^[a-z0-9][a-z0-9._-]*$/.test(id)) {
+    issues.push({ path: '/id', message: 'is not a pack id (lower-case letters, digits, dot, dash, underscore).' });
+  } else if (expectedId && id !== expectedId) {
+    issues.push({ path: '/id', message: `is ${id}; the route names ${expectedId}.` });
+  }
+  const version = Number(yamlValue(yaml, 'version'));
+  if (!Number.isInteger(version) || version < 1) {
+    issues.push({ path: '/version', message: 'must be a whole number from 1.' });
+  } else if (stored && version <= stored.version) {
+    issues.push({ path: '/version', message: `must be higher than ${stored.version}.` });
+  }
+  const rules = yaml.split(/\r?\n/).filter((line) => line.startsWith('  - {status:'));
+  rules.forEach((line, index) => {
+    if (/regex: '\('/.test(line)) {
+      issues.push({ path: `/status_rules/${index}/regex`, message: 'is not a valid pattern: missing ).' });
+    }
+  });
+  return issues;
+}
+
+const WORDS = (text: string | null | undefined) =>
+  (text ?? '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean)
+    .join(' ');
+
+/** What the engine reads from a pasted mail: the headers, the body, and the
+ *  job, client, status and error lines with their spans in the body. */
+function benchAnswer(raw: string, packs: readonly PackDetail[], edited: string | null): PackTestAnswer {
+  const body = raw.split(/\r?\n\r?\n/).slice(1).join('\n\n').replace(/\r\n/g, '\n');
+  const subject = headerOf(raw, 'Subject') ?? '';
+  const mail = { sender: headerOf(raw, 'From') ?? '', to: headerOf(raw, 'To') ?? '', subject, body, sent_at: headerOf(raw, 'Date') ? '2026-11-20T02:14:00Z' : null };
+  const editedId = edited ? yamlValue(edited, 'id') : null;
+  const claimable = /\b(backup|job)\b/i.test(subject);
+  const candidates = [...packs.filter((item) => item.enabled && item.id !== editedId).map((item) => item.id), ...(editedId ? [editedId] : [])];
+  const claimedBy = claimable ? (editedId ?? candidates[0] ?? null) : null;
+  const scores = candidates.map((pack_id) => ({ pack_id, matched: pack_id === claimedBy ? 2 : claimable ? 1 : 0 }));
+  if (!claimedBy) {
+    return { mail, scores, claimed_by: null, outcome: 'unmatched', pack_id: null, reason: 'no-pack', path: null, candidates: [], results: [], skipped: [] };
+  }
+  const spans: BenchSpan[] = [];
+  const details: Record<string, string> = {};
+  const field = (name: string, label: string): string | null => {
+    const match = new RegExp(`^${label}: (.+)$`, 'm').exec(body);
+    if (!match || match.index === undefined) {
+      return null;
+    }
+    const value = (match[1] ?? '').trim();
+    const start = match.index + label.length + 2;
+    spans.push({ field: name, start, end: start + value.length, source: 'body' });
+    return value;
+  };
+  const jobName = field('job_name', 'Job');
+  const clientHint = field('client_hint', 'Client');
+  const statusWord = field('status', 'Status');
+  const error = field('details.error', 'Error');
+  if (error) {
+    details.error = error;
+  }
+  const status: ResultOut['status'] = /fail/i.test(statusWord ?? subject) ? 'failed' : /warn/i.test(statusWord ?? subject) ? 'warning' : /success/i.test(statusWord ?? subject) ? 'success' : 'unknown';
+  return {
+    mail,
+    scores,
+    claimed_by: claimedBy,
+    outcome: 'parsed',
+    pack_id: claimedBy,
+    reason: null,
+    path: null,
+    candidates: [],
+    results: [{ status, job_name: jobName, client_hint: clientHint, started_at: null, finished_at: null, run_id: null, details, spans }],
+    skipped: /SKIP-ACME/.test(raw) ? [{ pack_id: 'acme-backup', reason: 'timeout', path: '/match/any/0/subject' }] : [],
+  };
+}
+
+/** Routes packs, the bench and Unmatched to an in-memory store that binds
+ *  through the clients and jobs of `fake` and the messages of `ingest`. */
+export async function installParserApi(
+  page: Page,
+  stores: { readonly fake: FakeStore; readonly ingest: IngestStore },
+  seed: { readonly packs?: readonly PackDetail[]; readonly results?: readonly ResultOut[] } = {},
+): Promise<ParserStore> {
+  const store: ParserStore = {
+    packs: structuredClone([...(seed.packs ?? [GENERIC_PACK, ACME_PACK])]),
+    results: structuredClone([...(seed.results ?? SEED_UNMATCHED)]),
+    busyRuns: 0,
+    calls: [],
+  };
+  const { fake, ingest } = stores;
+  // The results sit on their messages too (the split view reads them there).
+  for (const result of store.results) {
+    const message = ingest.messages.find((item) => item.id === result.raw_message_id);
+    if (message) {
+      message.parse_state = 'parsed';
+      message.results = [...message.results.filter((item) => item.id !== result.id), result];
+    }
+  }
+  // One job with a key that names another job name, for the keep-or-replace choice.
+  fake.jobs = fake.jobs.map((item) => (item.name === 'Cove server' ? { ...item, match_key: 'Old tool name' } : item));
+
+  const bind = (result: ResultOut, jobId: string, replace: boolean): Binding => {
+    const job = fake.jobs.find((item) => item.id === jobId);
+    const client = job ? fake.clients.find((item) => item.id === job.client_id) : undefined;
+    if (!job || !client) {
+      throw new Error('bind: unknown job');
+    }
+    let matchKeySet = false;
+    let replaced: string | null = null;
+    const name = result.job_name;
+    if (name && WORDS(name)) {
+      if (job.match_key === null || WORDS(job.match_key) === WORDS(name)) {
+        job.match_key = name;
+        matchKeySet = true;
+      } else if (replace) {
+        replaced = job.match_key;
+        job.match_key = name;
+        matchKeySet = true;
+      }
+    }
+    let aliasAdded = false;
+    let reason: Binding['reason'] = null;
+    const hint = result.client_hint;
+    if (!hint) {
+      reason = 'no_client_hint';
+    } else if (WORDS(client.name) === WORDS(hint) || client.aliases.some((alias) => WORDS(alias) === WORDS(hint))) {
+      reason = 'already_known';
+    } else if (fake.clients.some((other) => other.id !== client.id && (WORDS(other.name) === WORDS(hint) || other.aliases.some((alias) => WORDS(alias) === WORDS(hint))))) {
+      reason = 'alias_of_other_client';
+    } else if (client.aliases.length >= 50) {
+      reason = 'alias_limit';
+    } else {
+      client.aliases = [...client.aliases, hint];
+      aliasAdded = true;
+    }
+    const sure = store.results.filter((other) => other.id !== result.id && other.job_id === null && WORDS(other.job_name) === WORDS(name) && WORDS(other.client_hint) === WORDS(hint));
+    for (const other of [result, ...sure]) {
+      other.job_id = job.id;
+      const message = ingest.messages.find((item) => item.id === other.raw_message_id);
+      if (message) {
+        message.client_id = client.id;
+      }
+    }
+    return { result_id: result.id, job_id: job.id, client_id: client.id, match_key_set: matchKeySet, current_match_key: job.match_key, replaced_match_key: replaced, client_alias_added: aliasAdded, reason, also_bound: sure.length };
+  };
+
+  await page.route(/\/api\/v1\/unmatched(\/|\?|$)/, (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const method = request.method();
+    store.calls.push({ method, url: url.pathname + url.search, body: request.postData() });
+    const parts = url.pathname.split('/').filter(Boolean); // api, v1, unmatched, id?, action?
+    const id = parts[3];
+    const action = parts[4];
+    if (method !== 'GET' && !request.headers()['x-csrf-token']) {
+      return problem(route, 403, 'Forbidden', 'Missing CSRF token.');
+    }
+    if (!id) {
+      const items: UnmatchedOut[] = store.results
+        .filter((item) => item.job_id === null)
+        .sort((a, b) => b.received_at.localeCompare(a.received_at))
+        .map((item) => ({ result_id: item.id, raw_message_id: item.raw_message_id, received_at: item.received_at, job_name: item.job_name, client_hint: item.client_hint, status: item.status }));
+      return ok(route, { items, next_cursor: null });
+    }
+    const result = store.results.find((item) => item.id === id);
+    if (!result) {
+      return problem(route, 404, 'Result not found');
+    }
+    if (method === 'GET' && action === 'suggest-schedule') {
+      const runs = store.results.filter((item) => WORDS(item.job_name) === WORDS(result.job_name) && WORDS(item.client_hint) === WORDS(result.client_hint)).length;
+      if (runs < 3) {
+        return problem(route, 422, 'Too few runs', `Only ${runs} run${runs === 1 ? '' : 's'} with these names; 3 are needed.`);
+      }
+      return ok(route, { kind: 'daily', expr: '02:15', timezone: url.searchParams.get('timezone') ?? 'Europe/Lisbon', basis: 'finished', results: runs });
+    }
+    if (result.job_id !== null) {
+      return problem(route, 409, 'Result already bound', 'A job is already bound to this result.');
+    }
+    if (method === 'POST' && action === 'assign') {
+      const body = jsonBody(route);
+      const job = fake.jobs.find((item) => item.id === body.job_id && !item.archived);
+      if (!job) {
+        return problem(route, 422, 'Unknown job', 'No job with this id.', [{ field: 'body.job_id', message: 'No job with this id.' }]);
+      }
+      return ok(route, bind(result, job.id, body.replace_match_key === true));
+    }
+    if (method === 'POST' && action === 'create-job') {
+      const body = jsonBody(route);
+      let owner = typeof body.client_id === 'string' ? fake.clients.find((item) => item.id === body.client_id) : undefined;
+      let clientCreated = false;
+      if (!owner && typeof body.client_name === 'string') {
+        const name = body.client_name.trim();
+        owner = fake.clients.find((item) => item.name === name);
+        if (!owner) {
+          owner = client(newId('c'), name);
+          fake.clients.push(owner);
+          clientCreated = true;
+        }
+      }
+      if (!owner) {
+        return problem(route, 422, 'Unknown client', 'No client with this id.', [{ field: 'body.client_id', message: 'No client with this id.' }]);
+      }
+      const target = owner;
+      const name = String(body.name ?? result.job_name ?? '').trim();
+      if (fake.jobs.some((item) => item.client_id === target.id && item.name.toLowerCase() === name.toLowerCase())) {
+        return problem(route, 409, 'Job name taken', 'The client already has a job with this name.');
+      }
+      const created = job(newId('j'), target.id, target.name, name, {
+        kind: (body.kind as JobOut['kind']) ?? 'backup',
+        match_key: typeof body.match_key === 'string' ? body.match_key : result.job_name,
+        schedule_kind: (body.schedule_kind as JobOut['schedule_kind']) ?? 'daily',
+        schedule_expr: String(body.schedule_expr ?? '02:00'),
+        timezone: String(body.timezone ?? 'Europe/Lisbon'),
+        max_runtime_minutes: Number(body.max_runtime_minutes ?? 360),
+        grace_minutes: Number(body.grace_minutes ?? 120),
+        escalate_minutes: Number(body.escalate_minutes ?? 30),
+        warning_policy: (body.warning_policy as JobOut['warning_policy']) ?? 'warning_is_attention',
+        consecutive_failures_to_alert: Number(body.consecutive_failures_to_alert ?? 1),
+        created_at: NOW,
+        updated_at: NOW,
+      });
+      fake.jobs.push(created);
+      const binding = bind(result, created.id, true);
+      return ok(route, { job: withState(created), client_created: clientCreated, binding }, 201);
+    }
+    return problem(route, 405, 'Method Not Allowed');
+  });
+
+  await page.route(/\/api\/v1\/packs(\/|\?|$)/, (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const method = request.method();
+    const text = request.postData() ?? '';
+    store.calls.push({ method, url: url.pathname + url.search, body: method === 'GET' ? null : text.slice(0, 4000) });
+    const parts = url.pathname.split('/').filter(Boolean); // api, v1, packs, id-or-import-or-test?, action?
+    const id = parts[3];
+    const action = parts[4];
+    if (method !== 'GET' && !request.headers()['x-csrf-token']) {
+      return problem(route, 403, 'Forbidden', 'Missing CSRF token.');
+    }
+    const save = (yaml: string, expectedId: string | null) => {
+      const packId = yamlValue(yaml, 'id') ?? '';
+      const stored = store.packs.find((item) => item.id === packId);
+      if (stored?.source === 'builtin') {
+        return problem(route, 409, 'Built-in pack', 'This id belongs to a built-in pack; save a copy under another id.');
+      }
+      const issues = packIssues(yaml, expectedId, stored);
+      if (issues.length > 0) {
+        return packProblem(route, issues);
+      }
+      const next: PackDetail = { ...(stored ?? packOf(packId, '', 1, 'custom', { enabled: false, created_at: NOW })), version: Number(yamlValue(yaml, 'version')), vendor: yamlValue(yaml, 'vendor') ?? '', yaml, updated_at: NOW };
+      store.packs = [...store.packs.filter((item) => item.id !== packId), next];
+      return ok(route, next, stored ? 200 : 201);
+    };
+    if (!id) {
+      const items = store.packs.map(toPackOut).sort((a, b) => a.id.localeCompare(b.id));
+      return ok(route, { items, next_cursor: null });
+    }
+    if (id === 'import' && method === 'POST') {
+      const { file } = multipart(text);
+      return save(file ?? '', null);
+    }
+    if (id === 'test' && method === 'POST') {
+      const body = jsonBody(route);
+      if (store.busyRuns > 0) {
+        store.busyRuns -= 1;
+        return route.fulfill({ status: 503, headers: { ...PROBLEM_HEADERS, 'retry-after': '1' }, body: JSON.stringify({ type: 'about:blank', title: 'Bench busy', status: 503, detail: 'Two tests already run.', request_id: 'req-e2e' }) });
+      }
+      const raw = String(body.raw ?? '');
+      if (raw.length > 1024 * 1024) {
+        return problem(route, 413, 'Mail too large', 'A test mail may have at most 1 MiB.');
+      }
+      const edited = typeof body.pack === 'string' ? body.pack : null;
+      if (edited) {
+        const issues = packIssues(edited, null, undefined);
+        if (issues.length > 0) {
+          return packProblem(route, issues);
+        }
+      }
+      return ok(route, benchAnswer(raw, store.packs, edited));
+    }
+    const found = store.packs.find((item) => item.id === id);
+    if (method === 'PUT' && !action) {
+      const body = jsonBody(route);
+      return save(String(body.yaml ?? ''), id);
+    }
+    if (!found) {
+      return problem(route, 404, 'Pack not found');
+    }
+    if (method === 'GET' && !action) {
+      return ok(route, found);
+    }
+    if (method === 'GET' && action === 'export') {
+      return route.fulfill({ status: 200, headers: { 'content-type': 'application/yaml; charset=utf-8', 'content-disposition': `attachment; filename="${found.id}.yaml"` }, body: found.yaml });
+    }
+    if (method === 'POST' && (action === 'enable' || action === 'disable')) {
+      found.enabled = action === 'enable';
+      found.updated_at = NOW;
+      return ok(route, toPackOut(found));
+    }
+    return problem(route, 405, 'Method Not Allowed');
   });
 
   return store;
