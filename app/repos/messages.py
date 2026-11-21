@@ -161,7 +161,12 @@ class RawMessageRepository(Repository):
     async def refresh_client(self, principal: Principal, message_id: uuid.UUID) -> None:
         """Set client_id when every result of the message is bound to a job of
         one client, else clear it (a client delete then removes the message
-        only when all of it was that client's)."""
+        only when all of it was that client's). The message row is locked
+        first, so two transactions that bind results of one message refresh
+        it one after the other and the second reads the first one's binding;
+        callers refresh several messages in id order (one lock order)."""
+        lock = select(RawMessage.id).where(RawMessage.id == message_id)
+        await self.db.execute(lock.with_for_update())
         query = (
             select(JobResult.job_id, Job.client_id)
             .outerjoin(Job, Job.id == JobResult.job_id)

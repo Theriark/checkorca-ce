@@ -5,6 +5,9 @@ packs/test runs in a real child process here.
 """
 
 import asyncio
+import base64
+import json
+import subprocess
 import sys
 import time
 from typing import Any
@@ -17,7 +20,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from app.access import SYSTEM, AllowAllPolicy
-from app.api.bench import BenchRunner, BenchUnavailable, child_environment
+from app.api.bench import (
+    COMMAND,
+    ROOT,
+    BenchRunner,
+    BenchUnavailable,
+    child_environment,
+)
+from app.api.v1.pack_schemas import MAX_TEST_MAIL
 from app.db.models import AppUser, AuditEvent
 from app.main import create_app
 from app.parsers.loader import PACKS_DIR, builtin_pack_texts
@@ -361,6 +371,22 @@ async def test_a_redos_pack_stalls_neither_the_bench_nor_the_web_process(
     assert answer["path"] == "/status_rules/0/regex"
 
 
+async def test_a_slow_custom_pack_is_skipped_and_generic_keywords_claims(
+    client: httpx.AsyncClient, csrf: str
+) -> None:
+    slow = pack_text("slow-tool", match={"all": [{"body": RUNAWAY}]})
+    assert (await put(client, csrf, "slow-tool", slow)).status_code == 201
+    response = await bench_test(client, csrf, raw=RAW + ONES + "\r\n")
+    assert response.status_code == 200, response.text
+    answer = response.json()
+    assert answer["claimed_by"] == "generic-keywords"
+    assert (answer["outcome"], answer["pack_id"]) == ("parsed", "generic-keywords")
+    assert answer["results"][0]["status"] == "failed"
+    assert answer["skipped"] == [
+        {"pack_id": "slow-tool", "reason": "timeout", "path": "/match/all/0/body"}
+    ]
+
+
 async def test_the_bench_never_runs_the_engine_in_this_process(
     client: httpx.AsyncClient, csrf: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -431,6 +457,120 @@ async def test_a_full_bench_is_busy_and_a_cancelled_test_kills_its_child(
         await first
     # The child is gone, not left to run out its 30 s; only one ever started.
     assert len(started) == 1 and started[0].returncode is not None
+
+
+# The real child, its memory limit just above what it uses once its modules
+# are loaded: the request does not fit.
+TIGHT_CHILD = """
+import sys
+from app.parsers import bench
+status = open("/proc/self/status").read().split()
+size = int(status[status.index("VmSize:") + 1]) * 1024
+bench.MEMORY_BYTES = size + 256 * 1024
+sys.exit(bench.main())
+"""
+# About 900 KB of text in lines, under the 1 MiB the route takes.
+LONG_BODY = ("Line of a long synthetic job report.\r\n" * 24_000)[: 900 * 1024]
+
+
+async def test_a_child_over_its_memory_limit_answers_memory_and_the_web_serves(
+    db_engine: AsyncEngine, admin: AppUser, synced: None, clock: FakeClock
+) -> None:
+    runner = BenchRunner(command=[sys.executable, "-c", TIGHT_CHILD])
+    app: FastAPI = create_app(
+        load_settings(), static_dir=None, clock=clock, bench=runner
+    )
+    async with running(app) as client:
+        csrf = await sign_in(client, ADMIN_EMAIL, ADMIN_PASSWORD)
+        response = await bench_test(client, csrf, raw=RAW + LONG_BODY)
+        assert response.status_code == 200, response.text
+        answer = response.json()
+        assert (answer["outcome"], answer["reason"]) == ("error", "memory")
+        assert answer["results"] == []
+        # The web process keeps serving, the next test included.
+        assert (await client.get("/healthz")).status_code == 200
+        runner.command = COMMAND
+        again = await bench_test(client, csrf, raw=RAW)
+        assert again.json()["claimed_by"] == "generic-keywords"
+
+
+def test_the_largest_test_fits_the_memory_limit_of_the_child() -> None:
+    """The real child at its real limits with the largest request the route
+    lets through: a 1 MiB mail, an edited pack of 50 long rules and the
+    built-in pack (it peaked at 53 MiB of its 64, docs/parsers.md)."""
+    rules = [{"status": "warning", "regex": "z" * 1000} for _ in range(49)]
+    rules.append({"status": "failed", "regex": "(?i)status: failed"})
+    raw = (RAW + LONG_BODY + "x" * (100 * 1024)).encode()[:MAX_TEST_MAIL]
+    request = {
+        "packs": [["generic-keywords", GENERIC]],
+        "pack": pack_text(status_rules=rules),
+        "raw": base64.b64encode(raw).decode(),
+    }
+    child = subprocess.run(
+        COMMAND,
+        input=json.dumps(request).encode(),
+        capture_output=True,
+        cwd=ROOT,
+        env=child_environment(),
+        timeout=60,
+        check=False,
+    )
+    assert child.returncode == 0, child.stderr
+    answer = json.loads(child.stdout)
+    assert (answer["outcome"], answer["reason"]) == ("parsed", None)
+    assert answer["results"][0]["status"] == "failed"
+
+
+def digest_record(number: int, keys: list[str]) -> str:
+    lines = [
+        f"Job: Synthetic job {number:03d}",
+        "Client: Fictional Dental Clinic",
+        f"Run: run-{number:03d}",
+        "Start: 2027-01-04T02:00:00+00:00",
+        "End: 2027-01-04T03:00:00+00:00",
+        *(f"{key}: value {number:03d} {'v' * 40}" for key in keys),
+        "Status: Failed",
+    ]
+    return "".join(f"{line}\r\n" for line in lines)
+
+
+def test_the_largest_digest_fits_the_memory_limit_of_the_child() -> None:
+    """The largest answer: 200 records (the most a mail may give), each with
+    every field, 16 details and their spans, from text near the 256 KiB the
+    engine reads."""
+    keys = [f"detail_{number:02d}" for number in range(16)]
+    details = {key: {"regex": f"(?m)^{key}: (?P<v>[^\\r\\n]+)"} for key in keys}
+    extract = {
+        "job_name": {"regex": "^Job: (?P<name>[^\\r\\n]+)"},
+        "client_hint": {"regex": "(?m)^Client: (?P<client>[^\\r\\n]+)"},
+        "run_id": {"regex": "(?m)^Run: (?P<run>[^\\r\\n]+)"},
+        "started_at": {"regex": "(?m)^Start: (?P<at>[^\\r\\n]+)"},
+        "finished_at": {"regex": "(?m)^End: (?P<at>[^\\r\\n]+)"},
+        "details": details,
+    }
+    records = "".join(digest_record(number, keys) for number in range(200))
+    raw = (RAW + records).encode()
+    request = {
+        "packs": [["generic-keywords", GENERIC]],
+        "pack": pack_text(split={"record": "(?m)^Job: "}, extract=extract),
+        "raw": base64.b64encode(raw).decode(),
+    }
+    child = subprocess.run(
+        COMMAND,
+        input=json.dumps(request).encode(),
+        capture_output=True,
+        cwd=ROOT,
+        env=child_environment(),
+        timeout=60,
+        check=False,
+    )
+    assert child.returncode == 0, child.stderr
+    answer = json.loads(child.stdout)
+    assert (answer["outcome"], answer["reason"]) == ("parsed", None)
+    assert len(answer["results"]) == 200
+    last = answer["results"][-1]
+    assert (last["job_name"], last["run_id"]) == ("Synthetic job 199", "run-199")
+    assert len(last["details"]) == 16
 
 
 def test_the_child_gets_no_setting_of_the_web_process() -> None:

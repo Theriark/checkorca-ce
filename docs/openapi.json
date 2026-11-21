@@ -3007,7 +3007,7 @@
           "unmatched"
         ],
         "summary": "Assign",
-        "description": "Bind the result to a job; 422 for an unknown job, 409 when the result\nis bound already.",
+        "description": "Bind the result to a job; 422 for an unknown job, 409 when the result\nis bound already. A job that has another match key keeps it unless\nreplace_match_key is true.",
         "operationId": "assign_api_v1_unmatched__result_id__assign_post",
         "parameters": [
           {
@@ -3212,6 +3212,11 @@
             "type": "string",
             "format": "uuid",
             "title": "Job Id"
+          },
+          "replace_match_key": {
+            "type": "boolean",
+            "title": "Replace Match Key",
+            "default": false
           }
         },
         "additionalProperties": false,
@@ -3219,7 +3224,8 @@
         "required": [
           "job_id"
         ],
-        "title": "AssignRequest"
+        "title": "AssignRequest",
+        "description": "replace_match_key: a job whose match key names another job name takes\nthe result's job name instead (the old key is answered and audited)."
       },
       "BenchMail": {
         "properties": {
@@ -3379,6 +3385,43 @@
         ],
         "title": "BenchScore"
       },
+      "BenchSkipped": {
+        "properties": {
+          "pack_id": {
+            "type": "string",
+            "title": "Pack Id"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "invalid",
+              "timeout",
+              "deadline",
+              "memory"
+            ],
+            "title": "Reason"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pack_id",
+          "reason",
+          "path"
+        ],
+        "title": "BenchSkipped",
+        "description": "A pack left out: invalid, a stored pack that no longer loads (path\nnull); timeout, deadline or memory, a pack whose claim failed at path\n(the other packs still compete for the mail)."
+      },
       "BenchSpan": {
         "properties": {
           "field": {
@@ -3429,9 +3472,48 @@
             "type": "boolean",
             "title": "Match Key Set"
           },
-          "alias_added": {
+          "current_match_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Match Key"
+          },
+          "replaced_match_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replaced Match Key"
+          },
+          "client_alias_added": {
             "type": "boolean",
-            "title": "Alias Added"
+            "title": "Client Alias Added"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "no_client_hint",
+                  "already_known",
+                  "alias_of_other_client",
+                  "alias_limit"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
           },
           "also_bound": {
             "type": "integer",
@@ -3444,11 +3526,14 @@
           "job_id",
           "client_id",
           "match_key_set",
-          "alias_added",
+          "current_match_key",
+          "replaced_match_key",
+          "client_alias_added",
+          "reason",
           "also_bound"
         ],
         "title": "Binding",
-        "description": "The result is bound to job_id. match_key_set: the job had no match key\nand now has the result's job name; alias_added: the result's client hint\nbecame an alias of the client. Both make the next identical mail bind.\nalso_bound: other unmatched results with the same names bound as well."
+        "description": "The result is bound to job_id.\n\nmatch_key_set: the job's match key is now the result's job name (it had\nnone, or replace_match_key replaced replaced_match_key). current_match_key:\nthe job's match key after the call; when match_key_set is false and it\nnames another job name, the next identical mail binds only if the job's\nname is that job name. client_alias_added: the result's client hint became\nan alias of the client; else reason says why not (no_client_hint,\nalready_known, alias_of_other_client, alias_limit). also_bound: other\nunmatched results with the same names bound as well."
       },
       "Body_import_jobs_api_v1_jobs_import_csv_post": {
         "properties": {
@@ -6248,7 +6333,7 @@
           },
           "skipped": {
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/BenchSkipped"
             },
             "type": "array",
             "title": "Skipped"
@@ -6268,7 +6353,7 @@
           "skipped"
         ],
         "title": "PackTestAnswer",
-        "description": "What the packs make of the mail.\n\nclaimed_by: the pack that claims the mail among the enabled packs (with\nthe edited one), null for no claim or a tie. outcome: parsed (results of\npack_id: the edited pack when one was sent, else the claiming pack),\nunmatched (reason no-pack, tie with the candidates, or no-records) or\nerror (reason timeout, deadline, too-many-records or memory, at path).\nskipped: stored packs that no longer load and were left out."
+        "description": "What the packs make of the mail.\n\nscores: every pack not skipped. claimed_by: the pack that claims the\nmail among the enabled packs (with the edited one), null for no claim or\na tie. outcome: parsed (results of pack_id: the edited pack when one was\nsent, else the claiming pack), unmatched (reason no-pack, tie with the\ncandidates, or no-records) or error (reason timeout, deadline,\ntoo-many-records or memory, at path). skipped: the packs left out."
       },
       "PauseRequest": {
         "properties": {

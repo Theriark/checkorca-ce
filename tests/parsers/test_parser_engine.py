@@ -14,6 +14,7 @@ from hypothesis import strategies as st
 
 from app.ingest.results import Span
 from app.parsers.engine import (
+    CLAIM_SLICE,
     MAX_RECORDS,
     MAX_TEXT,
     MAX_VALUE,
@@ -21,6 +22,7 @@ from app.parsers.engine import (
     Parsed,
     ParseFailed,
     Score,
+    Skipped,
     Unmatched,
     apply,
     bench,
@@ -383,9 +385,15 @@ def test_a_redos_pattern_times_out_and_the_engine_continues() -> None:
 
 
 def test_a_timeout_names_the_pattern_it_came_from() -> None:
-    cases = [
+    claims = [
         (make_pack(match={"all": [{"body": RUNAWAY}]}), "/match/all/0/body"),
         (make_pack(match={"any": [{"body": RUNAWAY}]}), "/match/any/0/body"),
+    ]
+    for pack, path in claims:
+        # In the claim the pack is skipped and the mail has no pack.
+        skipped = (Skipped("example-tool", path, "timeout"),)
+        assert parse([pack], mail(ONES)) == Unmatched("no-pack", (), skipped)
+    cases = [
         (
             make_pack(extract={"job_name": {"regex": NAMED_RUNAWAY}}),
             "/extract/job_name/regex",
@@ -431,10 +439,70 @@ class OutOfMemory:
 
 def test_a_regex_out_of_memory_fails_the_mail() -> None:
     pack = make_pack()
+    failed, success = pack.status_rules
+    broken = replace(
+        pack, status_rules=(replace(failed, pattern=OutOfMemory()), success)
+    )
+    outcome = parse([broken], mail("success"))
+    assert outcome == ParseFailed("example-tool", "/status_rules/0/regex", "memory")
+
+
+def test_a_claim_out_of_memory_skips_the_pack() -> None:
+    pack = make_pack("broken")
     (condition,) = pack.match_all
     broken = replace(pack, match_all=(replace(condition, pattern=OutOfMemory()),))
-    outcome = parse([broken], mail())
-    assert outcome == ParseFailed("example-tool", "/match/all/0/from", "memory")
+    outcome = parse([broken, make_pack("one")], mail("success"))
+    assert parsed(outcome).pack_id == "one"
+    assert outcome.skipped == (Skipped("broken", "/match/all/0/from", "memory"),)
+
+
+def test_a_slow_custom_pack_is_skipped_and_generic_keywords_claims() -> None:
+    slow = make_pack("slow-tool", match={"all": [{"body": RUNAWAY}]})
+    alert = mail(ONES, subject="Nightly server backup failed")
+    started = time.perf_counter()
+    outcome = parse([slow, GENERIC], alert)
+    assert time.perf_counter() - started < 1.0
+    assert parsed(outcome).pack_id == "generic-keywords"
+    assert only(outcome).status == "failed"
+    assert outcome.skipped == (Skipped("slow-tool", "/match/all/0/body", "timeout"),)
+
+
+class SlowClock:
+    """A clock that only the patterns below move."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+class SlowMatch:
+    """A pattern that matches after step seconds of the clock."""
+
+    def __init__(self, clock: SlowClock, step: float) -> None:
+        self.clock = clock
+        self.step = step
+
+    def search(self, *args: object, **kwargs: object) -> object:
+        self.clock.now += self.step
+        return object()
+
+
+def test_a_claim_longer_than_its_slice_skips_the_pack() -> None:
+    clock = SlowClock()
+    three = [{"body": "a"}, {"body": "b"}, {"body": "c"}]
+    pack = make_pack("slow-tool", match={"all": three})
+    slow = SlowMatch(clock, 0.6 * CLAIM_SLICE)
+    conditions = tuple(replace(item, pattern=slow) for item in pack.match_all)
+    outcome = parse(
+        [replace(pack, match_all=conditions), make_pack("one")],
+        mail("success"),
+        clock=clock,
+    )
+    # The third condition finds the slice spent; the deadline is not.
+    assert parsed(outcome).pack_id == "one"
+    assert outcome.skipped == (Skipped("slow-tool", "/match/all/2/body", "deadline"),)
 
 
 def test_a_time_format_strptime_cannot_compile_reads_nothing() -> None:
@@ -478,17 +546,23 @@ def test_the_bench_applies_the_pack_being_edited() -> None:
     assert bench([make_pack("one")], alerts).outcome == Unmatched("no-pack")
 
 
-def test_the_bench_shows_a_tie_and_a_failed_claim() -> None:
+def test_the_bench_shows_a_tie_and_a_skipped_claim() -> None:
     tie = bench([make_pack("one"), make_pack("two")], mail("success"))
     assert tie.claimed_by is None
     assert tie.outcome == Unmatched("tie", ("one", "two"))
     runaway = make_pack("runaway", match={"all": [{"body": RUNAWAY}]})
     started = time.perf_counter()
-    failed = bench([make_pack("one"), runaway], mail(ONES))
+    shown = bench([runaway, make_pack("one")], mail(ONES))
     assert time.perf_counter() - started < 1.0
-    assert failed.scores == (Score("one", 1),)
-    assert failed.claimed_by is None
-    assert failed.outcome == ParseFailed("runaway", "/match/all/0/body", "timeout")
+    # The skipped pack has no score; the others still compete.
+    assert shown.scores == (Score("one", 1),)
+    assert shown.claimed_by == "one"
+    assert parsed(shown.outcome).pack_id == "one"
+    skipped = Skipped("runaway", "/match/all/0/body", "timeout")
+    assert shown.outcome.skipped == (skipped,)
+    # A tie and no claim list the skipped pack too.
+    tied = bench([runaway, make_pack("one"), make_pack("two")], mail(ONES))
+    assert tied.outcome == Unmatched("tie", ("one", "two"), (skipped,))
 
 
 def test_the_bench_keeps_one_deadline_for_the_claim_and_the_pack() -> None:

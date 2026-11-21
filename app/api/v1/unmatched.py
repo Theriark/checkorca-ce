@@ -1,10 +1,12 @@
 """unmatched: results no job is bound to, and the three ways out of the queue.
 
 - assign: bind the result to an existing job. The job takes the result's job
-  name as its match key when it had none, and the client takes the result's
-  client hint as an alias when it does not know it yet, so the next identical
-  mail binds without a visit here. Other unmatched results with the same
-  names bind too when the matcher is now sure of them.
+  name as its match key when it had none (with replace_match_key also when
+  its key names another job name; audited by ids only), and the client
+  takes the result's client hint as an alias when it does not know it yet
+  and has room, so the next identical mail binds without a visit here. The
+  answer says what was taught and why not. Other unmatched results with the
+  same names bind too when the matcher is now sure of them.
 - create-job: a new job (and, by name, a new client if needed) from the
   result, bound the same way.
 - suggest-schedule: a daily schedule at the median time of the runs with the
@@ -49,6 +51,7 @@ from app.api.v1.jobs import (
     unknown_client,
 )
 from app.api.v1.pack_schemas import (
+    AliasReason,
     AssignRequest,
     Binding,
     CreateJobRequest,
@@ -69,6 +72,7 @@ from app.matcher import (
     names_client,
     same_names,
     suggest_daily,
+    tokens,
 )
 from app.repos.clients import ClientRepository
 from app.repos.jobs import JobRepository
@@ -143,6 +147,51 @@ async def unmatched_result(
     return result
 
 
+async def teach_job(
+    services: Services,
+    db: AsyncSession,
+    principal: Principal,
+    job: Job,
+    job_name: str | None,
+    replace: bool,
+) -> tuple[bool, str | None]:
+    """Make the result's job name the job's match key when the job has none,
+    or with replace when its key names another job name. Gives whether the
+    key was set and the key it replaced."""
+    old = job.match_key
+    if not tokens(job_name) or tokens(job_name) == tokens(old):
+        return False, None
+    if old is not None and not replace:
+        return False, None
+    await JobRepository(db, services.policy).update(
+        principal, job, match_key=job_name, updated_at=services.clock.now()
+    )
+    return True, old
+
+
+async def teach_client(
+    services: Services,
+    db: AsyncSession,
+    principal: Principal,
+    client: Client,
+    hint: str | None,
+) -> tuple[bool, AliasReason | None]:
+    """Add the result's client hint to the client's aliases, so the next
+    identical mail binds; else why it was not added."""
+    if hint is None or not tokens(hint):
+        return False, "no_client_hint"
+    if names_client(client.name, client.aliases, hint):
+        return False, "already_known"
+    clients = ClientRepository(db, services.policy)
+    # Another client known by the hint would make it name two clients.
+    if await clients.named_elsewhere(principal, client.id, hint):
+        return False, "alias_of_other_client"
+    if len(client.aliases) >= MAX_ALIASES:
+        return False, "alias_limit"
+    await clients.update(principal, client, aliases=[*client.aliases, hint])
+    return True, None
+
+
 async def bind(
     services: Services,
     db: AsyncSession,
@@ -150,27 +199,20 @@ async def bind(
     result: JobResult,
     job: Job,
     client: Client,
+    *,
+    replace_match_key: bool = False,
 ) -> Binding:
     """Bind the result to the job and teach the matcher its names; then bind
     the other unmatched results with the same names the matcher is sure of."""
     results = JobResultRepository(db, services.policy)
     messages = RawMessageRepository(db, services.policy)
     await results.bind(principal, result, job.id)
-    match_key_set = job.match_key is None and result.job_name is not None
-    if match_key_set:
-        await JobRepository(db, services.policy).update(
-            principal, job, match_key=result.job_name, updated_at=services.clock.now()
-        )
-    hint = result.client_hint
-    alias_added = (
-        hint is not None
-        and not names_client(client.name, client.aliases, hint)
-        and len(client.aliases) < MAX_ALIASES
+    match_key_set, replaced = await teach_job(
+        services, db, principal, job, result.job_name, replace_match_key
     )
-    if alias_added:
-        await ClientRepository(db, services.policy).update(
-            principal, client, aliases=[*client.aliases, hint]
-        )
+    alias_added, reason = await teach_client(
+        services, db, principal, client, result.client_hint
+    )
     matcher = await JobRepository(db, services.policy).matcher(principal)
     names = (result.job_name, result.client_hint)
     sure: list[uuid.UUID] = []
@@ -182,18 +224,22 @@ async def bind(
         found = matcher.match(other.job_name, other.client_hint)
         if isinstance(found, Bound) and found.job_id == job.id:
             sure.append(other.id)
-    # Only those still unbound: a concurrent assign of one of them wins.
+    # Only those still unbound and not held by a concurrent assign or
+    # create-job (SKIP LOCKED): that one binds them, and neither waits.
     others = await results.bind_unbound(principal, sure, job.id)
-    touched = {result.raw_message_id, *others}
-    for message_id in touched:
-        if message_id is not None:
-            await messages.refresh_client(principal, message_id)
+    touched = {item for item in (result.raw_message_id, *others) if item is not None}
+    # In id order: one lock order for every transaction that refreshes.
+    for message_id in sorted(touched):
+        await messages.refresh_client(principal, message_id)
     return Binding(
         result_id=result.id,
         job_id=job.id,
         client_id=client.id,
         match_key_set=match_key_set,
-        alias_added=alias_added,
+        current_match_key=job.match_key,
+        replaced_match_key=replaced,
+        client_alias_added=alias_added,
+        reason=reason,
         also_bound=len(others),
     )
 
@@ -208,7 +254,8 @@ async def assign(
     db: DbDep,
 ) -> Binding:
     """Bind the result to a job; 422 for an unknown job, 409 when the result
-    is bound already."""
+    is bound already. A job that has another match key keeps it unless
+    replace_match_key is true."""
     principal = context.principal
     result = await unmatched_result(services, db, principal, result_id)
     job = await JobRepository(db, services.policy).get(
@@ -227,7 +274,15 @@ async def assign(
             message,
             errors=[FieldProblem(field="body.job_id", message=message)],
         )
-    binding = await bind(services, db, principal, result, job, client)
+    binding = await bind(
+        services,
+        db,
+        principal,
+        result,
+        job,
+        client,
+        replace_match_key=body.replace_match_key,
+    )
     await record_audit(
         services,
         db,
@@ -239,6 +294,17 @@ async def assign(
         job_id=str(job.id),
         also_bound=binding.also_bound,
     )
+    if binding.replaced_match_key is not None:
+        await record_audit(
+            services,
+            db,
+            request,
+            principal.actor,
+            "job.match_key_replaced",
+            target_kind="job",
+            target_id=job.id,
+            result_id=str(result.id),
+        )
     await db.commit()
     return binding
 

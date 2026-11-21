@@ -34,6 +34,11 @@ from app.schedule import ScheduleKind
 PackSource = Literal["builtin", "custom"]
 PackStatus = Literal["verified", "unverified-synthetic"]
 BenchOutcome = Literal["parsed", "unmatched", "error"]
+SkipReason = Literal["invalid", "timeout", "deadline", "memory"]
+# Why assign or create-job did not add the client hint as an alias.
+AliasReason = Literal[
+    "no_client_hint", "already_known", "alias_of_other_client", "alias_limit"
+]
 
 # A pasted mail for the test bench (the store takes 5 MB; a sample is less).
 MAX_TEST_MAIL: Final = 1024 * 1024
@@ -120,15 +125,25 @@ class BenchResult(BaseModel):
     spans: list[BenchSpan]
 
 
+class BenchSkipped(BaseModel):
+    """A pack left out: invalid, a stored pack that no longer loads (path
+    null); timeout, deadline or memory, a pack whose claim failed at path
+    (the other packs still compete for the mail)."""
+
+    pack_id: str
+    reason: SkipReason
+    path: str | None
+
+
 class PackTestAnswer(BaseModel):
     """What the packs make of the mail.
 
-    claimed_by: the pack that claims the mail among the enabled packs (with
-    the edited one), null for no claim or a tie. outcome: parsed (results of
-    pack_id: the edited pack when one was sent, else the claiming pack),
-    unmatched (reason no-pack, tie with the candidates, or no-records) or
-    error (reason timeout, deadline, too-many-records or memory, at path).
-    skipped: stored packs that no longer load and were left out.
+    scores: every pack not skipped. claimed_by: the pack that claims the
+    mail among the enabled packs (with the edited one), null for no claim or
+    a tie. outcome: parsed (results of pack_id: the edited pack when one was
+    sent, else the claiming pack), unmatched (reason no-pack, tie with the
+    candidates, or no-records) or error (reason timeout, deadline,
+    too-many-records or memory, at path). skipped: the packs left out.
     """
 
     mail: BenchMail
@@ -140,7 +155,7 @@ class PackTestAnswer(BaseModel):
     path: str | None
     candidates: list[str]
     results: list[BenchResult]
-    skipped: list[str]
+    skipped: list[BenchSkipped]
 
 
 class UnmatchedOut(BaseModel):
@@ -160,20 +175,34 @@ class UnmatchedPage(BaseModel):
 
 
 class AssignRequest(Body):
+    """replace_match_key: a job whose match key names another job name takes
+    the result's job name instead (the old key is answered and audited)."""
+
     job_id: uuid.UUID
+    replace_match_key: bool = False
 
 
 class Binding(BaseModel):
-    """The result is bound to job_id. match_key_set: the job had no match key
-    and now has the result's job name; alias_added: the result's client hint
-    became an alias of the client. Both make the next identical mail bind.
-    also_bound: other unmatched results with the same names bound as well."""
+    """The result is bound to job_id.
+
+    match_key_set: the job's match key is now the result's job name (it had
+    none, or replace_match_key replaced replaced_match_key). current_match_key:
+    the job's match key after the call; when match_key_set is false and it
+    names another job name, the next identical mail binds only if the job's
+    name is that job name. client_alias_added: the result's client hint became
+    an alias of the client; else reason says why not (no_client_hint,
+    already_known, alias_of_other_client, alias_limit). also_bound: other
+    unmatched results with the same names bound as well.
+    """
 
     result_id: uuid.UUID
     job_id: uuid.UUID
     client_id: uuid.UUID
     match_key_set: bool
-    alias_added: bool
+    current_match_key: str | None
+    replaced_match_key: str | None
+    client_alias_added: bool
+    reason: AliasReason | None
     also_bound: int
 
 

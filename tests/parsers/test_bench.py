@@ -8,11 +8,15 @@ import base64
 import io
 import json
 import resource
+import subprocess
+import sys
+from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
 
+from app.api.v1.pack_schemas import PackTestAnswer
 from app.parsers import bench
 from app.parsers.loader import PACKS_DIR, PackInvalid
 
@@ -83,7 +87,20 @@ def test_the_edited_pack_replaces_the_stored_one_and_gives_the_results() -> None
     assert answer["claimed_by"] == "example-tool"
     (result,) = answer["results"]
     assert (result["job_name"], result["status"]) == ("Nightly server backup", "failed")
-    assert answer["skipped"] == ["broken-tool"]
+    invalid = {"pack_id": "broken-tool", "reason": "invalid", "path": None}
+    assert answer["skipped"] == [invalid]
+
+
+def test_a_slow_custom_pack_is_skipped_and_generic_keywords_claims() -> None:
+    slow = pack_text("slow-tool", match={"all": [{"body": r"(?m)^(11+?)\1+$"}]})
+    stored = [("slow-tool", slow), ("generic-keywords", GENERIC)]
+    answer = bench.run(stored, None, RAW + b"1" * 199_999 + b"\r\n")
+    assert answer["claimed_by"] == "generic-keywords"
+    assert (answer["outcome"], answer["pack_id"]) == ("parsed", "generic-keywords")
+    assert answer["scores"] == [{"pack_id": "generic-keywords", "matched": 1}]
+    assert answer["skipped"] == [
+        {"pack_id": "slow-tool", "reason": "timeout", "path": "/match/all/0/body"}
+    ]
 
 
 def test_an_edited_pack_that_claims_nothing_still_shows_its_results() -> None:
@@ -119,13 +136,38 @@ def test_an_edited_pack_that_does_not_load_raises() -> None:
         bench.run([], "id: [", RAW)
 
 
+def test_main_answers_memory_when_the_child_runs_out(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(resource, "setrlimit", lambda kind, values: None)
+    monkeypatch.setattr(bench, "OOM_SCORE_FILE", str(tmp_path / "oom_score_adj"))
+
+    def exhausted(request: dict[str, Any]) -> dict[str, Any]:
+        raise MemoryError
+
+    monkeypatch.setattr(bench, "answer", exhausted)
+    request = {"packs": [], "pack": None, "raw": base64.b64encode(RAW).decode()}
+    output = io.StringIO()
+    assert bench.main(io.StringIO(json.dumps(request)), output) == 0
+    shown = json.loads(output.getvalue())
+    assert (shown["outcome"], shown["reason"], shown["path"]) == (
+        "error",
+        "memory",
+        None,
+    )
+    # Still a whole packs/test answer.
+    assert PackTestAnswer.model_validate(shown).results == []
+
+
 def test_main_limits_the_child_and_answers_on_stdout(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     limits: list[tuple[int, tuple[int, int]]] = []
     monkeypatch.setattr(
         resource, "setrlimit", lambda kind, values: limits.append((kind, values))
     )
+    score = tmp_path / "oom_score_adj"
+    monkeypatch.setattr(bench, "OOM_SCORE_FILE", str(score))
     request = {
         "packs": [["generic-keywords", GENERIC]],
         "pack": None,
@@ -138,3 +180,48 @@ def test_main_limits_the_child_and_answers_on_stdout(
         (resource.RLIMIT_CPU, (bench.CPU_SECONDS, bench.CPU_SECONDS)),
         (resource.RLIMIT_AS, (bench.MEMORY_BYTES, bench.MEMORY_BYTES)),
     ]
+    assert score.read_text() == "1000"
+
+
+def test_the_child_is_killed_before_the_web_process_when_memory_runs_out() -> None:
+    """A real child process: its OOM score adjustment is the highest."""
+    adjusted = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from app.parsers import bench; bench.limit_resources();"
+            " print(open('/proc/self/oom_score_adj').read())",
+        ],
+        capture_output=True,
+        cwd=Path(__file__).resolve().parents[2],
+        timeout=60,
+        check=True,
+    ).stdout.decode()
+    assert adjusted.strip() == "1000"
+
+
+def test_a_system_without_an_oom_score_keeps_the_limits(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    limits: list[int] = []
+    monkeypatch.setattr(resource, "setrlimit", lambda kind, values: limits.append(kind))
+    monkeypatch.setattr(bench, "OOM_SCORE_FILE", str(tmp_path / "no" / "such"))
+    bench.limit_resources()
+    assert limits == [resource.RLIMIT_CPU, resource.RLIMIT_AS]
+
+
+def test_the_child_loads_no_database_or_web_module() -> None:
+    """Its memory limit is sized for the parser alone (docs/parsers.md)."""
+    loaded = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys, app.parsers.bench; print(' '.join(sorted(sys.modules)))",
+        ],
+        capture_output=True,
+        cwd=Path(__file__).resolve().parents[2],
+        timeout=60,
+        check=True,
+    ).stdout.decode()
+    heavy = {"sqlalchemy", "asyncpg", "fastapi", "pydantic", "argon2", "app.db"}
+    assert heavy.isdisjoint(loaded.split())

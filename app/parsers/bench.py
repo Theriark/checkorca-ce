@@ -7,13 +7,17 @@ pasted mail or a user's pack itself: the regex module measures its 50 ms
 timeout in CPU time of the whole process, and ROLE=all runs the web app and
 the worker in one process. The child has its own CPU clock, the same 50 ms
 and 5 s limits as the worker, and limits of its own (CPU_SECONDS, MEMORY_BYTES)
-in case anything else runs away.
+in case anything else runs away. A child that runs out of its memory answers
+outcome error with reason memory: at the pattern when a regex ran out, else
+without a path.
 
 Request (JSON): packs, a list of [id, Pack YAML] (the enabled packs); pack,
 the Pack YAML being edited or null; raw, the mail as base64. The edited pack
 takes the place of a stored pack with its id. Answer (JSON): the mail as the
 engine reads it, every pack's score, the claiming pack, the outcome with its
-results and spans, and the ids of stored packs that do not load.
+results and spans, and the packs left out (skipped): stored packs that do
+not load (reason invalid) and packs whose claim failed (timeout, deadline or
+memory, at path).
 """
 
 import base64
@@ -28,9 +32,16 @@ from app.parsers.engine import Mail, Outcome, Parsed, ParseFailed, bench, mail_f
 from app.parsers.loader import PackInvalid, parse_pack_cached
 from app.parsers.model import Pack
 
-# Limits of the child process: CPU seconds and address space.
+# Limits of the child process: CPU seconds and address space. Two children
+# at this limit and the web process fit the web container's 384 MiB; the
+# largest test peaks at 53 MiB (docs/parsers.md, "Test bench memory").
 CPU_SECONDS: Final = 20
-MEMORY_BYTES: Final = 768 * 1024 * 1024
+MEMORY_BYTES: Final = 64 * 1024 * 1024
+# The child's OOM score adjustment (Linux, any process may raise its own):
+# when the container runs out of memory anyway, the kernel kills a bench
+# child before the web process.
+OOM_SCORE_FILE: Final = "/proc/self/oom_score_adj"
+OOM_SCORE_ADJ: Final = 1000
 
 
 def _time(value: datetime | None) -> str | None:
@@ -97,6 +108,10 @@ def _mail(mail: Mail) -> dict[str, Any]:
     }
 
 
+def _skipped(pack_id: str, reason: str, path: str | None) -> dict[str, Any]:
+    return {"pack_id": pack_id, "reason": reason, "path": path}
+
+
 def run(
     stored: Sequence[tuple[str, str]], edited: str | None, raw: bytes
 ) -> dict[str, Any]:
@@ -104,17 +119,20 @@ def run(
     that does not load (the web process checks it first)."""
     pack = None if edited is None else parse_pack_cached(edited)
     packs: list[Pack] = [] if pack is None else [pack]
-    skipped: list[str] = []
+    skipped: list[dict[str, Any]] = []
     for pack_id, text in stored:
         if pack is not None and pack_id == pack.id:
             continue
         try:
             packs.append(parse_pack_cached(text))
         except PackInvalid:
-            skipped.append(pack_id)
+            skipped.append(_skipped(pack_id, "invalid", None))
     packs.sort(key=lambda item: item.id)
     mail = mail_from_raw(raw)
     shown = bench(packs, mail, pack=pack)
+    skipped += [
+        _skipped(item.pack_id, item.reason, item.path) for item in shown.outcome.skipped
+    ]
     return {
         "mail": _mail(mail),
         "scores": [
@@ -136,17 +154,45 @@ def answer(request: dict[str, Any]) -> dict[str, Any]:
 
 
 def limit_resources() -> None:
-    """CPU time and memory of this process (Linux and other Unix systems)."""
+    """CPU time and memory of this process (Linux and other Unix systems),
+    and its OOM score (Linux only; elsewhere the limits alone hold)."""
     import resource
 
     resource.setrlimit(resource.RLIMIT_CPU, (CPU_SECONDS, CPU_SECONDS))
     resource.setrlimit(resource.RLIMIT_AS, (MEMORY_BYTES, MEMORY_BYTES))
+    try:
+        with open(OOM_SCORE_FILE, "w", encoding="ascii") as score:
+            score.write(str(OOM_SCORE_ADJ))
+    except OSError:
+        pass
+
+
+def out_of_memory() -> dict[str, Any]:
+    """The answer when the child ran out of its memory outside a regex (the
+    engine names the pattern of one inside): outcome error, reason memory."""
+    return {
+        "mail": _mail(Mail()),
+        "scores": [],
+        "claimed_by": None,
+        "outcome": "error",
+        "pack_id": None,
+        "reason": "memory",
+        "path": None,
+        "candidates": [],
+        "results": [],
+        "skipped": [],
+    }
 
 
 def main(stdin: TextIO = sys.stdin, stdout: TextIO = sys.stdout) -> int:
     limit_resources()
-    request = json.load(stdin)
-    json.dump(answer(request), stdout, ensure_ascii=False)
+    shown: dict[str, Any] | None
+    try:
+        shown = answer(json.load(stdin))
+    except MemoryError:
+        # Answered after the except block, once the request is freed.
+        shown = None
+    json.dump(out_of_memory() if shown is None else shown, stdout, ensure_ascii=False)
     return 0
 
 

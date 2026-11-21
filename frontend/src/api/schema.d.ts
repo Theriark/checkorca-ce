@@ -1528,8 +1528,11 @@ export interface paths {
 
 export interface components {
   schemas: {
+    /** replace_match_key: a job whose match key names another job name takes
+the result's job name instead (the old key is answered and audited). */
     AssignRequest: {
       job_id: string;
+      replace_match_key?: boolean;
     };
     /** The mail as the engine reads it: decoded headers and the visible text
 (HTML as text, at most 256 KiB). Span offsets point into these. */
@@ -1554,6 +1557,14 @@ export interface components {
       pack_id: string;
       matched: number;
     };
+    /** A pack left out: invalid, a stored pack that no longer loads (path
+null); timeout, deadline or memory, a pack whose claim failed at path
+(the other packs still compete for the mail). */
+    BenchSkipped: {
+      pack_id: string;
+      reason: "invalid" | "timeout" | "deadline" | "memory";
+      path: string | null;
+    };
     /** Characters start to end of source (body, subject, from or to) hold the
 value of field (job_name, details.size, status, ...). */
     BenchSpan: {
@@ -1562,16 +1573,25 @@ value of field (job_name, details.size, status, ...). */
       end: number;
       source: string;
     };
-    /** The result is bound to job_id. match_key_set: the job had no match key
-and now has the result's job name; alias_added: the result's client hint
-became an alias of the client. Both make the next identical mail bind.
-also_bound: other unmatched results with the same names bound as well. */
+    /** The result is bound to job_id.
+
+match_key_set: the job's match key is now the result's job name (it had
+none, or replace_match_key replaced replaced_match_key). current_match_key:
+the job's match key after the call; when match_key_set is false and it
+names another job name, the next identical mail binds only if the job's
+name is that job name. client_alias_added: the result's client hint became
+an alias of the client; else reason says why not (no_client_hint,
+already_known, alias_of_other_client, alias_limit). also_bound: other
+unmatched results with the same names bound as well. */
     Binding: {
       result_id: string;
       job_id: string;
       client_id: string;
       match_key_set: boolean;
-      alias_added: boolean;
+      current_match_key: string | null;
+      replaced_match_key: string | null;
+      client_alias_added: boolean;
+      reason: "no_client_hint" | "already_known" | "alias_of_other_client" | "alias_limit" | null;
       also_bound: number;
     };
     Body_import_jobs_api_v1_jobs_import_csv_post: {
@@ -1948,12 +1968,12 @@ whole document) and why. */
     };
     /** What the packs make of the mail.
 
-claimed_by: the pack that claims the mail among the enabled packs (with
-the edited one), null for no claim or a tie. outcome: parsed (results of
-pack_id: the edited pack when one was sent, else the claiming pack),
-unmatched (reason no-pack, tie with the candidates, or no-records) or
-error (reason timeout, deadline, too-many-records or memory, at path).
-skipped: stored packs that no longer load and were left out. */
+scores: every pack not skipped. claimed_by: the pack that claims the
+mail among the enabled packs (with the edited one), null for no claim or
+a tie. outcome: parsed (results of pack_id: the edited pack when one was
+sent, else the claiming pack), unmatched (reason no-pack, tie with the
+candidates, or no-records) or error (reason timeout, deadline,
+too-many-records or memory, at path). skipped: the packs left out. */
     PackTestAnswer: {
       mail: components["schemas"]["BenchMail"];
       scores: components["schemas"]["BenchScore"][];
@@ -1964,7 +1984,7 @@ skipped: stored packs that no longer load and were left out. */
       path: string | null;
       candidates: string[];
       results: components["schemas"]["BenchResult"][];
-      skipped: string[];
+      skipped: components["schemas"]["BenchSkipped"][];
     };
     /** Without until the job stays paused until it is resumed. */
     PauseRequest: {

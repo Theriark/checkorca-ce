@@ -16,9 +16,12 @@ from email.parser import BytesParser
 from email.policy import compat32
 from typing import Final
 
-from app.db.models import MESSAGE_ID_LENGTH
 from app.ingest.html_text import html_to_text
 
+# RFC 5322 allows a header line of 998 characters; a longer Message-ID is not
+# kept. Defined here, not in app.db.models, so the test bench child
+# (app.parsers.bench) does not load SQLAlchemy (docs/parsers.md).
+MESSAGE_ID_LENGTH: Final = 998
 MAX_HEADERS: Final = 200
 MAX_HEADER_NAME: Final = 200
 MAX_HEADER_VALUE: Final = 4000

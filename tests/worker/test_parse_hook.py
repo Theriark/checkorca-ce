@@ -24,7 +24,9 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from app.access import SYSTEM, AllowAllPolicy
 from app.db.models import AppUser, Client, Job, JobResult, ParserPack, RawMessage
 from app.ingest.store import ResultRejected
-from app.parsers.loader import builtin_pack_texts, parse_pack
+from app.parsers import loader
+from app.parsers.loader import PACKS_DIR, builtin_pack_texts, parse_pack
+from app.parsers.model import Pack
 from app.repos.jobs import JobRepository
 from app.repos.packs import PackRepository
 from app.settings import load_settings
@@ -264,7 +266,8 @@ async def test_assign_teaches_the_matcher_the_names_of_the_mail(
     assert assigned.status_code == 200, assigned.text
     binding = assigned.json()
     assert binding["job_id"] == job["id"] and binding["client_id"] == dental["id"]
-    assert binding["match_key_set"] is True and binding["alias_added"] is True
+    assert binding["match_key_set"] is True and binding["client_alias_added"] is True
+    assert binding["reason"] is None
     # The identical mail that was already waiting is bound as well.
     assert binding["also_bound"] == 1
     (other,) = await results_of(db_engine, second)
@@ -321,8 +324,17 @@ async def test_unmatched_and_failed_messages_keep_their_reason(
 async def test_a_redos_pack_fails_its_mail_and_the_tick_goes_on(
     context: WorkerContext, db_engine: AsyncEngine, clock: FakeClock
 ) -> None:
-    await save_pack(db_engine, clock, id="runaway", match={"all": [{"body": RUNAWAY}]})
-    stalled = await store(db_engine, clock, mail("Report", ONES))
+    # The pack claims the mail, then its status rule runs away.
+    await save_pack(
+        db_engine,
+        clock,
+        id="runaway",
+        match={"all": [{"from": r"@example\.org"}, {"subject": "^Report$"}]},
+        status_rules=[{"status": "failed", "regex": RUNAWAY}],
+    )
+    stalled = await store(
+        db_engine, clock, mail("Report", ONES, sender="backup@example.org")
+    )
     later = await store(db_engine, clock, nightly())
     started = time.perf_counter()
     await tick(context, clock)
@@ -330,8 +342,39 @@ async def test_a_redos_pack_fails_its_mail_and_the_tick_goes_on(
     assert time.perf_counter() - started < 5
     failed = await message_of(db_engine, stalled)
     assert (failed.parse_state, failed.parse_reason) == ("error", "timeout")
-    assert (failed.parse_pack_id, failed.parse_path) == ("runaway", "/match/all/0/body")
+    assert (failed.parse_pack_id, failed.parse_path) == (
+        "runaway",
+        "/status_rules/0/regex",
+    )
     assert (await message_of(db_engine, later)).parse_state == "parsed"
+
+
+async def test_a_slow_custom_pack_is_skipped_and_generic_keywords_claims(
+    context: WorkerContext,
+    db_engine: AsyncEngine,
+    clock: FakeClock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    await save_pack(
+        db_engine, clock, id="slow-tool", match={"all": [{"body": RUNAWAY}]}
+    )
+    slowed = await store(db_engine, clock, mail(f"[Failed] {NIGHTLY}", ONES))
+    later = await store(db_engine, clock, nightly())
+    started = time.perf_counter()
+    with caplog.at_level(logging.WARNING, logger="app.worker.parse"):
+        await tick(context, clock)
+    assert time.perf_counter() - started < 5
+    # The claim of slow-tool timed out on this mail only; the other packs
+    # competed without it and the mail has a clean outcome.
+    stored = await message_of(db_engine, slowed)
+    assert (stored.parse_state, stored.parse_reason) == ("parsed", None)
+    assert stored.parse_pack_id == "generic-keywords"
+    (result,) = await results_of(db_engine, slowed)
+    assert (result.job_name, result.status) == (NIGHTLY, "failed")
+    assert (await message_of(db_engine, later)).parse_pack_id == "generic-keywords"
+    skipped = f"parser pack slow-tool skipped for message {slowed}: timeout"
+    assert f"{skipped} at /match/all/0/body" in caplog.text
+    assert "Synthetic test mail" not in caplog.text
 
 
 async def test_a_message_that_cannot_be_parsed_never_stops_the_tick(
@@ -440,6 +483,38 @@ async def test_disabled_and_broken_packs_parse_nothing(
     stored = await message_of(db_engine, message_id)
     assert (stored.parse_state, stored.parse_reason) == ("unmatched", "no-pack")
     assert "broken-tool does not load" in caplog.text
+
+
+async def test_a_tick_does_not_parse_the_built_in_packs_again(
+    context: WorkerContext,
+    db_engine: AsyncEngine,
+    clock: FakeClock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    files: list[Path] = []
+    texts: list[str] = []
+    load_pack_file, parse_pack_text = loader.load_pack_file, loader.parse_pack
+
+    def loaded(path: Path) -> Pack:
+        files.append(path)
+        return load_pack_file(path)
+
+    def parsed(text: str) -> Pack:
+        texts.append(text)
+        return parse_pack_text(text)
+
+    monkeypatch.setattr(loader, "load_pack_file", loaded)
+    monkeypatch.setattr(loader, "parse_pack", parsed)
+    loader.shipped_pack_texts.cache_clear()
+    await tick(context, clock)
+    # The recorders fire: the first tick reads and parses the files.
+    assert files == sorted(PACKS_DIR.glob("*.yaml")) and texts
+    texts.clear()
+    message_id = await store(db_engine, clock, nightly())
+    await tick(context, clock)
+    # The files are not read again and no pack text is parsed again.
+    assert files == sorted(PACKS_DIR.glob("*.yaml")) and texts == []
+    assert (await message_of(db_engine, message_id)).parse_state == "parsed"
 
 
 def write_pack(folder: Path, pack_id: str, version: int = 1) -> None:
