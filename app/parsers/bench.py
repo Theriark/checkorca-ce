@@ -7,7 +7,9 @@ pasted mail or a user's pack itself: the regex module measures its 50 ms
 timeout in CPU time of the whole process, and ROLE=all runs the web app and
 the worker in one process. The child has its own CPU clock, the same 50 ms
 and 5 s limits as the worker, and limits of its own (CPU_SECONDS, MEMORY_BYTES)
-in case anything else runs away.
+in case anything else runs away. A child that runs out of its memory answers
+outcome error with reason memory: at the pattern when a regex ran out, else
+without a path.
 
 Request (JSON): packs, a list of [id, Pack YAML] (the enabled packs); pack,
 the Pack YAML being edited or null; raw, the mail as base64. The edited pack
@@ -30,9 +32,11 @@ from app.parsers.engine import Mail, Outcome, Parsed, ParseFailed, bench, mail_f
 from app.parsers.loader import PackInvalid, parse_pack_cached
 from app.parsers.model import Pack
 
-# Limits of the child process: CPU seconds and address space.
+# Limits of the child process: CPU seconds and address space. Two children
+# at this limit and the web process fit the web container's 384 MiB
+# (docs/parsers.md, "Test bench memory").
 CPU_SECONDS: Final = 20
-MEMORY_BYTES: Final = 768 * 1024 * 1024
+MEMORY_BYTES: Final = 96 * 1024 * 1024
 
 
 def _time(value: datetime | None) -> str | None:
@@ -153,10 +157,32 @@ def limit_resources() -> None:
     resource.setrlimit(resource.RLIMIT_AS, (MEMORY_BYTES, MEMORY_BYTES))
 
 
+def out_of_memory() -> dict[str, Any]:
+    """The answer when the child ran out of its memory outside a regex (the
+    engine names the pattern of one inside): outcome error, reason memory."""
+    return {
+        "mail": _mail(Mail()),
+        "scores": [],
+        "claimed_by": None,
+        "outcome": "error",
+        "pack_id": None,
+        "reason": "memory",
+        "path": None,
+        "candidates": [],
+        "results": [],
+        "skipped": [],
+    }
+
+
 def main(stdin: TextIO = sys.stdin, stdout: TextIO = sys.stdout) -> int:
     limit_resources()
-    request = json.load(stdin)
-    json.dump(answer(request), stdout, ensure_ascii=False)
+    shown: dict[str, Any] | None
+    try:
+        shown = answer(json.load(stdin))
+    except MemoryError:
+        # Answered after the except block, once the request is freed.
+        shown = None
+    json.dump(out_of_memory() if shown is None else shown, stdout, ensure_ascii=False)
     return 0
 
 

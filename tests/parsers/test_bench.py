@@ -13,6 +13,7 @@ from typing import Any
 import pytest
 import yaml
 
+from app.api.v1.pack_schemas import PackTestAnswer
 from app.parsers import bench
 from app.parsers.loader import PACKS_DIR, PackInvalid
 
@@ -130,6 +131,28 @@ def test_unmatched_and_failed_outcomes() -> None:
 def test_an_edited_pack_that_does_not_load_raises() -> None:
     with pytest.raises(PackInvalid):
         bench.run([], "id: [", RAW)
+
+
+def test_main_answers_memory_when_the_child_runs_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(resource, "setrlimit", lambda kind, values: None)
+
+    def exhausted(request: dict[str, Any]) -> dict[str, Any]:
+        raise MemoryError
+
+    monkeypatch.setattr(bench, "answer", exhausted)
+    request = {"packs": [], "pack": None, "raw": base64.b64encode(RAW).decode()}
+    output = io.StringIO()
+    assert bench.main(io.StringIO(json.dumps(request)), output) == 0
+    shown = json.loads(output.getvalue())
+    assert (shown["outcome"], shown["reason"], shown["path"]) == (
+        "error",
+        "memory",
+        None,
+    )
+    # Still a whole packs/test answer.
+    assert PackTestAnswer.model_validate(shown).results == []
 
 
 def test_main_limits_the_child_and_answers_on_stdout(
