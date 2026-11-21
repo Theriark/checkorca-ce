@@ -497,13 +497,17 @@ async def test_a_child_over_its_memory_limit_answers_memory_and_the_web_serves(
 
 # The real child, reporting what it used (C5-B2 measurement, temporary).
 MEASURED_CHILD = """
-import runpy, sys
-try:
-    runpy.run_module("app.parsers.bench", run_name="__main__")
-finally:
+import sys
+def show(label):
     status = open("/proc/self/status").read().splitlines()
     kept = [x for x in status if x.startswith(("VmPeak", "VmHWM"))]
-    print(" ".join(kept), file=sys.stderr)
+    print(label, " ".join(kept), file=sys.stderr)
+from app.parsers import bench
+show("loaded")
+try:
+    sys.exit(bench.main())
+finally:
+    show("done")
 """
 # The app's modules and one Argon2 hash (C5-B2 measurement, temporary).
 MEASURED_WEB = """

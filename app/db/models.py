@@ -29,6 +29,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.ingest.mime import MESSAGE_ID_LENGTH
 
 USER_ROLES = ("admin", "technician")
 TOKEN_SCOPES = ("ingest", "read")
@@ -42,8 +43,6 @@ RESULT_STATUSES = ("success", "warning", "failed", "started", "unknown")
 PACK_STATUSES = ("verified", "unverified-synthetic")
 PACK_SOURCES = ("builtin", "custom")
 NAME_LENGTH = 200
-# RFC 5322 allows a header line of 998 characters; a longer Message-ID is not kept.
-MESSAGE_ID_LENGTH = 998
 # A pack id (^[a-z0-9][a-z0-9._-]*$, at most 100) and a JSON Pointer into a pack.
 PACK_ID_LENGTH = 100
 PACK_PATH_LENGTH = 300

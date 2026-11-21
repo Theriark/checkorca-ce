@@ -126,8 +126,7 @@ def run(
     mail = mail_from_raw(raw)
     shown = bench(packs, mail, pack=pack)
     skipped += [
-        _skipped(item.pack_id, item.reason, item.path)
-        for item in shown.outcome.skipped
+        _skipped(item.pack_id, item.reason, item.path) for item in shown.outcome.skipped
     ]
     return {
         "mail": _mail(mail),

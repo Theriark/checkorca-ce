@@ -8,6 +8,9 @@ import base64
 import io
 import json
 import resource
+import subprocess
+import sys
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -174,3 +177,20 @@ def test_main_limits_the_child_and_answers_on_stdout(
         (resource.RLIMIT_CPU, (bench.CPU_SECONDS, bench.CPU_SECONDS)),
         (resource.RLIMIT_AS, (bench.MEMORY_BYTES, bench.MEMORY_BYTES)),
     ]
+
+
+def test_the_child_loads_no_database_or_web_module() -> None:
+    """Its memory limit is sized for the parser alone (docs/parsers.md)."""
+    loaded = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys, app.parsers.bench; print(' '.join(sorted(sys.modules)))",
+        ],
+        capture_output=True,
+        cwd=Path(__file__).resolve().parents[2],
+        timeout=60,
+        check=True,
+    ).stdout.decode()
+    heavy = {"sqlalchemy", "asyncpg", "fastapi", "pydantic", "argon2", "app.db"}
+    assert heavy.isdisjoint(loaded.split())
