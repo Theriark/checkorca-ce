@@ -145,8 +145,21 @@ describe('/unmatched', () => {
     await user.click(within(dialog).getByRole('button', { name: strings.unmatched.assignSubmit }));
     expect(within(dialog).getByText(strings.unmatched.assignChoose)).toBeTruthy();
     expect(calls.filter((call) => call.method === 'POST')).toHaveLength(0);
-    // The jobs load; the keyed job shows its key; picking it opens the choice.
-    await user.click(await within(dialog).findByRole('radio', { name: /Veeam nightly/ }));
+    // The jobs load as one tab stop; the arrow keys move and pick (one
+    // tab stop, the picked job); the keyed job shows its key and picking it
+    // opens the choice.
+    const veeam = await within(dialog).findByRole('radio', { name: /Veeam nightly/ });
+    const cove = within(dialog).getByRole('radio', { name: /Cove server/ });
+    expect([veeam, cove].map((radio) => radio.getAttribute('tabindex'))).toEqual(['0', '-1']);
+    veeam.focus();
+    await user.keyboard('{ArrowDown}');
+    expect(cove.getAttribute('aria-checked')).toBe('true');
+    expect(document.activeElement).toBe(cove);
+    expect([veeam, cove].map((radio) => radio.getAttribute('tabindex'))).toEqual(['-1', '0']);
+    await user.keyboard('{Home}');
+    expect(veeam.getAttribute('aria-checked')).toBe('true');
+    expect(document.activeElement).toBe(veeam);
+    await user.click(veeam);
     expect(within(dialog).getByText(fill(strings.unmatched.assignKeyKept, { key: 'Old tool name', name: 'Nightly server backup' }))).toBeTruthy();
     const keep = within(dialog).getByRole('radio', { name: /Keep the job/ }) as HTMLInputElement;
     expect(keep.checked).toBe(true);
@@ -299,6 +312,30 @@ describe('/unmatched', () => {
     expect(within(drawer).getByText(/the median finished time of 4 runs/)).toBeTruthy();
     await user.click(within(drawer).getByRole('button', { name: strings.jobForm.create }));
     expect(await within(drawer).findByText(strings.jobForm.nameTaken)).toBeTruthy();
+  });
+
+  it('leaves the schedule alone when the suggestion 422 is an unknown time zone, and says so', async () => {
+    const user = userEvent.setup();
+    stubFetch({
+      ...ME,
+      ...STATUS,
+      ...MESSAGES,
+      ...CLIENTS,
+      ...PREVIEW,
+      'GET /api/v1/unmatched': TWO,
+      [`GET /api/v1/unmatched/${FIRST.result_id}/suggest-schedule`]: {
+        status: 422,
+        body: { title: 'Invalid time zone', status: 422, detail: 'Unknown time zone Mars/Olympus.', errors: [{ field: 'timezone', message: 'Unknown time zone Mars/Olympus.' }] },
+      },
+    });
+    renderApp('/unmatched');
+    await screen.findByRole('heading', { level: 2, name: 'Nightly server backup' });
+    await user.click(screen.getByRole('button', { name: strings.unmatched.suggest }));
+    const drawer = await screen.findByRole('dialog', { name: strings.unmatched.createTitle });
+    const note = await within(drawer).findByText('Unknown time zone Mars/Olympus.');
+    expect(note.textContent).not.toContain('Daily at 02:00');
+    expect(note.closest('.co-alert')?.className).toContain('co-alert--warning');
+    expect((within(drawer).getByLabelText('Time 1') as HTMLInputElement).value).toBe('23:00');
   });
 
   it('is the same screen for the technician', async () => {

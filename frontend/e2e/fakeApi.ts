@@ -1129,7 +1129,8 @@ export async function installParserApi(
       const body = jsonBody(route);
       if (store.busyRuns > 0) {
         store.busyRuns -= 1;
-        return route.fulfill({ status: 503, headers: { ...PROBLEM_HEADERS, 'retry-after': '1' }, body: JSON.stringify({ type: 'about:blank', title: 'Bench busy', status: 503, detail: 'Two tests already run.', request_id: 'req-e2e' }) });
+        // Three seconds: wide enough for the specs to read the busy note before the retry.
+        return route.fulfill({ status: 503, headers: { ...PROBLEM_HEADERS, 'retry-after': '3' }, body: JSON.stringify({ type: 'about:blank', title: 'Bench busy', status: 503, detail: 'Two tests already run.', request_id: 'req-e2e' }) });
       }
       const raw = String(body.raw ?? '');
       if (raw.length > 1024 * 1024) {

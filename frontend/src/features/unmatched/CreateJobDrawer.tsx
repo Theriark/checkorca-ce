@@ -107,6 +107,11 @@ export function CreateJobDrawer({ open, onOpenChange, result, suggest = false, o
     }
   }, [open, result, suggest]);
 
+  // A 422 without a field error is "too few results"; a 422 on the timezone
+  // field means the server does not know the browser's zone, and the default
+  // in that same zone would fail the same way, so the editor is left alone.
+  const tooFew = suggestion.isError && suggestion.error instanceof ApiError && suggestion.error.status === 422 && !suggestion.error.fieldMessage('timezone');
+
   // The suggestion (or its 422 default) fills the editor once; a later edit
   // by the user is never overwritten.
   useEffect(() => {
@@ -116,11 +121,11 @@ export function CreateJobDrawer({ open, onOpenChange, result, suggest = false, o
     if (suggestion.data) {
       setState((current) => ({ ...current, schedule: { kind: 'daily', expr: '', times: [suggestion.data.expr], timezone: suggestion.data.timezone } }));
       setApplied(true);
-    } else if (suggestion.isError && suggestion.error instanceof ApiError && suggestion.error.status === 422) {
+    } else if (tooFew) {
       setState((current) => ({ ...current, schedule: { kind: 'daily', expr: '', times: [DEFAULT_SUGGESTION_TIME], timezone: zone } }));
       setApplied(true);
     }
-  }, [applied, asked, suggestion.data, suggestion.error, suggestion.isError, zone]);
+  }, [applied, asked, suggestion.data, tooFew, zone]);
 
   const busy = create.isPending;
   const set = <K extends keyof State>(key: K, value: State[K]) => setState((current) => ({ ...current, [key]: value }));
@@ -197,7 +202,7 @@ export function CreateJobDrawer({ open, onOpenChange, result, suggest = false, o
         </Alert>
       );
     }
-    if (suggestion.isError && suggestion.error instanceof ApiError && suggestion.error.status === 422) {
+    if (tooFew && suggestion.error instanceof ApiError) {
       return (
         <Alert tone="info" title={copy.suggestionTitle}>
           {fill(copy.suggestionDefaultLead, { detail: suggestion.error.detail ?? suggestion.error.title, zone })}

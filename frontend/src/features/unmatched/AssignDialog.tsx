@@ -7,7 +7,7 @@
  * because a second assign of a bound result answers 409.
  */
 import { Search } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 
 import { ApiError, toApiError } from '../../api/client';
 import type { JobOut } from '../../api/jobs';
@@ -49,6 +49,7 @@ export function AssignDialog({ open, onOpenChange, result, onBound }: AssignDial
   const [formError, setFormError] = useState<string | null>(null);
   const [done, setDone] = useState<{ readonly binding: Binding; readonly job: JobOut; readonly replacedOldKey: string | null } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const jobRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const q = useDebouncedValue(search.trim(), 250);
   const jobs = useJobSearch(q, open);
 
@@ -68,6 +69,32 @@ export function AssignDialog({ open, onOpenChange, result, onBound }: AssignDial
   const job = items.find((item) => item.id === jobId) ?? done?.job ?? null;
   const differs = job !== null && result !== null && keyDiffers(job.match_key, result.job_name);
   const busy = assign.isPending;
+
+  const pick = (id: string) => {
+    setJobId(id);
+    setJobError(null);
+    setChoice('keep');
+  };
+  // The radio pattern of the job list: arrow keys move and pick, Home and End jump.
+  const onJobKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    let next: number | null = null;
+    if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
+      next = (index + 1) % items.length;
+    } else if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
+      next = (index - 1 + items.length) % items.length;
+    } else if (event.key === 'Home') {
+      next = 0;
+    } else if (event.key === 'End') {
+      next = items.length - 1;
+    }
+    const target = next === null ? undefined : items[next];
+    if (!target) {
+      return;
+    }
+    event.preventDefault();
+    pick(target.id);
+    jobRefs.current.get(target.id)?.focus();
+  };
 
   const submit = async () => {
     if (!result) {
@@ -177,21 +204,28 @@ export function AssignDialog({ open, onOpenChange, result, onBound }: AssignDial
                 <p className="co-assign__empty">{copy.assignNoJobs}</p>
               ) : (
                 <div className="co-assign__list" role="radiogroup" aria-labelledby="assign-jobs-label">
-                  {items.map((item) => {
+                  {items.map((item, index) => {
                     const selected = item.id === jobId;
+                    // One tab stop (the picked job, else the first); the arrow keys move and pick.
+                    const stop = jobId === null ? index === 0 : selected;
                     return (
                       <div key={item.id}>
                         <button
                           type="button"
                           role="radio"
                           aria-checked={selected}
+                          tabIndex={stop ? 0 : -1}
+                          ref={(node) => {
+                            if (node) {
+                              jobRefs.current.set(item.id, node);
+                            } else {
+                              jobRefs.current.delete(item.id);
+                            }
+                          }}
                           className={selected ? 'co-assign__job co-assign__job--selected' : 'co-assign__job'}
                           disabled={busy}
-                          onClick={() => {
-                            setJobId(item.id);
-                            setJobError(null);
-                            setChoice('keep');
-                          }}
+                          onClick={() => pick(item.id)}
+                          onKeyDown={(event) => onJobKeyDown(event, index)}
                         >
                           <span className="co-assign__job-name">{item.name}</span>
                           <span className="co-assign__job-client">{item.client_name}</span>

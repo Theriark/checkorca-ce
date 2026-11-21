@@ -49,4 +49,22 @@ describe('spans', () => {
     ]);
     expect(splitBySpans('', [])).toEqual([]);
   });
+
+  it('counts the offsets in code points as the engine does, so a span after an emoji still lands on its value', () => {
+    // "Status 🔴 Job: Nightly file backup": the emoji is one code point and two string units.
+    const text = 'Status \u{1F534} Job: Nightly file backup';
+    const pieces = splitBySpans(text, [
+      { start: 7, end: 8, field: 'status', result: 1 },
+      { start: 14, end: 33, field: 'job_name', result: 1 },
+    ]);
+    expect(pieces.map((piece) => [piece.text, piece.span?.field ?? null])).toEqual([
+      ['Status ', null],
+      ['\u{1F534}', 'status'],
+      [' Job: ', null],
+      ['Nightly file backup', 'job_name'],
+    ]);
+    // A span that ends at the last code point is kept; one past it is dropped.
+    expect(splitBySpans('a\u{1F534}', [{ start: 1, end: 2, field: 'x', result: 1 }]).map((piece) => piece.text)).toEqual(['a', '\u{1F534}']);
+    expect(splitBySpans('a\u{1F534}', [{ start: 1, end: 3, field: 'x', result: 1 }]).map((piece) => piece.text)).toEqual(['a\u{1F534}']);
+  });
 });

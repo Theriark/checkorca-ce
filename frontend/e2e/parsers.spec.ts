@@ -171,6 +171,71 @@ for (const [width, scheme] of [
   });
 }
 
+/** Press Tab until the element has the focus, or give up after a bounded
+ *  number of stops; answers the number of stops it took. */
+async function tabUntilFocused(page: Page, selector: string, maxStops = 40): Promise<number> {
+  for (let stops = 1; stops <= maxStops; stops += 1) {
+    await page.keyboard.press('Tab');
+    if (await page.evaluate((target) => document.activeElement?.matches(target) ?? false, selector)) {
+      return stops;
+    }
+  }
+  throw new Error(`${selector} was not reached in ${maxStops} tab stops`);
+}
+
+for (const [width, scheme] of [
+  [1440, 'light'],
+  [390, 'dark'],
+] as const) {
+  test(`parsers: the keyboard reaches the YAML editor (Tab indents, Escape then Tab leaves) and the mail as read in the bench (${width} px, ${scheme})`, async ({ page }) => {
+    const errors = watchConsole(page);
+    await stubApi(page, { me: ADMIN });
+    await installAll(page);
+    await setView(page, width, scheme);
+    await page.goto(`/parsers/packs/${ACME_PACK.id}`);
+    await expect(page.getByRole('heading', { level: 1, name: ACME_PACK.id })).toBeVisible();
+    const content = page.locator('.cm-content');
+    await expect(content).toHaveAttribute('contenteditable', 'true');
+    // Tab from the top of the page lands in the editor; the stop is marked.
+    await tabUntilFocused(page, '.cm-content');
+    await expect(content).toBeFocused();
+    await expect(page.locator('.cm-editor.cm-focused')).toHaveCount(1);
+    // Tab inside the editor indents the line, so the focus stays put.
+    await page.keyboard.press('Tab');
+    await expect(content).toBeFocused();
+    await expect(content.locator('.cm-line').first()).toHaveText(/^\s+id: acme-backup/);
+    await expect(page.getByText('Unsaved changes')).toBeVisible();
+    // Escape, then Tab leaves the editor for the next stop.
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Tab');
+    await expect(content).not.toBeFocused();
+    expect(await page.evaluate(() => Boolean(document.activeElement?.closest('.cm-editor')))).toBe(false);
+    // Shift+Tab goes back in.
+    await page.keyboard.press('Shift+Tab');
+    await expect(content).toBeFocused();
+    await page.getByRole('button', { name: 'Discard changes' }).click();
+    await expect(page.getByText('Unsaved changes')).toHaveCount(0);
+    // The bench: the mail as read is a tab stop with a visible outline.
+    await page.goto('/parsers/bench');
+    await expect(page.getByRole('heading', { level: 1, name: 'Test bench' })).toBeVisible();
+    await page.getByRole('button', { name: 'Use a sample mail' }).click();
+    await page.getByRole('button', { name: 'Run the packs' }).click();
+    const raw = page.locator('.co-raw--bench');
+    await expect(raw).toBeVisible();
+    await page.getByRole('button', { name: 'Run the packs' }).focus();
+    await tabUntilFocused(page, '.co-raw--bench');
+    await expect(raw).toBeFocused();
+    const outline = await raw.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return { style: style.outlineStyle, width: style.outlineWidth };
+    });
+    expect(outline.style).toBe('solid');
+    expect(outline.width).toBe('2px');
+    await expectAccessible(page);
+    expect(errors()).toEqual([]);
+  });
+}
+
 for (const [width, scheme] of [
   [768, 'light'],
   [390, 'dark'],
@@ -192,7 +257,7 @@ for (const [width, scheme] of [
     // Busy: a note with the wait and a button, never an error page; then the retry answers.
     const busy = page.getByRole('status').filter({ hasText: 'The bench is busy' });
     await expect(busy).toBeVisible();
-    await expect(busy).toContainText('Trying again in 1 s.');
+    await expect(busy).toContainText('Trying again in 3 s.');
     await expect(busy.getByRole('button', { name: 'Try again now' })).toBeVisible();
     await expect(page.getByRole('alert')).toHaveCount(0);
     await page.screenshot({ path: shot('bench-busy', width, scheme) });
