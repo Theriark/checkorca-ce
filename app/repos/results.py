@@ -95,14 +95,21 @@ class JobResultRepository(Repository):
         self, principal: Principal, result_ids: Sequence[uuid.UUID], job_id: uuid.UUID
     ) -> list[uuid.UUID | None]:
         """Bind those of the results that are still unbound, in one statement,
-        and give their raw message ids. A result another transaction bound
-        meanwhile keeps its job: the row lock makes this statement wait for
-        that commit and then read job_id again."""
+        and give their raw message ids. A result another transaction holds is
+        skipped (FOR UPDATE SKIP LOCKED), never waited for: two assigns that
+        each hold the result the other would bind cannot deadlock, and the
+        result stays with the transaction that holds it. A result another
+        transaction bound and committed keeps its job (job_id IS NULL)."""
         if not result_ids:
             return []
+        free = (
+            select(JobResult.id)
+            .where(JobResult.id.in_(result_ids), JobResult.job_id.is_(None))
+            .with_for_update(skip_locked=True)
+        )
         statement = (
             update(JobResult)
-            .where(JobResult.id.in_(result_ids), JobResult.job_id.is_(None))
+            .where(JobResult.id.in_(free), JobResult.job_id.is_(None))
             .values(job_id=job_id)
             .returning(JobResult.raw_message_id)
         )

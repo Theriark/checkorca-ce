@@ -4,7 +4,9 @@ Results are written straight to the table, as the parse hook writes them.
 Clients, jobs and names are synthetic (legal R-11: fictional companies).
 """
 
+import asyncio
 import uuid
+from collections.abc import AsyncIterator
 from datetime import datetime
 from typing import Any
 
@@ -460,6 +462,91 @@ async def test_assign_keeps_a_binding_made_meanwhile(
     assert [item["id"] for item in kept] == [second]
     bound = (await client.get(f"/api/v1/jobs/{archive['id']}/results")).json()
     assert [item["id"] for item in bound["items"]] == [first]
+
+
+async def job_of(engine: AsyncEngine, result_id: str) -> str | None:
+    async with async_sessionmaker(engine)() as db:
+        result = await db.get(JobResult, uuid.UUID(result_id))
+    assert result is not None
+    return None if result.job_id is None else str(result.job_id)
+
+
+def meet_before_binding_the_others(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Hold both requests until each holds its own result and is about to bind
+    the other's: the order in which two transactions deadlock."""
+    both = asyncio.Barrier(2)
+    bind_unbound = JobResultRepository.bind_unbound
+
+    async def together(*args: Any, **kwargs: Any) -> list[uuid.UUID | None]:
+        async with asyncio.timeout(10):
+            await both.wait()
+        return await bind_unbound(*args, **kwargs)
+
+    monkeypatch.setattr(JobResultRepository, "bind_unbound", together)
+
+
+@pytest.fixture
+async def second_browser(
+    app: FastAPI, client: httpx.AsyncClient, technician: AppUser
+) -> AsyncIterator[tuple[httpx.AsyncClient, str]]:
+    """A technician in another browser, for a request beside the admin's."""
+    async with another_browser(app) as other:
+        yield other, await sign_in(other, TECHNICIAN_EMAIL, TECHNICIAN_PASSWORD)
+
+
+async def test_two_concurrent_assigns_never_deadlock(
+    client: httpx.AsyncClient,
+    csrf: str,
+    second_browser: tuple[httpx.AsyncClient, str],
+    db_engine: AsyncEngine,
+    clock: FakeClock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    other, other_csrf = second_browser
+    dental = await make_client(client, csrf, DENTAL)
+    freight = await make_client(client, csrf, FREIGHT)
+    dental_job = await make_job(client, csrf, dental["id"], "Dental copy")
+    freight_job = await make_job(client, csrf, freight["id"], "Freight copy")
+    # Without a client hint each request is sure the other's result belongs
+    # to its own job: the other's new match key is not committed yet.
+    first = await add_result(db_engine, clock, client_hint=None)
+    second = await add_result(db_engine, clock, client_hint=None)
+    meet_before_binding_the_others(monkeypatch)
+    answers = await asyncio.gather(
+        post(client, csrf, f"{first}/assign", {"job_id": dental_job["id"]}),
+        post(other, other_csrf, f"{second}/assign", {"job_id": freight_job["id"]}),
+    )
+    assert [answer.status_code for answer in answers] == [200, 200]
+    assert [answer.json()["also_bound"] for answer in answers] == [0, 0]
+    # Each result is bound once, to the job of the request that held it.
+    assert await job_of(db_engine, first) == dental_job["id"]
+    assert await job_of(db_engine, second) == freight_job["id"]
+
+
+async def test_a_concurrent_assign_and_create_job_never_deadlock(
+    client: httpx.AsyncClient,
+    csrf: str,
+    second_browser: tuple[httpx.AsyncClient, str],
+    db_engine: AsyncEngine,
+    clock: FakeClock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    other, other_csrf = second_browser
+    dental = await make_client(client, csrf, DENTAL)
+    freight = await make_client(client, csrf, FREIGHT)
+    dental_job = await make_job(client, csrf, dental["id"], "Dental copy")
+    first = await add_result(db_engine, clock, client_hint=None)
+    second = await add_result(db_engine, clock, client_hint=None)
+    meet_before_binding_the_others(monkeypatch)
+    create = {"client_id": freight["id"], "name": "Freight copy"}
+    assigned, made = await asyncio.gather(
+        post(client, csrf, f"{first}/assign", {"job_id": dental_job["id"]}),
+        post(other, other_csrf, f"{second}/create-job", create),
+    )
+    assert assigned.status_code == 200, assigned.text
+    assert made.status_code == 201, made.text
+    assert await job_of(db_engine, first) == dental_job["id"]
+    assert await job_of(db_engine, second) == made.json()["job"]["id"]
 
 
 async def test_create_job_takes_a_client_created_meanwhile(

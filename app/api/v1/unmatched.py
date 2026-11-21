@@ -224,12 +224,13 @@ async def bind(
         found = matcher.match(other.job_name, other.client_hint)
         if isinstance(found, Bound) and found.job_id == job.id:
             sure.append(other.id)
-    # Only those still unbound: a concurrent assign of one of them wins.
+    # Only those still unbound and not held by a concurrent assign or
+    # create-job (SKIP LOCKED): that one binds them, and neither waits.
     others = await results.bind_unbound(principal, sure, job.id)
-    touched = {result.raw_message_id, *others}
-    for message_id in touched:
-        if message_id is not None:
-            await messages.refresh_client(principal, message_id)
+    touched = {item for item in (result.raw_message_id, *others) if item is not None}
+    # In id order: one lock order for every transaction that refreshes.
+    for message_id in sorted(touched):
+        await messages.refresh_client(principal, message_id)
     return Binding(
         result_id=result.id,
         job_id=job.id,
