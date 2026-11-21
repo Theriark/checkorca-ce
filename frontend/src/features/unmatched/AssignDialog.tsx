@@ -176,11 +176,11 @@ export function AssignDialog({ open, onOpenChange, result, onBound }: AssignDial
               ) : items.length === 0 ? (
                 <p className="co-assign__empty">{copy.assignNoJobs}</p>
               ) : (
-                <ul className="co-assign__list" role="radiogroup" aria-labelledby="assign-jobs-label">
+                <div className="co-assign__list" role="radiogroup" aria-labelledby="assign-jobs-label">
                   {items.map((item) => {
                     const selected = item.id === jobId;
                     return (
-                      <li key={item.id}>
+                      <div key={item.id}>
                         <button
                           type="button"
                           role="radio"
@@ -197,10 +197,10 @@ export function AssignDialog({ open, onOpenChange, result, onBound }: AssignDial
                           <span className="co-assign__job-client">{item.client_name}</span>
                           {item.match_key && <span className="co-chip co-assign__job-key mono">{item.match_key}</span>}
                         </button>
-                      </li>
+                      </div>
                     );
                   })}
-                </ul>
+                </div>
               )}
               {jobError && (
                 <p className="co-field__error" role="alert">
