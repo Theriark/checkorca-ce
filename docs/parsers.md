@@ -117,7 +117,7 @@ The fallback pack for any backup or job alert. It claims mail whose subject name
 
 `parser_pack` (revision `c5_packs`): `id`, `version`, `vendor`, `status`, `source` (`builtin` or `custom`), `yaml`, `enabled`, `created_at`, `updated_at`. No client data, so it is not in the client delete map.
 
-- **Built-in packs** are written from `app/parsers/packs` by `PackRepository.sync_builtin`, on every worker tick before parsing (a row that is already equal is not written). A new built-in pack is enabled; a changed one is updated in place and keeps the user's `enabled`; a built-in row the release no longer ships is removed. A custom pack whose id a later release ships stays custom.
+- **Built-in packs** are written from `app/parsers/packs` by `PackRepository.sync_builtin`, on every worker tick before parsing (a row that is already equal is not written). The files are read and parsed once per process (`shipped_pack_texts`, cached: they change only with a release), not on every tick. A new built-in pack is enabled; a changed one is updated in place and keeps the user's `enabled`; a built-in row the release no longer ships is removed. A custom pack whose id a later release ships stays custom.
 - **Custom packs** are saved through the API. The text must load (`parse_pack`), its `id` must be the id in the URL, and a changed text must raise `version`.
 - **ParserPackSource** (`app/ext/parsers.py`) gives the enabled packs as `PackText(id, source, yaml)` in id order; CE's `TablePackSource` reads the table. The worker and the test bench compile what it gives with `parse_pack_cached` (the same text is compiled once); a pack that no longer loads is left out and logged.
 

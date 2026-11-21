@@ -1,7 +1,8 @@
 """The parse hook (phase C5-B): pending messages to results, on every tick.
 
 1. The built-in packs are written to parser_pack (nothing is written when no
-   pack changed), then the enabled packs come from the ParserPackSource and
+   pack changed; their files are read and parsed once per process, not on
+   every tick), then the enabled packs come from the ParserPackSource and
    are compiled on the parser thread; a pack that no longer loads is left out
    and logged.
 2. The matcher is built once over the jobs and clients that are not archived.
@@ -45,7 +46,7 @@ from app.ext.parsers import PackText
 from app.ingest.store import MessageTooLarge, ResultRejected, raw_bytes, record_result
 from app.matcher import Bound, Matcher
 from app.parsers.engine import Outcome, Parsed, ParseFailed, mail_from_raw, parse
-from app.parsers.loader import PackInvalid, builtin_pack_texts, parse_pack_cached
+from app.parsers.loader import PackInvalid, parse_pack_cached, shipped_pack_texts
 from app.parsers.model import Pack
 from app.repos.jobs import JobRepository
 from app.repos.messages import RawMessageRepository
@@ -105,7 +106,7 @@ class ParseHook:
         stop_at = context.clock.monotonic() + self.budget
         async with context.sessionmaker() as db:
             await PackRepository(db, context.policy).sync_builtin(
-                SYSTEM, await asyncio.to_thread(builtin_pack_texts), now
+                SYSTEM, await asyncio.to_thread(shipped_pack_texts), now
             )
             await db.commit()
             texts = await context.pack_source.packs(db, context.policy, SYSTEM)

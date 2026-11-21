@@ -24,7 +24,9 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from app.access import SYSTEM, AllowAllPolicy
 from app.db.models import AppUser, Client, Job, JobResult, ParserPack, RawMessage
 from app.ingest.store import ResultRejected
-from app.parsers.loader import builtin_pack_texts, parse_pack
+from app.parsers import loader
+from app.parsers.loader import PACKS_DIR, builtin_pack_texts, parse_pack
+from app.parsers.model import Pack
 from app.repos.jobs import JobRepository
 from app.repos.packs import PackRepository
 from app.settings import load_settings
@@ -481,6 +483,37 @@ async def test_disabled_and_broken_packs_parse_nothing(
     stored = await message_of(db_engine, message_id)
     assert (stored.parse_state, stored.parse_reason) == ("unmatched", "no-pack")
     assert "broken-tool does not load" in caplog.text
+
+
+async def test_a_tick_does_not_parse_the_built_in_packs_again(
+    context: WorkerContext,
+    db_engine: AsyncEngine,
+    clock: FakeClock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    files: list[Path] = []
+    texts: list[str] = []
+    load_pack_file, parse_pack_text = loader.load_pack_file, loader.parse_pack
+
+    def loaded(path: Path) -> Pack:
+        files.append(path)
+        return load_pack_file(path)
+
+    def parsed(text: str) -> Pack:
+        texts.append(text)
+        return parse_pack_text(text)
+
+    monkeypatch.setattr(loader, "load_pack_file", loaded)
+    monkeypatch.setattr(loader, "parse_pack", parsed)
+    loader.shipped_pack_texts.cache_clear()
+    await tick(context, clock)
+    assert files == sorted(PACKS_DIR.glob("*.yaml"))
+    texts.clear()
+    message_id = await store(db_engine, clock, nightly())
+    await tick(context, clock)
+    # The files are not read again and no pack text is parsed again.
+    assert files == sorted(PACKS_DIR.glob("*.yaml")) and texts == []
+    assert (await message_of(db_engine, message_id)).parse_state == "parsed"
 
 
 def write_pack(folder: Path, pack_id: str, version: int = 1) -> None:

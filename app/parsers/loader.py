@@ -402,6 +402,13 @@ def builtin_pack_texts(directory: Path = PACKS_DIR) -> tuple[tuple[Pack, str], .
     return tuple(found)
 
 
+@functools.cache
+def shipped_pack_texts() -> tuple[tuple[Pack, str], ...]:
+    """builtin_pack_texts() of PACKS_DIR, read and parsed once per process:
+    the files change only with a release (the worker's tick syncs them)."""
+    return builtin_pack_texts()
+
+
 def _time(value: object, where: str) -> datetime | None:
     if value is None:
         return None
