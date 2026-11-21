@@ -521,6 +521,58 @@ def test_the_largest_test_fits_the_memory_limit_of_the_child() -> None:
     assert answer["results"][0]["status"] == "failed"
 
 
+def digest_record(number: int, keys: list[str]) -> str:
+    lines = [
+        f"Job: Synthetic job {number:03d}",
+        "Client: Fictional Dental Clinic",
+        f"Run: run-{number:03d}",
+        "Start: 2027-01-04T02:00:00+00:00",
+        "End: 2027-01-04T03:00:00+00:00",
+        *(f"{key}: value {number:03d} {'v' * 40}" for key in keys),
+        "Status: Failed",
+    ]
+    return "".join(f"{line}\r\n" for line in lines)
+
+
+def test_the_largest_digest_fits_the_memory_limit_of_the_child() -> None:
+    """The largest answer: 200 records (the most a mail may give), each with
+    every field, 16 details and their spans, from text near the 256 KiB the
+    engine reads."""
+    keys = [f"detail_{number:02d}" for number in range(16)]
+    details = {key: {"regex": f"(?m)^{key}: (?P<v>[^\\r\\n]+)"} for key in keys}
+    extract = {
+        "job_name": {"regex": "^Job: (?P<name>[^\\r\\n]+)"},
+        "client_hint": {"regex": "(?m)^Client: (?P<client>[^\\r\\n]+)"},
+        "run_id": {"regex": "(?m)^Run: (?P<run>[^\\r\\n]+)"},
+        "started_at": {"regex": "(?m)^Start: (?P<at>[^\\r\\n]+)"},
+        "finished_at": {"regex": "(?m)^End: (?P<at>[^\\r\\n]+)"},
+        "details": details,
+    }
+    records = "".join(digest_record(number, keys) for number in range(200))
+    raw = (RAW + records).encode()
+    request = {
+        "packs": [["generic-keywords", GENERIC]],
+        "pack": pack_text(split={"record": "(?m)^Job: "}, extract=extract),
+        "raw": base64.b64encode(raw).decode(),
+    }
+    child = subprocess.run(
+        COMMAND,
+        input=json.dumps(request).encode(),
+        capture_output=True,
+        cwd=ROOT,
+        env=child_environment(),
+        timeout=60,
+        check=False,
+    )
+    assert child.returncode == 0, child.stderr
+    answer = json.loads(child.stdout)
+    assert (answer["outcome"], answer["reason"]) == ("parsed", None)
+    assert len(answer["results"]) == 200
+    last = answer["results"][-1]
+    assert (last["job_name"], last["run_id"]) == ("Synthetic job 199", "run-199")
+    assert len(last["details"]) == 16
+
+
 def test_the_child_gets_no_setting_of_the_web_process() -> None:
     environment = child_environment()
     assert set(environment) <= {"PATH", "LANG", "PYTHONDONTWRITEBYTECODE"}

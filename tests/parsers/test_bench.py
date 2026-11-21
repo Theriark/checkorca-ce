@@ -137,9 +137,10 @@ def test_an_edited_pack_that_does_not_load_raises() -> None:
 
 
 def test_main_answers_memory_when_the_child_runs_out(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(resource, "setrlimit", lambda kind, values: None)
+    monkeypatch.setattr(bench, "OOM_SCORE_FILE", str(tmp_path / "oom_score_adj"))
 
     def exhausted(request: dict[str, Any]) -> dict[str, Any]:
         raise MemoryError
@@ -159,12 +160,14 @@ def test_main_answers_memory_when_the_child_runs_out(
 
 
 def test_main_limits_the_child_and_answers_on_stdout(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     limits: list[tuple[int, tuple[int, int]]] = []
     monkeypatch.setattr(
         resource, "setrlimit", lambda kind, values: limits.append((kind, values))
     )
+    score = tmp_path / "oom_score_adj"
+    monkeypatch.setattr(bench, "OOM_SCORE_FILE", str(score))
     request = {
         "packs": [["generic-keywords", GENERIC]],
         "pack": None,
@@ -177,6 +180,34 @@ def test_main_limits_the_child_and_answers_on_stdout(
         (resource.RLIMIT_CPU, (bench.CPU_SECONDS, bench.CPU_SECONDS)),
         (resource.RLIMIT_AS, (bench.MEMORY_BYTES, bench.MEMORY_BYTES)),
     ]
+    assert score.read_text() == "1000"
+
+
+def test_the_child_is_killed_before_the_web_process_when_memory_runs_out() -> None:
+    """A real child process: its OOM score adjustment is the highest."""
+    adjusted = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from app.parsers import bench; bench.limit_resources();"
+            " print(open('/proc/self/oom_score_adj').read())",
+        ],
+        capture_output=True,
+        cwd=Path(__file__).resolve().parents[2],
+        timeout=60,
+        check=True,
+    ).stdout.decode()
+    assert adjusted.strip() == "1000"
+
+
+def test_a_system_without_an_oom_score_keeps_the_limits(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    limits: list[int] = []
+    monkeypatch.setattr(resource, "setrlimit", lambda kind, values: limits.append(kind))
+    monkeypatch.setattr(bench, "OOM_SCORE_FILE", str(tmp_path / "no" / "such"))
+    bench.limit_resources()
+    assert limits == [resource.RLIMIT_CPU, resource.RLIMIT_AS]
 
 
 def test_the_child_loads_no_database_or_web_module() -> None:

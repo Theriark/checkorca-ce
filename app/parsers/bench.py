@@ -37,6 +37,11 @@ from app.parsers.model import Pack
 # largest test peaks at 53 MiB (docs/parsers.md, "Test bench memory").
 CPU_SECONDS: Final = 20
 MEMORY_BYTES: Final = 64 * 1024 * 1024
+# The child's OOM score adjustment (Linux, any process may raise its own):
+# when the container runs out of memory anyway, the kernel kills a bench
+# child before the web process.
+OOM_SCORE_FILE: Final = "/proc/self/oom_score_adj"
+OOM_SCORE_ADJ: Final = 1000
 
 
 def _time(value: datetime | None) -> str | None:
@@ -149,11 +154,17 @@ def answer(request: dict[str, Any]) -> dict[str, Any]:
 
 
 def limit_resources() -> None:
-    """CPU time and memory of this process (Linux and other Unix systems)."""
+    """CPU time and memory of this process (Linux and other Unix systems),
+    and its OOM score (Linux only; elsewhere the limits alone hold)."""
     import resource
 
     resource.setrlimit(resource.RLIMIT_CPU, (CPU_SECONDS, CPU_SECONDS))
     resource.setrlimit(resource.RLIMIT_AS, (MEMORY_BYTES, MEMORY_BYTES))
+    try:
+        with open(OOM_SCORE_FILE, "w", encoding="ascii") as score:
+            score.write(str(OOM_SCORE_ADJ))
+    except OSError:
+        pass
 
 
 def out_of_memory() -> dict[str, Any]:

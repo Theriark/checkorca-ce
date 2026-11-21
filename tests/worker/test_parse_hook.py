@@ -507,7 +507,8 @@ async def test_a_tick_does_not_parse_the_built_in_packs_again(
     monkeypatch.setattr(loader, "parse_pack", parsed)
     loader.shipped_pack_texts.cache_clear()
     await tick(context, clock)
-    assert files == sorted(PACKS_DIR.glob("*.yaml"))
+    # The recorders fire: the first tick reads and parses the files.
+    assert files == sorted(PACKS_DIR.glob("*.yaml")) and texts
     texts.clear()
     message_id = await store(db_engine, clock, nightly())
     await tick(context, clock)
