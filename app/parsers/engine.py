@@ -8,7 +8,11 @@ and the outcome of parse or of apply() for the pack being edited.
 
 1. Claim: a pack claims a mail when every condition of its match.all and at
    least one of its match.any match. The pack with the most matching
-   conditions wins; a tie between the best packs is Unmatched (tie).
+   conditions wins; a tie between the best packs is Unmatched (tie). A pack
+   whose claim times out, runs out of memory or takes more than CLAIM_SLICE
+   seconds is skipped for this mail (the outcome lists it in skipped) and
+   the other packs still compete: one slow custom pack must not fail every
+   mail. Only a spent DEADLINE fails the mail in the claim.
 2. Split: without split the body is one record; with split every match of the
    record regex starts a record that runs to the next match.
 3. Extract: per record, the text of each field regex's only named group, or
@@ -27,9 +31,9 @@ Mail is hostile and packs are user input, so the cost is bounded:
 - a value is read from at most 1,600 characters of its match.
 
 The regex module measures its timeout in CPU time of the whole process, so
-C5-B parses on one thread. A timeout fails the whole mail (ParseFailed names
-the pattern). It never lets a later status rule or a weaker pack decide
-instead: a failed rule that timed out must not turn into success.
+C5-B parses on one thread. Once a pack has claimed the mail, a timeout fails
+the whole mail (ParseFailed names the pattern). It never lets a later status
+rule decide instead: a failed rule that timed out must not turn into success.
 """
 
 import re
@@ -56,6 +60,8 @@ from app.parsers.model import (
 
 REGEX_TIMEOUT: Final = 0.05
 DEADLINE: Final = 5.0
+# Seconds of the deadline one pack's claim may take (at most 40 conditions).
+CLAIM_SLICE: Final = 1.0
 MAX_TEXT: Final = mime.MAX_TEXT
 MAX_RECORDS: Final = 200
 
@@ -63,6 +69,7 @@ UnmatchedReason = Literal["no-pack", "tie", "no-records"]
 FailReason = Literal["timeout", "deadline", "too-many-records", "memory"]
 
 __all__ = [
+    "CLAIM_SLICE",
     "DEADLINE",
     "MAX_RECORDS",
     "MAX_TEXT",
@@ -74,6 +81,7 @@ __all__ = [
     "ParseFailed",
     "Parsed",
     "Score",
+    "Skipped",
     "Unmatched",
     "apply",
     "bench",
@@ -95,9 +103,20 @@ class Mail:
 
 
 @dataclass(frozen=True, slots=True)
+class Skipped:
+    """A pack left out of the claim for this mail: its condition at path ran
+    out of time (timeout), of its CLAIM_SLICE (deadline) or of memory."""
+
+    pack_id: str
+    path: str
+    reason: FailReason
+
+
+@dataclass(frozen=True, slots=True)
 class Parsed:
     pack_id: str
     results: tuple[ParsedResult, ...]
+    skipped: tuple[Skipped, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +126,7 @@ class Unmatched:
 
     reason: UnmatchedReason
     candidates: tuple[str, ...] = ()
+    skipped: tuple[Skipped, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +137,7 @@ class ParseFailed:
     pack_id: str
     path: str
     reason: FailReason
+    skipped: tuple[Skipped, ...] = ()
 
 
 type Outcome = Parsed | Unmatched | ParseFailed
@@ -132,8 +153,9 @@ class Score:
 
 @dataclass(frozen=True, slots=True)
 class Bench:
-    """What the test bench shows: every pack's score, the pack that claims the
-    mail (None for no claim, a tie or a failed claim) and the outcome."""
+    """What the test bench shows: the score of every pack not skipped, the
+    pack that claims the mail (None for no claim, a tie or a spent deadline)
+    and the outcome, whose skipped lists the packs the claim left out."""
 
     scores: tuple[Score, ...]
     claimed_by: str | None
@@ -174,6 +196,10 @@ class _Stopped(Exception):
 class _Budget:
     deadline: float
     clock: Callable[[], float]
+
+    def part(self, seconds: float) -> "_Budget":
+        """At most seconds of what is left, on the same clock."""
+        return _Budget(min(self.deadline, self.clock() + seconds), self.clock)
 
     def check(self, path: str) -> float:
         """The seconds left; _Stopped when none are."""
@@ -382,11 +408,12 @@ class _Run:
             spans=tuple(sorted(spans, key=lambda span: (span.source, span.start))),
         )
 
-    def outcome(self) -> Outcome:
+    def outcome(self, skipped: tuple[Skipped, ...] = ()) -> Outcome:
+        """The outcome of the pack, with the packs the claim skipped."""
         try:
             records = self.records()
             if not records:
-                return Unmatched("no-records", (self.pack.id,))
+                return Unmatched("no-records", (self.pack.id,), skipped)
             results: list[ParsedResult] = []
             for record in records:
                 if self.pack.split is not None:
@@ -395,8 +422,8 @@ class _Run:
                     self.budget.check("/split/record")
                 results.append(self.result(record))
         except _Stopped as stop:
-            return ParseFailed(self.pack.id, stop.path, stop.reason)
-        return Parsed(self.pack.id, tuple(results))
+            return ParseFailed(self.pack.id, stop.path, stop.reason, skipped)
+        return Parsed(self.pack.id, tuple(results), skipped)
 
 
 def _capped(mail: Mail) -> Mail:
@@ -405,28 +432,44 @@ def _capped(mail: Mail) -> Mail:
     return replace(mail, body=mail.body[:MAX_TEXT])
 
 
-def _claim(
-    packs: Sequence[Pack], mail: Mail, budget: _Budget
-) -> tuple[tuple[Score, ...], Pack | Outcome]:
-    """The score of every pack tried, and the pack that claims the mail or the
-    outcome without one. A failed condition ends the claim at its pack."""
+@dataclass(frozen=True, slots=True)
+class _Claim:
+    scores: tuple[Score, ...]
+    skipped: tuple[Skipped, ...]
+    # The pack that claims the mail, or the outcome without one.
+    claimed: Pack | Outcome
+
+
+def _claim(packs: Sequence[Pack], mail: Mail, budget: _Budget) -> _Claim:
+    """The score of every pack tried and the claim. A pack whose condition
+    fails gets no score and is skipped; a spent deadline fails the mail."""
     scores: list[Score] = []
+    skipped: list[Skipped] = []
     claims: list[tuple[int, Pack]] = []
     for pack in packs:
+        part = budget.part(CLAIM_SLICE)
         try:
-            score = _score(pack, mail, budget)
+            score = _score(pack, mail, part)
         except _Stopped as stop:
-            return tuple(scores), ParseFailed(pack.id, stop.path, stop.reason)
+            if stop.reason == "deadline" and part.deadline >= budget.deadline:
+                # The mail's deadline, not the pack's slice: no pack is left
+                # time to compete.
+                failed = ParseFailed(pack.id, stop.path, "deadline", tuple(skipped))
+                return _Claim(tuple(scores), tuple(skipped), failed)
+            skipped.append(Skipped(pack.id, stop.path, stop.reason))
+            continue
         scores.append(Score(pack.id, score))
         if score:
             claims.append((score, pack))
+    left_out = tuple(skipped)
     if not claims:
-        return tuple(scores), Unmatched("no-pack")
+        return _Claim(tuple(scores), left_out, Unmatched("no-pack", (), left_out))
     best = max(score for score, _ in claims)
     winners = [pack for score, pack in claims if score == best]
     if len(winners) > 1:
-        return tuple(scores), Unmatched("tie", tuple(pack.id for pack in winners))
-    return tuple(scores), winners[0]
+        tie = Unmatched("tie", tuple(pack.id for pack in winners), left_out)
+        return _Claim(tuple(scores), left_out, tie)
+    return _Claim(tuple(scores), left_out, winners[0])
 
 
 def parse(
@@ -439,10 +482,10 @@ def parse(
     """Let the packs claim the mail, then read it with the one that won."""
     mail = _capped(mail)
     budget = _Budget(clock() + deadline, clock)
-    _, claimed = _claim(packs, mail, budget)
-    if isinstance(claimed, Pack):
-        return _Run(claimed, mail, budget).outcome()
-    return claimed
+    claim = _claim(packs, mail, budget)
+    if isinstance(claim.claimed, Pack):
+        return _Run(claim.claimed, mail, budget).outcome(claim.skipped)
+    return claim.claimed
 
 
 def bench(
@@ -460,16 +503,17 @@ def bench(
     """
     mail = _capped(mail)
     budget = _Budget(clock() + deadline, clock)
-    scores, claimed = _claim(packs, mail, budget)
+    claim = _claim(packs, mail, budget)
+    claimed = claim.claimed
     claimed_by = claimed.id if isinstance(claimed, Pack) else None
     outcome: Outcome
     if pack is not None:
-        outcome = _Run(pack, mail, budget).outcome()
+        outcome = _Run(pack, mail, budget).outcome(claim.skipped)
     elif isinstance(claimed, Pack):
-        outcome = _Run(claimed, mail, budget).outcome()
+        outcome = _Run(claimed, mail, budget).outcome(claim.skipped)
     else:
         outcome = claimed
-    return Bench(scores, claimed_by, outcome)
+    return Bench(claim.scores, claimed_by, outcome)
 
 
 def apply(

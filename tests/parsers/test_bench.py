@@ -83,7 +83,20 @@ def test_the_edited_pack_replaces_the_stored_one_and_gives_the_results() -> None
     assert answer["claimed_by"] == "example-tool"
     (result,) = answer["results"]
     assert (result["job_name"], result["status"]) == ("Nightly server backup", "failed")
-    assert answer["skipped"] == ["broken-tool"]
+    invalid = {"pack_id": "broken-tool", "reason": "invalid", "path": None}
+    assert answer["skipped"] == [invalid]
+
+
+def test_a_slow_custom_pack_is_skipped_and_generic_keywords_claims() -> None:
+    slow = pack_text("slow-tool", match={"all": [{"body": r"(?m)^(11+?)\1+$"}]})
+    stored = [("slow-tool", slow), ("generic-keywords", GENERIC)]
+    answer = bench.run(stored, None, RAW + b"1" * 199_999 + b"\r\n")
+    assert answer["claimed_by"] == "generic-keywords"
+    assert (answer["outcome"], answer["pack_id"]) == ("parsed", "generic-keywords")
+    assert answer["scores"] == [{"pack_id": "generic-keywords", "matched": 1}]
+    assert answer["skipped"] == [
+        {"pack_id": "slow-tool", "reason": "timeout", "path": "/match/all/0/body"}
+    ]
 
 
 def test_an_edited_pack_that_claims_nothing_still_shows_its_results() -> None:

@@ -321,8 +321,17 @@ async def test_unmatched_and_failed_messages_keep_their_reason(
 async def test_a_redos_pack_fails_its_mail_and_the_tick_goes_on(
     context: WorkerContext, db_engine: AsyncEngine, clock: FakeClock
 ) -> None:
-    await save_pack(db_engine, clock, id="runaway", match={"all": [{"body": RUNAWAY}]})
-    stalled = await store(db_engine, clock, mail("Report", ONES))
+    # The pack claims the mail, then its status rule runs away.
+    await save_pack(
+        db_engine,
+        clock,
+        id="runaway",
+        match={"all": [{"from": r"@example\.org"}, {"subject": "^Report$"}]},
+        status_rules=[{"status": "failed", "regex": RUNAWAY}],
+    )
+    stalled = await store(
+        db_engine, clock, mail("Report", ONES, sender="backup@example.org")
+    )
     later = await store(db_engine, clock, nightly())
     started = time.perf_counter()
     await tick(context, clock)
@@ -330,8 +339,39 @@ async def test_a_redos_pack_fails_its_mail_and_the_tick_goes_on(
     assert time.perf_counter() - started < 5
     failed = await message_of(db_engine, stalled)
     assert (failed.parse_state, failed.parse_reason) == ("error", "timeout")
-    assert (failed.parse_pack_id, failed.parse_path) == ("runaway", "/match/all/0/body")
+    assert (failed.parse_pack_id, failed.parse_path) == (
+        "runaway",
+        "/status_rules/0/regex",
+    )
     assert (await message_of(db_engine, later)).parse_state == "parsed"
+
+
+async def test_a_slow_custom_pack_is_skipped_and_generic_keywords_claims(
+    context: WorkerContext,
+    db_engine: AsyncEngine,
+    clock: FakeClock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    await save_pack(
+        db_engine, clock, id="slow-tool", match={"all": [{"body": RUNAWAY}]}
+    )
+    slowed = await store(db_engine, clock, mail(f"[Failed] {NIGHTLY}", ONES))
+    later = await store(db_engine, clock, nightly())
+    started = time.perf_counter()
+    with caplog.at_level(logging.WARNING, logger="app.worker.parse"):
+        await tick(context, clock)
+    assert time.perf_counter() - started < 5
+    # The claim of slow-tool timed out on this mail only; the other packs
+    # competed without it and the mail has a clean outcome.
+    stored = await message_of(db_engine, slowed)
+    assert (stored.parse_state, stored.parse_reason) == ("parsed", None)
+    assert stored.parse_pack_id == "generic-keywords"
+    (result,) = await results_of(db_engine, slowed)
+    assert (result.job_name, result.status) == (NIGHTLY, "failed")
+    assert (await message_of(db_engine, later)).parse_pack_id == "generic-keywords"
+    skipped = f"parser pack slow-tool skipped for message {slowed}: timeout"
+    assert f"{skipped} at /match/all/0/body" in caplog.text
+    assert "Synthetic test mail" not in caplog.text
 
 
 async def test_a_message_that_cannot_be_parsed_never_stops_the_tick(

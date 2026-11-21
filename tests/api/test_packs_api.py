@@ -361,6 +361,22 @@ async def test_a_redos_pack_stalls_neither_the_bench_nor_the_web_process(
     assert answer["path"] == "/status_rules/0/regex"
 
 
+async def test_a_slow_custom_pack_is_skipped_and_generic_keywords_claims(
+    client: httpx.AsyncClient, csrf: str
+) -> None:
+    slow = pack_text("slow-tool", match={"all": [{"body": RUNAWAY}]})
+    assert (await put(client, csrf, "slow-tool", slow)).status_code == 201
+    response = await bench_test(client, csrf, raw=RAW + ONES + "\r\n")
+    assert response.status_code == 200, response.text
+    answer = response.json()
+    assert answer["claimed_by"] == "generic-keywords"
+    assert (answer["outcome"], answer["pack_id"]) == ("parsed", "generic-keywords")
+    assert answer["results"][0]["status"] == "failed"
+    assert answer["skipped"] == [
+        {"pack_id": "slow-tool", "reason": "timeout", "path": "/match/all/0/body"}
+    ]
+
+
 async def test_the_bench_never_runs_the_engine_in_this_process(
     client: httpx.AsyncClient, csrf: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -13,7 +13,9 @@ Request (JSON): packs, a list of [id, Pack YAML] (the enabled packs); pack,
 the Pack YAML being edited or null; raw, the mail as base64. The edited pack
 takes the place of a stored pack with its id. Answer (JSON): the mail as the
 engine reads it, every pack's score, the claiming pack, the outcome with its
-results and spans, and the ids of stored packs that do not load.
+results and spans, and the packs left out (skipped): stored packs that do
+not load (reason invalid) and packs whose claim failed (timeout, deadline or
+memory, at path).
 """
 
 import base64
@@ -97,6 +99,10 @@ def _mail(mail: Mail) -> dict[str, Any]:
     }
 
 
+def _skipped(pack_id: str, reason: str, path: str | None) -> dict[str, Any]:
+    return {"pack_id": pack_id, "reason": reason, "path": path}
+
+
 def run(
     stored: Sequence[tuple[str, str]], edited: str | None, raw: bytes
 ) -> dict[str, Any]:
@@ -104,17 +110,21 @@ def run(
     that does not load (the web process checks it first)."""
     pack = None if edited is None else parse_pack_cached(edited)
     packs: list[Pack] = [] if pack is None else [pack]
-    skipped: list[str] = []
+    skipped: list[dict[str, Any]] = []
     for pack_id, text in stored:
         if pack is not None and pack_id == pack.id:
             continue
         try:
             packs.append(parse_pack_cached(text))
         except PackInvalid:
-            skipped.append(pack_id)
+            skipped.append(_skipped(pack_id, "invalid", None))
     packs.sort(key=lambda item: item.id)
     mail = mail_from_raw(raw)
     shown = bench(packs, mail, pack=pack)
+    skipped += [
+        _skipped(item.pack_id, item.reason, item.path)
+        for item in shown.outcome.skipped
+    ]
     return {
         "mail": _mail(mail),
         "scores": [

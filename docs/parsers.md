@@ -86,7 +86,7 @@ match outcome:
         ...  # parse_state error; reason timeout, deadline, too-many-records, memory
 ```
 
-1. **Claim.** A pack claims the mail when every `match.all` condition and at least one `match.any` condition match. Its score is the number of matching conditions. The highest score wins; a tie between the best packs gives `Unmatched("tie", ids)`, no claim gives `Unmatched("no-pack")`. `apply(pack, mail)` skips the claim (a job's own pack). `bench(packs, mail, pack=None)` gives the test bench every pack's `Score(pack_id, matched)`, the claiming pack and the outcome (of `apply(pack)` when a pack is given, else of `parse`), on one deadline.
+1. **Claim.** A pack claims the mail when every `match.all` condition and at least one `match.any` condition match. Its score is the number of matching conditions. The highest score wins; a tie between the best packs gives `Unmatched("tie", ids)`, no claim gives `Unmatched("no-pack")`. A pack whose claim times out, runs out of memory or takes more than its 1 s slice of the deadline (`CLAIM_SLICE`) is skipped for that mail: it gets no score, the outcome lists it in `skipped` as `Skipped(pack_id, path, reason)` and the other packs still compete, so one slow custom pack never fails every mail. Only the mail's own deadline running out in the claim fails the mail (`ParseFailed(..., "deadline")`). `apply(pack, mail)` skips the claim (a job's own pack). `bench(packs, mail, pack=None)` gives the test bench every pack's `Score(pack_id, matched)`, the claiming pack and the outcome (of `apply(pack)` when a pack is given, else of `parse`), on one deadline.
 2. **Split.** Without `split` the body is one record. With it, every match of `record` starts a record that runs to the next match; text before the first match belongs to no record, and a record of only whitespace (an empty match after the last line break) is dropped. No record gives `Unmatched("no-records")`; more than 200 records give `ParseFailed(..., "too-many-records")`.
 3. **Extract.** Per record. A value is read from at most 1,600 characters of the named group: NUL and control characters removed, whitespace collapsed, cut at 200 characters (so `record_result` accepts 16 details); an empty value is `None`. A time without a zone takes the zone of the mail's Date header, else UTC; one that cannot be read is `None`. Matches and values outside the record are read once per mail.
 4. **Status.** The first rule that matches gives the status; none gives `unknown`. Unknown never becomes success.
@@ -98,7 +98,7 @@ match outcome:
 - Every regex evaluation stops after 50 ms (`regex` timeout, spike 4 of C0-B) and runs with `concurrent=True`, so the GIL is released while it matches. One mail gets at most 5 seconds over all packs and records (`DEADLINE`), checked before every search and before every record of a split.
 - The regex module measures its timeout as CPU time of the whole process (C `clock()`), so N parses at once give each pattern about 50 ms / N. C5-B runs parses on one worker thread, one mail at a time.
 - A regex that runs out of memory (the module caps its backtracking stack at 1 GiB) gives `ParseFailed(..., "memory")`; `parse` and `apply` return an outcome for every mail and never raise for a pack the loader accepted.
-- A timeout fails the whole mail with the JSON Pointer of the pattern: it never lets a later status rule or a weaker pack decide instead, so a failed rule that ran out of time cannot become success. The process continues with the next mail.
+- In the claim, a timeout or memory error skips only that pack (step 1). Once a pack has claimed the mail, a timeout fails the whole mail with the JSON Pointer of the pattern: it never lets a later status rule decide instead, so a failed rule that ran out of time cannot become success. The process continues with the next mail.
 
 ## Adding a vendor pack (C6-I)
 
@@ -132,7 +132,7 @@ A tick hook of the worker loop (`TICK_HOOKS`). Each tick it syncs the built-in p
 | `ParseFailed(pack_id, path, reason)` | `error` | `parse_reason` `timeout`, `deadline`, `too-many-records` or `memory`; `parse_path`, `parse_pack_id` |
 | anything else for one message | `error` | `parse_reason` `unreadable` (stored message over 5 MiB), `rejected` (a result the table refuses) or `internal`; logged by id, never with content |
 
-`parsed_at` is the tick's time. A failing message never stops the tick. The message list and detail return the four columns.
+`parsed_at` is the tick's time. A failing message never stops the tick. The message list and detail return the four columns. A pack the claim skipped for a message is logged as a warning with the message id, the reason and the path (never mail content); the message keeps the outcome the other packs gave it.
 
 ## The matcher (C5-B, `app/matcher/`)
 
@@ -150,7 +150,7 @@ Admins and technicians alike; lists, gets, export and suggest-schedule also take
 | `POST packs/import` (file) | the same, id from the file |
 | `GET packs/{id}/export` | the YAML as a file |
 | `POST packs/{id}/enable`, `/disable` | from the worker's next tick |
-| `POST packs/test` `{raw, pack?}` | `mail` (as the engine reads it), `scores`, `claimed_by`, `outcome`, `pack_id`, `reason`, `path`, `candidates`, `results` with `spans`, `skipped` |
+| `POST packs/test` `{raw, pack?}` | `mail` (as the engine reads it), `scores` (packs not skipped), `claimed_by`, `outcome`, `pack_id`, `reason`, `path`, `candidates`, `results` with `spans`, `skipped`: `{pack_id, reason, path}` for a stored pack that no longer loads (`invalid`, path null) and for a pack whose claim failed (`timeout`, `deadline` or `memory`, at path) |
 | `GET unmatched` | `result_id`, `raw_message_id`, `received_at`, `job_name`, `client_hint`, `status`, newest first |
 | `POST unmatched/{result_id}/assign` `{job_id}` | binds; the job takes the result's job name as `match_key` when it had none, the client takes the client hint as an alias when it does not know it, so the next identical mail binds; other unmatched results with the same names bind too (`also_bound`), in one statement that skips a result another user bound meanwhile |
 | `POST unmatched/{result_id}/create-job` | `client_id` or `client_name` (found or created), job fields (name and `match_key` default to the result's job name; without a schedule a daily one at the time suggest-schedule gives from one result on); then binds as assign |

@@ -17,7 +17,10 @@ Parsed: record_result for each result, bound to its job when the matcher is
 sure, parse_state parsed, and client_id when every result belongs to one
 client. Unmatched: parse_state unmatched with the reason (no-pack, tie,
 no-records). ParseFailed: parse_state error with the reason (timeout,
-deadline, too-many-records, memory) and the JSON Pointer of the pattern.
+deadline, too-many-records, memory) and the JSON Pointer of the pattern. A
+pack whose claim failed was skipped for that mail by the engine, the other
+packs competed without it; each skipped pack is logged with the message id,
+its reason and path (never with mail content).
 
 One parser thread parses one mail at a time: the regex module measures its
 50 ms timeout in CPU time of the whole process (docs/parsers.md), so two
@@ -160,6 +163,14 @@ async def store_outcome(
 ) -> None:
     """Store what the parser made of the message, in the caller's transaction."""
     messages = RawMessageRepository(db, context.policy)
+    for skipped in outcome.skipped:
+        logger.warning(
+            "parser pack %s skipped for message %s: %s at %s",
+            skipped.pack_id,
+            message.id,
+            skipped.reason,
+            skipped.path,
+        )
     if isinstance(outcome, Parsed):
         for result in outcome.results:
             found = matcher.match(result.job_name, result.client_hint)
