@@ -11,9 +11,12 @@ from typing import Any
 import httpx
 import pytest
 from fastapi import FastAPI
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
-from app.db.models import AppUser, JobResult
+from app.db.models import AppUser, Client, JobResult, name_key
+from app.repos.clients import ClientRepository
+from app.repos.results import JobResultRepository
 from helpers import (
     ADMIN_EMAIL,
     ADMIN_PASSWORD,
@@ -191,8 +194,9 @@ async def test_create_job_with_a_schedule_for_an_existing_client(
     assert created["client_created"] is False
     binding = created["binding"]
     assert binding["result_id"] == result_id and binding["job_id"] == job["id"]
-    # The job was made with the key, and the hint is the client's name.
-    assert binding["match_key_set"] is False and binding["alias_added"] is False
+    # The job was made with the result's job name as its key, and the hint is
+    # the client's name.
+    assert binding["match_key_set"] is True and binding["alias_added"] is False
     assert (await client.get("/api/v1/unmatched")).json()["items"] == []
     again = await post(client, csrf, f"{result_id}/create-job", body)
     assert again.status_code == 409
@@ -297,3 +301,79 @@ async def test_a_technician_works_the_queue(
     aliases = (await client.get(f"/api/v1/clients/{dental['id']}")).json()["aliases"]
     assert aliases == []
     assert (await client.get("/api/v1/unmatched")).json()["items"] == []
+
+
+async def test_assign_keeps_a_binding_made_meanwhile(
+    client: httpx.AsyncClient,
+    csrf: str,
+    db_engine: AsyncEngine,
+    clock: FakeClock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dental = await make_client(client, csrf, DENTAL)
+    archive = await make_job(client, csrf, dental["id"], ARCHIVE)
+    other = await make_job(client, csrf, dental["id"], "Other copy")
+    first = await add_result(db_engine, clock)
+    second = await add_result(db_engine, clock)
+    named = JobResultRepository.named
+
+    async def then_bound_elsewhere(*args: Any, **kwargs: Any) -> list[JobResult]:
+        # Another user assigns the second result while this request has
+        # already read it as unbound.
+        found = await named(*args, **kwargs)
+        async with async_sessionmaker(db_engine)() as db:
+            await db.execute(
+                update(JobResult)
+                .where(JobResult.id == uuid.UUID(second))
+                .values(job_id=uuid.UUID(other["id"]))
+            )
+            await db.commit()
+        return found
+
+    monkeypatch.setattr(JobResultRepository, "named", then_bound_elsewhere)
+    assigned = await post(client, csrf, f"{first}/assign", {"job_id": archive["id"]})
+    assert assigned.status_code == 200, assigned.text
+    assert assigned.json()["also_bound"] == 0
+    kept = (await client.get(f"/api/v1/jobs/{other['id']}/results")).json()["items"]
+    assert [item["id"] for item in kept] == [second]
+    bound = (await client.get(f"/api/v1/jobs/{archive['id']}/results")).json()
+    assert [item["id"] for item in bound["items"]] == [first]
+
+
+async def test_create_job_takes_a_client_created_meanwhile(
+    client: httpx.AsyncClient,
+    csrf: str,
+    db_engine: AsyncEngine,
+    clock: FakeClock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result_id = await add_result(db_engine, clock)
+    find_by_name = ClientRepository.find_by_name
+    calls = 0
+
+    async def created_meanwhile(*args: Any, **kwargs: Any) -> Client | None:
+        # The first look finds nothing; then another request creates it.
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            async with async_sessionmaker(db_engine)() as db:
+                db.add(
+                    Client(
+                        name=DENTAL,
+                        name_key=name_key(DENTAL),
+                        notes="",
+                        aliases=[],
+                        archived=False,
+                        created_at=clock.now(),
+                    )
+                )
+                await db.commit()
+            return None
+        return await find_by_name(*args, **kwargs)
+
+    monkeypatch.setattr(ClientRepository, "find_by_name", created_meanwhile)
+    made = await post(client, csrf, f"{result_id}/create-job", {"client_name": DENTAL})
+    assert made.status_code == 201, made.text
+    assert made.json()["client_created"] is False
+    clients = (await client.get("/api/v1/clients")).json()["items"]
+    assert [item["name"] for item in clients] == [DENTAL]

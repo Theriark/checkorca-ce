@@ -70,9 +70,14 @@ class ClientRepository(Repository):
         return (await self.db.scalars(query)).one_or_none()
 
     @guarded("read")
-    async def find_by_name(self, principal: Principal, name: str) -> Client | None:
-        """The client whose name equals name, ignoring case and spacing."""
+    async def find_by_name(
+        self, principal: Principal, name: str, *, for_update: bool = False
+    ) -> Client | None:
+        """The client whose name equals name, ignoring case and spacing;
+        for_update locks its row until the transaction ends."""
         query = select(Client).where(Client.name_key == name_key(name))
+        if for_update:
+            query = query.with_for_update()
         query = self.policy.scope(principal, self.resource, query)
         return (await self.db.scalars(query)).one_or_none()
 

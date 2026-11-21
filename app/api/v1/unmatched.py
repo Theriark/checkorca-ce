@@ -171,10 +171,9 @@ async def bind(
         await ClientRepository(db, services.policy).update(
             principal, client, aliases=[*client.aliases, hint]
         )
-    touched = {result.raw_message_id}
-    also_bound = 0
     matcher = await JobRepository(db, services.policy).matcher(principal)
     names = (result.job_name, result.client_hint)
+    sure: list[uuid.UUID] = []
     for other in await results.named(principal, unmatched=True, limit=NAMED_LIMIT):
         if other.id == result.id or not same_names(
             (other.job_name, other.client_hint), names
@@ -182,9 +181,10 @@ async def bind(
             continue
         found = matcher.match(other.job_name, other.client_hint)
         if isinstance(found, Bound) and found.job_id == job.id:
-            await results.bind(principal, other, job.id)
-            touched.add(other.raw_message_id)
-            also_bound += 1
+            sure.append(other.id)
+    # Only those still unbound: a concurrent assign of one of them wins.
+    others = await results.bind_unbound(principal, sure, job.id)
+    touched = {result.raw_message_id, *others}
     for message_id in touched:
         if message_id is not None:
             await messages.refresh_client(principal, message_id)
@@ -194,7 +194,7 @@ async def bind(
         client_id=client.id,
         match_key_set=match_key_set,
         alias_added=alias_added,
-        also_bound=also_bound,
+        also_bound=len(others),
     )
 
 
@@ -323,7 +323,8 @@ async def suggest_schedule(
 async def client_for(
     services: Services, db: AsyncSession, principal: Principal, body: CreateJobRequest
 ) -> tuple[Client, bool]:
-    """The client by id (422 when unknown) or by name (created when new)."""
+    """The client, locked: by id (422 when unknown) or by name (created when
+    new; when a concurrent request created it first, that one)."""
     clients = ClientRepository(db, services.policy)
     if body.client_id is not None:
         found = await clients.get(principal, body.client_id, for_update=True)
@@ -331,12 +332,19 @@ async def client_for(
             raise unknown_client()
         return found, False
     name = str(body.client_name)
-    found = await clients.find_by_name(principal, name)
+    found = await clients.find_by_name(principal, name, for_update=True)
     if found is not None:
         return found, False
-    created = await clients.create(
-        principal, name=name, notes="", aliases=[], now=services.clock.now()
-    )
+    try:
+        async with db.begin_nested():
+            created = await clients.create(
+                principal, name=name, notes="", aliases=[], now=services.clock.now()
+            )
+    except IntegrityError:
+        found = await clients.find_by_name(principal, name, for_update=True)
+        if found is None:
+            raise
+        return found, False
     return created, True
 
 
@@ -371,13 +379,12 @@ async def create_job(
     now = services.clock.now()
     result = await unmatched_result(services, db, principal, result_id)
     name = job_name_of(body, result)
+    zone = await zone_for(services, db, principal, body.timezone)
     if body.schedule_kind is not None and body.schedule_expr is not None:
-        zone = await zone_for(services, db, principal, body.timezone)
         spec = check_schedule(
             body.schedule_kind, body.schedule_expr, zone.key, now, now
         )
     else:
-        zone = await zone_for(services, db, principal, body.timezone)
         runs = await same_runs(services, db, principal, result)
         suggestion = suggest_daily(runs, zone, minimum=1)
         spec = check_schedule("daily", suggestion.expr, suggestion.timezone, now, now)
@@ -401,6 +408,8 @@ async def create_job(
         await db.rollback()
         raise job_name_taken() from None
     binding = await bind(services, db, principal, result, job, client)
+    # The new job took the match key at create, so bind saw it set already.
+    binding.match_key_set = settings["match_key"] is not None
     await record_audit(
         services,
         db,

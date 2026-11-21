@@ -1,10 +1,11 @@
 """Job results: one row per reported run, bound to a job or still unmatched."""
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select, tuple_
+from sqlalchemy import select, tuple_, update
 
 from app.access import Principal
 from app.db.models import JobResult
@@ -88,3 +89,21 @@ class JobResultRepository(Repository):
         """Bind the result to a job (assign, create-job and the matcher)."""
         result.job_id = job_id
         await self.db.flush()
+
+    @guarded("update")
+    async def bind_unbound(
+        self, principal: Principal, result_ids: Sequence[uuid.UUID], job_id: uuid.UUID
+    ) -> list[uuid.UUID | None]:
+        """Bind those of the results that are still unbound, in one statement,
+        and give their raw message ids. A result another transaction bound
+        meanwhile keeps its job: the row lock makes this statement wait for
+        that commit and then read job_id again."""
+        if not result_ids:
+            return []
+        statement = (
+            update(JobResult)
+            .where(JobResult.id.in_(result_ids), JobResult.job_id.is_(None))
+            .values(job_id=job_id)
+            .returning(JobResult.raw_message_id)
+        )
+        return list((await self.db.scalars(statement)).all())
