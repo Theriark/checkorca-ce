@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from sqlalchemy import Row, delete, func, select, text, update
+from sqlalchemy import Row, delete, event, func, select, text, update
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
@@ -572,6 +572,76 @@ async def test_a_weekly_job_counts_missed_weeks_past_the_window(
     assert (record.state, record.consecutive_failures) == ("missed", 3)
     names = [(flip.from_state, flip.to_state) for flip in await flips(db_engine)]
     assert names == [("unknown", "warning"), ("warning", "missed")]
+    # Week 4: the window holds weeks 3 and 4, so the tick must read weeks 1
+    # and 2 before it (two runs, up to the threshold of 3).
+    at(clock, CREATED + week * 4 + timedelta(hours=9))
+    await evaluate_jobs(context, clock.now())
+    record = await record_of(db_engine, job)
+    assert record is not None
+    assert (record.state, record.consecutive_failures) == ("missed", 4)
+    assert len(await flips(db_engine)) == 2
+
+
+async def add_occurrences(
+    engine: AsyncEngine, job: Job, states: Mapping[int, str]
+) -> None:
+    """Stored occurrences of the job, one per day after CREATED."""
+    async with session(engine) as db:
+        for day, state in states.items():
+            due = CREATED + timedelta(days=day)
+            db.add(
+                Occurrence(
+                    job_id=job.id,
+                    scheduled_for=due,
+                    deadline=due + timedelta(hours=8),
+                    state=state,
+                    evaluated_at=CREATED,
+                )
+            )
+        await db.commit()
+
+
+async def test_earlier_reads_the_newest_counted_runs_and_the_newest_closed_one(
+    db_engine: AsyncEngine,
+) -> None:
+    client = await add_client(db_engine)
+    counted = await add_job(db_engine, client)
+    ending = await add_job(db_engine, client, name="Weekly archive copy")
+    empty = await add_job(db_engine, client, name="Mailbox export")
+    await add_occurrences(
+        db_engine,
+        counted,
+        {
+            1: "verified",
+            2: "missed",
+            3: "failed",
+            4: "maintenance",
+            5: "missed",
+            6: "running",
+            10: "missed",
+            11: "missed",
+        },
+    )
+    await add_occurrences(db_engine, ending, {1: "missed", 2: "maintenance"})
+    async with session(db_engine) as db:
+        found = await EvaluationRepository(db, AllowAllPolicy()).earlier(
+            SYSTEM,
+            [counted.id, ending.id, empty.id],
+            CREATED + timedelta(days=10),
+            3,
+        )
+
+    def days(items: Sequence[Any]) -> list[tuple[int, str]]:
+        return sorted(
+            {((item.scheduled_for - CREATED).days, item.state) for item in items}
+        )
+
+    assert set(found) == {counted.id, ending.id}
+    # The newest 3 closed runs that are not maintenance; nothing open, nothing
+    # at or after before.
+    assert days(found[counted.id]) == [(2, "missed"), (3, "failed"), (5, "missed")]
+    # The newest closed run even when it is maintenance.
+    assert days(found[ending.id]) == [(1, "missed"), (2, "maintenance")]
 
 
 async def test_a_verified_run_out_of_the_window_keeps_the_job_ok(
@@ -622,9 +692,83 @@ async def test_a_job_another_worker_evaluated_meanwhile_is_left_out(
     assert (flip.from_state, flip.to_state) == ("unknown", "missed")
 
 
+@pytest.mark.parametrize("change", ["pause", "move", "client archive"])
+async def test_a_job_changed_meanwhile_is_left_out(
+    change: str,
+    context: WorkerContext,
+    db_engine: AsyncEngine,
+    clock: FakeClock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = await add_client(db_engine)
+    job = await add_job(db_engine, client)
+    other = await add_client(db_engine, "Fictional Law Office")
+    at(clock, MISSED_AT)
+    async with session(db_engine) as db:
+        stale = await EvaluationRepository(db, AllowAllPolicy()).candidates(
+            SYSTEM, results_since=MISSED_AT - timedelta(days=30)
+        )
+    # Committed after the candidates were read, before the batch claims. The
+    # move keeps updated_at, so only the client_id tells it.
+    job_row = update(Job).where(Job.id == job.id)
+    client_row = update(Client).where(Client.id == client.id)
+    statements = {
+        "pause": job_row.values(enabled=False, updated_at=MISSED_AT),
+        "move": job_row.values(client_id=other.id),
+        "client archive": client_row.values(archived=True),
+    }
+    async with session(db_engine) as db:
+        await db.execute(statements[change])
+        await db.commit()
+
+    async def read_before(self: Any, principal: Any, **kwargs: Any) -> Any:
+        return stale
+
+    monkeypatch.setattr(EvaluationRepository, "candidates", read_before)
+    tick = await Evaluator(context).run(clock.now())
+    assert (tick.due, tick.evaluated, tick.stale, tick.flips) == (1, 0, 1, 0)
+    assert await snapshot(db_engine) == [[], [], []]
+
+
+async def test_a_locked_job_state_row_is_not_taken_for_a_missing_one(
+    context: WorkerContext, db_engine: AsyncEngine, clock: FakeClock
+) -> None:
+    client = await add_client(db_engine)
+    job = await add_job(db_engine, client)
+    at(clock, OVERDUE_AT)
+    async with session(db_engine) as db:
+        stale = await EvaluationRepository(db, AllowAllPolicy()).candidates(
+            SYSTEM, results_since=CREATED
+        )
+    assert stale[0].record is None
+    # Another worker evaluated the job first and now evaluates it again.
+    await evaluate_jobs(context, clock.now())
+    async with session(db_engine) as other:
+        held = select(JobStateRecord).where(JobStateRecord.job_id == job.id)
+        await other.execute(held.with_for_update())
+        async with session(db_engine) as batch:
+            repository = EvaluationRepository(batch, AllowAllPolicy())
+            assert await repository.claim(SYSTEM, stale) == set()
+            await batch.rollback()
+        await other.rollback()
+    # Not locked either: a row the candidates did not see is not fresh.
+    async with session(db_engine) as batch:
+        repository = EvaluationRepository(batch, AllowAllPolicy())
+        assert await repository.claim(SYSTEM, stale) == set()
+        await batch.rollback()
+
+
 async def test_a_client_being_deleted_is_left_out_without_waiting(
     context: WorkerContext, db_engine: AsyncEngine, clock: FakeClock
 ) -> None:
+    # Without SKIP LOCKED the batch would wait for the delete below for ever;
+    # a lock timeout on the worker's connections turns that into an error.
+    @event.listens_for(context.engine.sync_engine, "connect")
+    def bounded(connection: Any, record: Any) -> None:
+        cursor = connection.cursor()
+        cursor.execute("SET lock_timeout = '2s'")
+        cursor.close()
+
     client = await add_client(db_engine)
     await add_job(db_engine, client)
     at(clock, MISSED_AT)

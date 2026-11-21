@@ -206,29 +206,34 @@ class EvaluationRepository(Repository):
         that is gone; a job whose client or job row is locked FOR UPDATE (a
         client delete or a job change in progress; a delete that comes later
         waits for this batch, so it deletes the batch's rows too); a job
-        whose job_state row is locked or changed since the candidates were
-        read (another worker evaluates it, after a lost worker lock).
+        changed since the candidates were read (updated_at, client_id, or
+        its client's archived flag: a pause, archive or move committed
+        meanwhile); a job whose job_state row is locked, was written or
+        changed since the candidates were read (another worker evaluates it,
+        after a lost worker lock).
         """
         if not batch:
             return set()
         client_ids = sorted({item.job.client_id for item in batch})
         job_ids = sorted(item.job.id for item in batch)
-        clients = set(
-            await self.db.scalars(
-                select(Client.id)
+        clients = {
+            row.id: row.archived
+            for row in await self.db.execute(
+                select(Client.id, Client.archived)
                 .where(Client.id.in_(client_ids))
                 .order_by(Client.id)
                 .with_for_update(read=True, key_share=True, skip_locked=True)
             )
-        )
-        jobs = set(
-            await self.db.scalars(
-                select(Job.id)
+        }
+        jobs = {
+            row.id: (row.client_id, row.updated_at)
+            for row in await self.db.execute(
+                select(Job.id, Job.client_id, Job.updated_at)
                 .where(Job.id.in_(job_ids))
                 .order_by(Job.id)
                 .with_for_update(read=True, key_share=True, skip_locked=True)
             )
-        )
+        }
         rows = await self.db.execute(
             select(JobStateRecord.job_id, JobStateRecord.evaluated_at)
             .where(JobStateRecord.job_id.in_(job_ids))
@@ -236,12 +241,26 @@ class EvaluationRepository(Repository):
             .with_for_update(skip_locked=True)
         )
         evaluated = {row.job_id: row.evaluated_at for row in rows}
+        # Read after the locked rows, without a lock: a row SKIP LOCKED left
+        # out (or one committed meanwhile) still exists.
+        present = set(
+            await self.db.scalars(
+                select(JobStateRecord.job_id).where(JobStateRecord.job_id.in_(job_ids))
+            )
+        )
         fresh: set[uuid.UUID] = set()
         for item in batch:
-            seen = None if item.record is None else item.record.evaluated_at
-            locked = item.job.client_id in clients and item.job.id in jobs
-            if locked and evaluated.get(item.job.id) == seen:
-                fresh.add(item.job.id)
+            job = item.job
+            if jobs.get(job.id) != (job.client_id, job.updated_at):
+                continue
+            if clients.get(job.client_id) != item.client_archived:
+                continue
+            if item.record is None:
+                unchanged = job.id not in present
+            else:
+                unchanged = evaluated.get(job.id) == item.record.evaluated_at
+            if unchanged:
+                fresh.add(job.id)
         return fresh
 
     @guarded("list")
