@@ -1,0 +1,31 @@
+From: "Backup Reports" <reports@example.com>
+To: alerts@example.net
+Subject: Daily backup summary: 3 devices
+Date: Wed, 25 Nov 2026 07:00:00 +0000
+Message-ID: <cove-digest-daily-summary@example.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Cove Data Protection daily summary
+(Synthetic fixture written from public documentation; not a real mail.)
+
+Device: FS-02
+Customer: Fictional Plus Ltd
+Data source: Files and Folders
+Last session status: Completed
+Last session start: 2026-11-25 02:00:00
+Last session end: 2026-11-25 02:29:10
+
+Device: WS-ACCT-03
+Customer: Fictional Law Office
+Data source: Files and Folders
+Last session status: InProcess
+Last session start: 2026-11-25 06:45:00
+
+Device: SRV-SQL-01
+Customer: Fictional Dental Clinic
+Data source: MS SQL
+Last session status: OverQuota
+Last session start: 2026-11-24 23:00:00
+Last session end: 2026-11-24 23:01:12
+Last error: The storage quota of the device is exceeded (synthetic)

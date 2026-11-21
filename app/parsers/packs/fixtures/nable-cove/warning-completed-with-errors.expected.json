@@ -1,0 +1,18 @@
+[
+  {
+    "status": "warning",
+    "job_name": "WS-ACCT-03",
+    "client_hint": "Fictional Law Office",
+    "started_at": "2026-11-23T20:00:00+01:00",
+    "finished_at": "2026-11-23T20:18:42+01:00",
+    "run_id": null,
+    "details": {
+      "data_source": "Files and Folders",
+      "duration": "00:18:42",
+      "selected": "88.0 GB",
+      "processed": "1.2 GB",
+      "errors": "3",
+      "error": "Access is denied to C:\\Users\\Public\\Locked\\ledger.db (synthetic)"
+    }
+  }
+]

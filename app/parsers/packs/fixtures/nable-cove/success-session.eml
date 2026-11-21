@@ -1,0 +1,24 @@
+From: "Backup Reports" <reports@example.com>
+To: alerts@example.net
+Subject: Session report: FS-02 Files and Folders
+Date: Sun, 22 Nov 2026 02:35:00 +0000
+Message-ID: <cove-success-session@example.com>
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<html><body>
+<!-- Synthetic fixture written from public documentation; not a real mail. -->
+<h2>Cove Data Protection session report</h2>
+<table>
+<tr><td>Device:</td><td>FS-02</td></tr>
+<tr><td>Customer:</td><td>Fictional Plus Ltd</td></tr>
+<tr><td>Data source:</td><td>Files and Folders</td></tr>
+<tr><td>Session status:</td><td>Completed</td></tr>
+<tr><td>Session start:</td><td>2026-11-22 02:00:00</td></tr>
+<tr><td>Session end:</td><td>2026-11-22 02:31:20</td></tr>
+<tr><td>Duration:</td><td>00:31:20</td></tr>
+<tr><td>Selected size:</td><td>512.4 GB</td></tr>
+<tr><td>Processed size:</td><td>3.1 GB</td></tr>
+<tr><td>Errors:</td><td>0</td></tr>
+</table>
+</body></html>
