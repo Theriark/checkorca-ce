@@ -2228,6 +2228,231 @@
         }
       }
     },
+    "/api/v1/jobs/{job_id}/occurrences": {
+      "get": {
+        "tags": [
+          "evaluation"
+        ],
+        "summary": "List Occurrences",
+        "description": "The job's expected runs due in [from, to), oldest first; 404 for an\nunknown job. Runs not evaluated yet are pending; a paused or archived job\nlists none of those.",
+        "operationId": "list_occurrences_api_v1_jobs__job_id__occurrences_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Start (inclusive); default 14 days ago.",
+              "title": "From"
+            },
+            "description": "Start (inclusive); default 14 days ago."
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "End (exclusive); default in 24 hours.",
+              "title": "To"
+            },
+            "description": "End (exclusive); default in 24 hours."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 512
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OccurrencePage"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/flips": {
+      "get": {
+        "tags": [
+          "evaluation"
+        ],
+        "summary": "List Flips",
+        "description": "Changes of job states, newest first; job_id, client_id and since (at or\nafter this time) narrow the list.",
+        "operationId": "list_flips_api_v1_flips_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "client_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Client Id"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 512
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlipPage"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/ingest/email/{inbox_code}": {
       "post": {
         "tags": [
@@ -4058,6 +4283,100 @@
         ],
         "title": "FieldProblem",
         "description": "One invalid input: where it is (for example body.email) and why."
+      },
+      "FlipOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Job Id"
+          },
+          "client_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Client Id"
+          },
+          "from_state": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "warning",
+              "failing",
+              "missed",
+              "unknown",
+              "paused",
+              "maintenance"
+            ],
+            "title": "From State"
+          },
+          "to_state": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "warning",
+              "failing",
+              "missed",
+              "unknown",
+              "paused",
+              "maintenance"
+            ],
+            "title": "To State"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "job_id",
+          "client_id",
+          "from_state",
+          "to_state",
+          "reason",
+          "at"
+        ],
+        "title": "FlipOut",
+        "description": "One change of a job's state; the single source of alerts."
+      },
+      "FlipPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/FlipOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "FlipPage"
       },
       "HeaderOut": {
         "properties": {
@@ -6066,6 +6385,101 @@
           "role"
         ],
         "title": "NewUser"
+      },
+      "OccurrenceOut": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Job Id"
+          },
+          "scheduled_for": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Scheduled For"
+          },
+          "deadline": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Deadline"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "verified",
+              "warning",
+              "failed",
+              "overdue",
+              "missed",
+              "maintenance"
+            ],
+            "title": "State"
+          },
+          "result_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Id"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "scheduled_for",
+          "deadline",
+          "state",
+          "result_id",
+          "note"
+        ],
+        "title": "OccurrenceOut",
+        "description": "One expected run of a job. note explains the state in a few words\n(recovered after retry, late result, started, never finished)."
+      },
+      "OccurrencePage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OccurrenceOut"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "OccurrencePage"
       },
       "PackBody": {
         "properties": {
