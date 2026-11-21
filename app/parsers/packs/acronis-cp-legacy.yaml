@@ -1,0 +1,68 @@
+# Acronis Cyber Protect on-premises (15, 16; Acronis Cyber Backup 12.5)
+# backup alert mails from the management server (dev-work-plan C6-I). Written
+# from Acronis's public documentation of e-mail notifications, not from a real
+# mail: unverified-synthetic until an MSP sends a redacted sample
+# (docs/parser-packs.md). One mail per backup activity of one device; the
+# subject names the result, the body is a table of "Label:" rows. The sender
+# is whatever the management server was given, so the claim rests on the
+# product name with its version (Cyber Protect Cloud is acronis-cp-cloud) and
+# the subject or the Plan row.
+#
+# The job name is the device: one plan runs on many devices, and each run is
+# a result of its own. Rules look for a failure first, then "succeeded with
+# warnings", then plain success.
+id: acronis-cp-legacy
+version: 1
+vendor: Acronis Cyber Protect (on-premises)
+status: unverified-synthetic
+docs_url: https://www.acronis.com/en-us/support/documentation/CyberProtect_16/
+description: >-
+  Backup alert of Acronis Cyber Protect 15 and 16 on-premises (and Acronis
+  Cyber Backup 12.5): result from the subject or the Status row, device, plan,
+  times, duration, backed-up size and the error or warning text.
+match:
+  all:
+    - body: '(?i)\bAcronis[ \t]+(?:Cyber[ \t]+Protect[ \t]+1[0-9]|Cyber[ \t]+Backup[ \t]+1[0-9]|Backup[ \t]+12)\b'
+  any:
+    - subject: '(?i)^[ \t]*+(?:Backup|Activity)[ \t]+(?:succeeded|failed|was[ \t]+cancell?ed|did[ \t]+not[ \t]+start)\b'
+    - body: '(?im)^[ \t]*+(?:Backup[ \t]+)?plan[ \t]*+:'
+extract:
+  job_name:
+    regex: '(?im)^[ \t]*+(?:Device|Machine|Workload)[ \t]*+:[ \t]*+(?P<job_name>\S[^\t\r\n]{0,199})'
+  started_at:
+    regex: '(?im)^[ \t]*+Start(?:ed|[ \t]+time)[ \t]*+:[ \t]*+(?P<started_at>\d{1,2}/\d{1,2}/\d{4}[ \t]\d{1,2}:\d{2}:\d{2}[ \t][AP]M)'
+    format: '%m/%d/%Y %I:%M:%S %p'
+  finished_at:
+    regex: '(?im)^[ \t]*+(?:Finish(?:ed)?|End(?:ed)?|Completed)(?:[ \t]+time)?[ \t]*+:[ \t]*+(?P<finished_at>\d{1,2}/\d{1,2}/\d{4}[ \t]\d{1,2}:\d{2}:\d{2}[ \t][AP]M)'
+    format: '%m/%d/%Y %I:%M:%S %p'
+  details:
+    plan:
+      regex: '(?im)^[ \t]*+(?:Backup[ \t]+)?plan[ \t]*+:[ \t]*+(?P<plan>\S[^\t\r\n]{0,199})'
+    duration:
+      regex: '(?im)^[ \t]*+Duration[ \t]*+:[ \t]*+(?P<duration>\d[^\t\r\n]{0,59})'
+    processed:
+      regex: '(?im)^[ \t]*+Backed[ \t]+up(?:[ \t]+data)?[ \t]*+:[ \t]*+(?P<processed>\d[^\t\r\n]{0,59})'
+    issue:
+      regex: '(?im)^[ \t]*+(?:Error|Warning)(?:[ \t]+message)?[ \t]*+:[ \t]*+(?P<issue>\S[^\t\r\n]{0,199})'
+status_rules:
+  - status: failed
+    in: subject
+    regex: '(?i)^[ \t]*+(?:Backup|Activity)[ \t]+(?:failed|was[ \t]+cancell?ed|did[ \t]+not[ \t]+start)\b'
+  - status: failed
+    regex: '(?im)^[ \t]*+Status[ \t]*+:[ \t]*+(?:Failed|Error|Cancell?ed|Not[ \t]+started)\b'
+  - status: warning
+    in: subject
+    regex: '(?i)^[ \t]*+(?:Backup|Activity)[ \t]+succeeded[ \t]+with[ \t]+warnings?\b'
+  - status: warning
+    regex: '(?im)^[ \t]*+Status[ \t]*+:[ \t]*+Succeeded[ \t]+with[ \t]+warnings?\b'
+  - status: started
+    regex: '(?im)^[ \t]*+Status[ \t]*+:[ \t]*+(?:Running|In[ \t]+progress)\b'
+  - status: success
+    in: subject
+    regex: '(?i)^[ \t]*+(?:Backup|Activity)[ \t]+succeeded\b(?![ \t]++with)'
+  - status: success
+    regex: '(?im)^[ \t]*+Status[ \t]*+:[ \t]*+Succeeded\b(?![ \t]++with)'
+fixtures:
+  - {name: success-entire-machine, origin: synthetic, class: success}
+  - {name: warning-succeeded-with-warnings, origin: synthetic, class: warning}
+  - {name: failed-destination-unavailable, origin: synthetic, class: failed}

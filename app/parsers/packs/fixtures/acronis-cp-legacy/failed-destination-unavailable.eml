@@ -1,0 +1,22 @@
+From: "Cyber Protect Server" <ams@example.com>
+To: alerts@example.net
+Subject: Backup failed: SRV-SQL-01 - SQL nightly
+Date: Tue, 24 Nov 2026 23:06:45 +0000
+Message-ID: <acronis-legacy-failed@example.com>
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+
+<html><body>
+<!-- Synthetic fixture written from public documentation; not a real mail. -->
+<h2>Backup failed</h2>
+<table>
+<tr><td>Device:</td><td>SRV-SQL-01</td></tr>
+<tr><td>Plan:</td><td>SQL nightly</td></tr>
+<tr><td>Status:</td><td>Failed</td></tr>
+<tr><td>Started:</td><td>11/24/2026 11:00:02 PM</td></tr>
+<tr><td>Finished:</td><td>11/24/2026 11:06:30 PM</td></tr>
+<tr><td>Duration:</td><td>6 min 28 sec</td></tr>
+<tr><td>Error:</td><td>The backup location \\nas-01.example.test\backups is not available (synthetic)</td></tr>
+</table>
+<div>Acronis Cyber Protect 16 (synthetic fixture for Checkorca-CE)</div>
+</body></html>

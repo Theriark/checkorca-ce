@@ -1,0 +1,15 @@
+[
+  {
+    "status": "success",
+    "job_name": "SRV-FILES-01",
+    "client_hint": null,
+    "started_at": "2026-11-22T01:00:04+00:00",
+    "finished_at": "2026-11-22T01:52:40+00:00",
+    "run_id": null,
+    "details": {
+      "plan": "Entire machine to NAS",
+      "duration": "52 min 36 sec",
+      "processed": "64.2 GB"
+    }
+  }
+]
