@@ -185,8 +185,9 @@ test('unmatched: loading, empty and error states are designed', async ({ page })
   await installParserApi(page, { fake, ingest }, { results: [] });
   await setView(page, 1440, 'light');
   await page.goto('/unmatched');
+  // Both panes say it: the queue and the detail.
   await expect(page.getByText('Nothing is waiting').first()).toBeVisible();
-  await expect(page.getByText('Every result found its job. New results that no job claims appear here.')).toBeVisible();
+  await expect(page.getByText('Every result found its job. New results that no job claims appear here.').first()).toBeVisible();
   await expect(page.getByRole('link', { name: 'Messages no pack could read' })).toBeVisible();
   await expectAccessible(page);
   await page.screenshot({ path: 'screenshots/unmatched-empty-1440-light.png' });

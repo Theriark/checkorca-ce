@@ -110,9 +110,10 @@ for (const [width, scheme] of [
     await expect(content).toHaveAttribute('contenteditable', 'true');
     await expect(page.getByRole('button', { name: 'Save pack' })).toBeDisabled();
     await expect(page.getByText(/\d+ lines/)).toBeVisible();
-    // An edit with a bad rule and the old version: Save is live; the bench
-    // says it runs the edited YAML and claims the mail with it.
-    await replaceYaml(page, packYaml(ACME_PACK.id, 1, 'Acme Backup (fictional)', "  - {status: warning, regex: '('}"));
+    // An edit that adds a rule, still at the stored version: Save is live; the
+    // bench says it runs the edited YAML and claims the mail with it.
+    await replaceYaml(page, packYaml(ACME_PACK.id, 1, 'Acme Backup (fictional)', "  - {status: warning, regex: '(?i)\\bwarn'}"));
+    await expect(content).toContainText('status: warning');
     await expect(page.getByText('Unsaved changes')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Save pack' })).toBeEnabled();
     await expect(page.getByText('The bench runs the YAML in the editor in place of the stored pack, so you can test before saving.')).toBeVisible();
@@ -126,6 +127,15 @@ for (const [width, scheme] of [
     expect(benchCall?.body).toContain('"pack":"id: acme-backup');
     await expectAccessible(page);
     await page.screenshot({ path: shot('pack-bench-edited', width, scheme), fullPage: true });
+    // A rule that does not compile: the engine loads the edited pack before
+    // the run, so the bench answers 422 with the issue at its path; it is
+    // shown in the bench, not as an error page.
+    await replaceYaml(page, packYaml(ACME_PACK.id, 1, 'Acme Backup (fictional)', "  - {status: warning, regex: '('}"));
+    await expect(content).toContainText("regex: '('");
+    await page.getByRole('button', { name: 'Run the packs' }).click();
+    const benchIssue = page.locator('.co-bench__form').getByRole('alert');
+    await expect(benchIssue).toContainText('status_rules › 0 › regex');
+    await expect(benchIssue).toContainText('missing )');
     // The save: two issues, each at its path and line, marked in the editor.
     await page.getByRole('button', { name: 'Save pack' }).click();
     const issues = page.getByRole('alert').filter({ hasText: 'The pack does not load' });
@@ -142,6 +152,7 @@ for (const [width, scheme] of [
     await page.screenshot({ path: shot('pack-editor-issues', width, scheme), fullPage: true });
     // The fix saves and the issues go.
     await replaceYaml(page, packYaml(ACME_PACK.id, 2, 'Acme Backup (fictional)'));
+    await expect(content).toContainText('version: 2');
     await page.getByRole('button', { name: 'Save pack' }).click();
     await expect(page.locator('.co-toast--success').last()).toContainText('Pack saved');
     await expect(issues).toHaveCount(0);

@@ -822,10 +822,12 @@ function resultOf(id: string, messageId: string | null, jobName: string, clientH
 
 /** Three results of one unknown job (so a suggestion has its three runs and
  *  an assign binds the other two), and one of another job that came in
- *  through the API without a mail. */
+ *  through the API without a mail. The newest (the copy that reached the IMAP
+ *  mailbox at 23:06) carries the times, run id and details the split view
+ *  shows first. */
 export const SEED_UNMATCHED: readonly ResultOut[] = [
-  resultOf('r1000000-0000-4000-8000-000000000001', 'm1000000-0000-4000-8000-000000000001', 'Nightly server backup', 'Harbourside Dental (fictional)', 'success', '2026-11-19T23:05:00Z', { started_at: '2026-11-19T22:00:00Z', finished_at: '2026-11-19T23:04:00Z', run_id: 'run-9001', details: { vms: 12 } }),
-  resultOf('r1000000-0000-4000-8000-000000000004', 'm1000000-0000-4000-8000-000000000003', 'Nightly server backup', 'Harbourside Dental (fictional)', 'success', '2026-11-19T23:06:00Z'),
+  resultOf('r1000000-0000-4000-8000-000000000001', 'm1000000-0000-4000-8000-000000000001', 'Nightly server backup', 'Harbourside Dental (fictional)', 'success', '2026-11-19T23:05:00Z'),
+  resultOf('r1000000-0000-4000-8000-000000000004', 'm1000000-0000-4000-8000-000000000003', 'Nightly server backup', 'Harbourside Dental (fictional)', 'success', '2026-11-19T23:06:00Z', { started_at: '2026-11-19T22:00:00Z', finished_at: '2026-11-19T23:04:00Z', run_id: 'run-9001', details: { vms: 12 } }),
   resultOf('r1000000-0000-4000-8000-000000000002', 'm1000000-0000-4000-8000-000000000004', 'Nightly server backup', 'Harbourside Dental (fictional)', 'failed', '2026-11-18T23:05:00Z', { details: { error: 'VSS writer timed out.' } }),
   resultOf('r1000000-0000-4000-8000-000000000003', null, 'Archive copy', 'Blue Fern Studio (fictional)', 'warning', '2026-11-17T04:10:00Z', { details: { warnings: 2 } }),
 ];
