@@ -33,12 +33,12 @@ Not in Checkorca-CE: no Datto pack and no Veeam Backup for Microsoft 365 pack.
 | Pack | failed | warning | started | success |
 | --- | --- | --- | --- | --- |
 | `veeam-br` | `[Failed]`, `[Error]`; result row Failed; Error count above 0 | `[Warning]`; result row Warning; Warning count above 0 | | `[Success]`; result row Success |
-| `synology-abb`, `synology-hyperbackup` | failed, cancelled, aborted, could not complete | partially completed | | completed |
+| `synology-abb`, `synology-hyperbackup` | failed, cancelled, aborted; a negated completion (could not be completed, was not completed, has not succeeded) | partially completed | | has, was or is completed or succeeded |
 | `acronis-cp-legacy`, `acronis-cp-cloud` | Failed, Error, Cancelled, Not started (cloud also Not run, Missed) | Succeeded with warnings (cloud also Warning) | Running, In progress | Succeeded (cloud also OK) |
 | `nable-cove` | Failed, Aborted, OverQuota, Interrupted, NotStarted | CompletedWithErrors | InProcess | Completed |
-| `msp360` | Failed, Failure, Error, Cancelled, Interrupted | Warning | Running, In progress | Success, Completed |
+| `msp360` | Failed, Failure, Error, Cancelled, Interrupted; subject Not successful, Unsuccessful | Warning, Completed with warnings or errors | Running, In progress | Success, Completed |
 
-Fixtures are in `app/parsers/packs/fixtures/<pack id>/`: at least one success, one warning and one failed mail per vendor, and a digest for Acronis Cyber Protect Cloud and Cove. All are synthetic, written from the documentation, with R-11 names only (example.com, example.net, .test, 192.0.2.0/24, fictional companies). `tests/parsers/test_fixtures.py` checks every fixture against its expected results; `tests/parsers/test_vendor_packs.py` checks that each vendor's mail is claimed by its own pack only, that a changed subject falls back to the body or to Unmatched and never to success, and that a mail without result words stays unknown.
+Fixtures are in `app/parsers/packs/fixtures/<pack id>/`: at least one success, one warning and one failed mail per vendor, and a digest for Acronis Cyber Protect Cloud and Cove. All are synthetic, written from the documentation, with R-11 names only (example.com, example.net, .test, 192.0.2.0/24, fictional companies). `tests/parsers/test_fixtures.py` checks every fixture against its expected results; `tests/parsers/test_vendor_packs.py` checks that each vendor's mail is claimed by its own pack only, that a changed subject falls back to the body rules, that neither a failed nor a warning body is hidden by a success subject, that a negated completion or a status word in a task name is never success, and that a mail without result words stays unknown.
 
 ## Sending a sample so a pack can become verified
 
