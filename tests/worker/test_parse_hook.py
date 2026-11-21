@@ -28,9 +28,9 @@ from app.parsers.loader import builtin_pack_texts, parse_pack
 from app.repos.jobs import JobRepository
 from app.repos.packs import PackRepository
 from app.settings import load_settings
-from app.worker import loop
+from app.worker import loop, parse
 from app.worker.loop import WorkerContext, build_context
-from app.worker.parse import ParseHook, parse_messages
+from app.worker.parse import PARSE_BUDGET, ParseHook, parse_messages
 from helpers import (
     ADMIN_EMAIL,
     ADMIN_PASSWORD,
@@ -384,6 +384,31 @@ async def test_a_locked_message_is_skipped_and_a_tick_parses_a_batch(
     await tick(context, clock)
     for message_id in (held, second):
         assert (await message_of(db_engine, message_id)).parse_state == "parsed"
+
+
+async def test_a_tick_starts_no_message_after_its_budget(
+    context: WorkerContext,
+    db_engine: AsyncEngine,
+    clock: FakeClock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    waiting = [await store(db_engine, clock, nightly()) for _ in range(5)]
+    slow = parse.parse_message
+
+    def full_deadline(*args: Any) -> Any:
+        # As a pack that takes the engine's 5 s deadline on every mail would.
+        clock.advance(seconds=PARSE_BUDGET / 3)
+        return slow(*args)
+
+    monkeypatch.setattr("app.worker.parse.parse_message", full_deadline)
+    started = clock.monotonic()
+    await tick(context, clock)
+    assert clock.monotonic() - started == PARSE_BUDGET
+    states = [(await message_of(db_engine, m)).parse_state for m in waiting]
+    assert states == ["parsed"] * 3 + ["pending"] * 2
+    await tick(context, clock)
+    states = [(await message_of(db_engine, m)).parse_state for m in waiting]
+    assert states == ["parsed"] * 5
 
 
 async def test_disabled_and_broken_packs_parse_nothing(

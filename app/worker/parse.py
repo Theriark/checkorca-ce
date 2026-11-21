@@ -5,9 +5,13 @@
    are compiled on the parser thread; a pack that no longer loads is left out
    and logged.
 2. The matcher is built once over the jobs and clients that are not archived.
-3. Up to PARSE_BATCH messages, oldest first, one at a time: the message is
-   taken with FOR UPDATE SKIP LOCKED, parsed on the parser thread and its
-   outcome stored in the same transaction.
+3. Up to PARSE_BATCH messages, oldest first, one at a time, for at most
+   PARSE_BUDGET seconds: the message is taken with FOR UPDATE SKIP LOCKED,
+   parsed on the parser thread and its outcome stored in the same
+   transaction. The budget keeps a tick well inside TICK_SECONDS, so the
+   heartbeat stays fresh and the hooks after this one run on time, even when
+   every mail takes the full 5 s engine deadline (a slow custom pack); the
+   messages left over wait for the next tick.
 
 Parsed: record_result for each result, bound to its job when the matcher is
 sure, parse_state parsed, and client_id when every result belongs to one
@@ -49,6 +53,9 @@ if TYPE_CHECKING:
 
 # Messages parsed in one tick; the rest wait for the next one.
 PARSE_BATCH: Final = 200
+# Seconds of one tick no new message starts after (monotonic clock). One
+# message started just before may still take the 5 s engine deadline.
+PARSE_BUDGET: Final = 30.0
 
 logger = logging.getLogger(__name__)
 
@@ -84,12 +91,15 @@ def parse_message(packs: Sequence[Pack], body_zlib: bytes) -> Outcome:
 
 class ParseHook:
     """The tick hook. The packs come from context.pack_source; batch is the
-    number of messages a tick parses at most."""
+    number of messages a tick parses at most, budget the seconds after which
+    it starts no new one."""
 
-    def __init__(self, batch: int = PARSE_BATCH) -> None:
+    def __init__(self, batch: int = PARSE_BATCH, budget: float = PARSE_BUDGET) -> None:
         self.batch = batch
+        self.budget = budget
 
     async def __call__(self, context: "WorkerContext", now: datetime) -> None:
+        stop_at = context.clock.monotonic() + self.budget
         async with context.sessionmaker() as db:
             await PackRepository(db, context.policy).sync_builtin(
                 SYSTEM, await asyncio.to_thread(builtin_pack_texts), now
@@ -98,7 +108,10 @@ class ParseHook:
             texts = await context.pack_source.packs(db, context.policy, SYSTEM)
             matcher = await JobRepository(db, context.policy).matcher(SYSTEM)
         packs = await on_parser_thread(compile_packs, texts)
-        for _ in range(self.batch):
+        for parsed in range(self.batch):
+            if context.clock.monotonic() >= stop_at:
+                logger.info("parse budget spent after %d messages", parsed)
+                break
             if not await self.parse_next(context, packs, matcher, now):
                 break
 
