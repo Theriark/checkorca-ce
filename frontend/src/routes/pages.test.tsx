@@ -174,11 +174,11 @@ describe('shell', () => {
 
   it('hides Settings from the technician', async () => {
     stubFetch({ 'GET /api/v1/auth/me': { status: 200, body: TECHNICIAN } });
-    renderApp('/unmatched');
+    renderApp('/notifications');
     const nav = await screen.findByRole('navigation', { name: strings.nav.primary });
     expect(within(nav).queryByRole('link', { name: strings.nav.settings })).toBeNull();
-    expect(screen.getByRole('heading', { level: 1, name: strings.nav.unmatched })).toBeTruthy();
-    expect(screen.getByText(new RegExp(`${strings.placeholder.arrives} C5`))).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: strings.nav.notifications })).toBeTruthy();
+    expect(screen.getByText(new RegExp(`${strings.placeholder.arrives} C9`))).toBeTruthy();
   });
 
   it('opens the command search with Ctrl K and navigates', async () => {
