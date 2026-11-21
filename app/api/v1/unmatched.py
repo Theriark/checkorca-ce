@@ -2,7 +2,7 @@
 
 - assign: bind the result to an existing job. The job takes the result's job
   name as its match key when it had none (with replace_match_key also when
-  its key names another job name; audited with both keys), and the client
+  its key names another job name; audited by ids only), and the client
   takes the result's client hint as an alias when it does not know it yet
   and has room, so the next identical mail binds without a visit here. The
   answer says what was taught and why not. Other unmatched results with the
@@ -304,8 +304,6 @@ async def assign(
             target_kind="job",
             target_id=job.id,
             result_id=str(result.id),
-            old_match_key=binding.replaced_match_key,
-            new_match_key=binding.current_match_key,
         )
     await db.commit()
     return binding

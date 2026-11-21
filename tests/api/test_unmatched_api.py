@@ -361,11 +361,8 @@ async def test_assign_keeps_another_match_key_unless_told_to_replace_it(
     async with async_sessionmaker(db_engine)() as db:
         (event,) = (await db.scalars(select(AuditEvent).where(is_replace))).all()
     assert (event.target_kind, event.target_id) == ("job", job["id"])
-    assert event.details == {
-        "result_id": second,
-        "old_match_key": "Old tool name",
-        "new_match_key": ARCHIVE,
-    }
+    # Ids only (D-7): job names come from mail and audit outlives a client delete.
+    assert event.details == {"result_id": second}
 
 
 async def test_assign_with_replace_keeps_a_key_of_the_same_words(
