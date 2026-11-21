@@ -193,8 +193,9 @@ async def test_a_mail_becomes_a_result_bound_to_its_job(
     # The built-in packs were written on the way.
     packs = (await client.get("/api/v1/packs")).json()["items"]
     assert [(pack["id"], pack["source"]) for pack in packs] == [
-        ("generic-keywords", "builtin")
+        (pack.id, "builtin") for pack, _ in builtin_pack_texts()
     ]
+    assert "veeam-br" in {pack["id"] for pack in packs}
 
 
 async def test_an_unknown_failure_waits_until_create_job_binds_the_next_one(
