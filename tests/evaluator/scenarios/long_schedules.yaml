@@ -1,0 +1,117 @@
+# Runs that leave the 14-day window still decide the job state: a weekly or
+# monthly job keeps its state, and a run of failures keeps counting past the
+# window until it reaches consecutive_failures_to_alert (code review H-1 of
+# PR 27). Defaults: max runtime 360, grace 120, escalate 30, so a run is
+# missed 8 h 30 min after it was due. Synthetic data.
+
+- name: a weekly job with a threshold of 3 reaches it in the third week
+  job: {schedule: interval 7d, created: 2027-01-03T02:00:00Z, threshold: 3}
+  steps:
+    - at: 2027-01-10T11:00:00Z
+      occurrences: {2027-01-10T02:00:00Z: missed}
+      state: warning
+      consecutive_failures: 1
+      flips: [unknown>warning]
+      reason: was missed; 1 of 3 failures before an alert
+    - at: 2027-01-17T11:00:00Z
+      occurrences: {2027-01-17T02:00:00Z: missed}
+      state: warning
+      consecutive_failures: 2
+      flips: []
+    # The first missed week is out of the window now and still counts.
+    - at: 2027-01-24T11:00:00Z
+      occurrences:
+        2027-01-10T02:00:00Z: missed
+        2027-01-24T02:00:00Z: missed
+      state: missed
+      consecutive_failures: 3
+      flips: [warning>missed]
+      reason: was missed; 3 in a row
+    - at: 2027-01-31T11:00:00Z
+      state: missed
+      consecutive_failures: 4
+      flips: []
+    - at: 2027-02-07T04:00:00Z
+      results:
+        - {id: r1, status: success, finished: 2027-02-07T03:00:00Z, received: 2027-02-07T03:01:00Z}
+      occurrences: {2027-02-07T02:00:00Z: verified}
+      state: ok
+      consecutive_failures: 0
+      last_success_at: 2027-02-07T03:00:00Z
+      flips: [missed>ok]
+      reason: "Recovered:"
+
+- name: a 30-day job stays ok while its verified run is out of the window
+  job: {schedule: interval 30d, created: 2027-01-01T02:00:00Z}
+  steps:
+    - at: 2027-01-31T04:00:00Z
+      results:
+        - {id: r1, status: success, finished: 2027-01-31T03:00:00Z, received: 2027-01-31T03:01:00Z}
+      occurrences: {2027-01-31T02:00:00Z: verified}
+      state: ok
+      flips: [unknown>ok]
+    - at: 2027-02-20T12:00:00Z
+      occurrences: {2027-01-31T02:00:00Z: verified}
+      count: 1
+      state: ok
+      flips: []
+    - at: 2027-03-02T11:00:00Z
+      occurrences: {2027-03-02T02:00:00Z: missed}
+      state: missed
+      flips: [ok>missed]
+    - at: 2027-03-02T15:00:00Z
+      results:
+        - {id: r2, status: success, finished: 2027-03-02T14:50:00Z, received: 2027-03-02T14:51:00Z}
+      occurrences:
+        2027-03-02T02:00:00Z: {state: verified, note: late result, result: r2}
+      state: ok
+      flips: [missed>ok]
+      reason: "Recovered:"
+
+- name: a monthly cron job stays ok for the whole month
+  job:
+    schedule: cron 0 2 1 * *
+    timezone: UTC
+    created: 2027-01-15T00:00:00Z
+  steps:
+    - at: 2027-02-01T04:00:00Z
+      results:
+        - {id: r1, status: success, finished: 2027-02-01T03:00:00Z, received: 2027-02-01T03:01:00Z}
+      occurrences: {2027-02-01T02:00:00Z: verified}
+      state: ok
+      flips: [unknown>ok]
+    - at: 2027-02-20T00:00:00Z
+      state: ok
+      flips: []
+    - at: 2027-03-01T11:00:00Z
+      occurrences: {2027-03-01T02:00:00Z: missed}
+      state: missed
+      flips: [ok>missed]
+      reason: was missed
+
+- name: a daily job with a threshold of 20 reaches it after 20 days
+  job: {schedule: daily 23:00, created: 2027-01-01T12:00:00Z, threshold: 20}
+  steps:
+    - at: 2027-01-02T08:00:00Z
+      occurrences: {2027-01-01T23:00:00Z: missed}
+      state: warning
+      consecutive_failures: 1
+      flips: [unknown>warning]
+      reason: was missed; 1 of 20 failures before an alert
+    - at: 2027-01-15T08:00:00Z
+      count: 14
+      state: warning
+      consecutive_failures: 14
+      flips: []
+    - at: 2027-01-21T08:00:00Z
+      occurrences:
+        2027-01-01T23:00:00Z: missed
+        2027-01-20T23:00:00Z: missed
+      state: missed
+      consecutive_failures: 20
+      flips: [warning>missed]
+      reason: was missed; 20 in a row
+    - at: 2027-01-30T08:00:00Z
+      state: missed
+      consecutive_failures: 29
+      flips: []

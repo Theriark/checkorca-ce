@@ -76,6 +76,19 @@ CLIENT_DELETE_MAP: tuple[DeleteStep, ...] = (
 
 async def delete_client_rows(db: AsyncSession, client_id: uuid.UUID) -> None:
     """Run every step in the caller's transaction (call through the repository,
-    which asks the access policy first)."""
+    which asks the access policy first, after it locked the client).
+
+    The client's jobs are locked first, after the client: an evaluator batch
+    that is writing rows for them holds the client and the jobs FOR KEY SHARE
+    (app/repos/evaluation.py claim), so it commits before the steps run and
+    its rows are deleted too; a batch that starts later skips the locked
+    rows. A job moved to this client after the batch read it is covered by
+    its job lock."""
+    await db.execute(
+        select(Job.id)
+        .where(Job.client_id == client_id)
+        .order_by(Job.id)
+        .with_for_update()
+    )
     for step in CLIENT_DELETE_MAP:
         await db.execute(delete(step.model).where(step.rows(client_id)))

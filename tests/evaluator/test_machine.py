@@ -2,6 +2,7 @@
 golden scenarios do not reach directly. Synthetic data."""
 
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -16,6 +17,7 @@ from app.evaluator.machine import (
     Derived,
     attribute,
     derive_state,
+    earlier_view,
     evaluate,
     flip_reason,
     next_due,
@@ -99,7 +101,7 @@ def test_derive_state_without_closed_runs_is_unknown() -> None:
 
 def test_flip_reasons() -> None:
     assert flip_reason("ok", Derived("unknown", 0, None), 1) == (
-        "No run has an outcome in the evaluated window"
+        "No run has an outcome yet"
     )
     long = Occurrence(NIGHT, DEADLINE, "failed", note="x" * 400)
     text = flip_reason("ok", Derived("failing", 1, long), 1)
@@ -136,6 +138,80 @@ def test_stored_runs_older_than_the_window_are_left_alone() -> None:
     evaluation = evaluate(job, StateRecord(), [old], [], now)
     assert old not in evaluation.deletes
     assert all(item.scheduled_for != NIGHT for item in evaluation.inserts)
+
+
+def nights(states: str, last: datetime) -> list[Occurrence]:
+    """One occurrence a night up to last, oldest first; a letter per night:
+    v verified, w warning, f failed, m missed, x maintenance, o overdue."""
+    names = {
+        "v": "verified",
+        "w": "warning",
+        "f": "failed",
+        "m": "missed",
+        "x": "maintenance",
+        "o": "overdue",
+    }
+    count = len(states)
+    return [
+        Occurrence(
+            last - timedelta(days=count - 1 - index),
+            last - timedelta(days=count - 1 - index) + timedelta(hours=8),
+            as_occurrence_state(names[letter]),
+        )
+        for index, letter in enumerate(states)
+    ]
+
+
+def test_earlier_view_keeps_the_newest_closed_and_threshold_counted_runs() -> None:
+    history = nights("vmxmfxo", NIGHT)
+    start = NIGHT + timedelta(hours=1)
+    states = [item.state for item in earlier_view(history, start, 2)]
+    # Open runs never count; maintenance only as the newest closed one.
+    assert states == ["missed", "failed", "maintenance"]
+    assert [item.state for item in earlier_view(history, start, 9)] == [
+        "verified",
+        "missed",
+        "missed",
+        "failed",
+        "maintenance",
+    ]
+    # Only runs before start; a threshold below 1 still keeps one.
+    assert earlier_view(history, history[0].scheduled_for, 3) == []
+    assert [item.state for item in earlier_view(history[:2], start, 0)] == ["missed"]
+    # The same run given twice counts once.
+    twice = earlier_view([*history, *history], start, 2)
+    assert twice == earlier_view(history, start, 2)
+
+
+def test_the_state_counts_failures_before_the_window() -> None:
+    job = nightly(consecutive_failures_to_alert=3)
+    now = NIGHT + timedelta(days=20, hours=9)
+    start = window_start(job, now)
+    stored = nights("vmm" + "m" * 14, NIGHT + timedelta(days=20))
+    assert [item.scheduled_for < start for item in stored].count(True) == 3
+    full = evaluate(job, StateRecord(state="missed"), stored, [], now)
+    assert (full.record.state, full.record.consecutive_failures) == ("missed", 16)
+    assert full.flip is None
+    # The worker passes the window's rows as stored and the rest as earlier.
+    inside = [item for item in stored if item.scheduled_for >= start]
+    outside = [item for item in stored if item.scheduled_for < start]
+    split = evaluate(job, StateRecord(state="missed"), inside, [], now, earlier=outside)
+    assert split == full
+    # Without the rows before the window the count would start in it.
+    alone = evaluate(job, StateRecord(state="missed"), inside, [], now)
+    assert alone.record.consecutive_failures == 14
+
+
+def test_a_verified_run_before_the_window_keeps_the_job_ok() -> None:
+    run = Occurrence(NIGHT, DEADLINE, "verified")
+    # Every 40 days, so no time falls in the window (like a monthly job).
+    anchor = NIGHT - timedelta(days=40)
+    spec = parse_spec("interval", "40d", "Europe/Lisbon", anchor)
+    sparse = replace(nightly(), spec=spec)
+    now = NIGHT + timedelta(days=20)
+    evaluation = evaluate(sparse, StateRecord(state="ok", since=NIGHT), [run], [], now)
+    assert evaluation.record.state == "ok" and evaluation.flip is None
+    assert evaluation.inserts == () and evaluation.deletes == ()
 
 
 def test_a_suppressed_job_only_drops_open_runs() -> None:

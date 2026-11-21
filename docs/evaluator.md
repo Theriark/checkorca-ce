@@ -36,6 +36,8 @@ The job state derives from the newest closed occurrence (verified, warning, fail
 
 Maintenance occurrences neither count as failures nor break a run of them. The API shows `paused` while a job is paused (from the job itself). `state_since` is when the state last changed and `last_success_at` when the newest verified run ended.
 
+The state looks past the 14-day window: besides the window's occurrences it reads the newest closed occurrence before it and the newest `consecutive_failures_to_alert` closed ones that are not maintenance. So a monthly job stays `ok` for the whole month after a verified run, and a weekly job with a threshold of 3 (or a daily one with 20) reaches it although its first failures have left the window. The count of failures in a row (in flip reasons) covers the window plus at most `consecutive_failures_to_alert` runs before it; a longer run of failures shows that many.
+
 Each change of the job state inserts one flip (`from_state`, `to_state`, `reason`, `at`, the job and its client; the row also keeps the occurrence that caused it). Flips are the single source of alerts (phase C9): a flip to `failing` or `missed` happens once, when the threshold is reached; a flip to `ok` from `failing` or `missed` is the recovery (reason starts with `Recovered:`). A late success after a missed run turns the occurrence into verified and gives exactly one recovery flip.
 
 Property, checked by `tests/evaluator`: job state `ok` means the newest closed occurrence is verified.
@@ -48,7 +50,9 @@ A paused job, an archived job and the jobs of an archived client are suppressed:
 
 One query reads every job with its job_state row and the count and newest time of its results of the last 30 days. A job is evaluated only when something can have changed: no job_state row yet; paused, archived or resumed; settings changed (`updated_at`); a result arrived or was bound (count or newest time changed); its due time passed (a deadline, an escalation, or the next occurrence to write); or it was last evaluated an hour ago. A tick evaluates at most 2000 jobs, due first, in transactions of 200, and starts no new batch after 20 seconds; the rest wait for the next tick. Evaluating twice at the same time changes nothing: the second tick finds nothing due, and an evaluation from the same rows writes no change.
 
-A batch that fails (a job deleted meanwhile, a SuppressionProvider error) is rolled back and evaluated on the next tick. A job whose stored schedule no longer parses is skipped, logged and tried again an hour later. 100 clients with 4 jobs over 14 days (5,600 occurrences) evaluate in under 2 seconds (`tests/evaluator/test_tick.py`).
+Each batch first claims its jobs in its transaction: the clients and the jobs `FOR KEY SHARE` and the job_state rows `FOR UPDATE`, all `SKIP LOCKED`, so the evaluator never waits for a lock. A job is left for the next tick when it is gone, when its client or job row is locked (a client delete or a job change in progress), or when its job_state row is locked or changed since the tick read it (a second worker after a lost worker lock evaluated it), so no flip is made twice. A client delete that starts while a batch holds the client's rows waits for the batch and then deletes its rows too.
+
+A batch that fails (a conflicting change, a SuppressionProvider error) is rolled back and evaluated on the next tick. A job whose stored schedule no longer parses is skipped, logged and tried again an hour later. 100 clients with 4 jobs over 14 days (5,600 occurrences) evaluate in under 2 seconds (`tests/evaluator/test_tick.py`).
 
 ## Extension seams (app/ext)
 
@@ -63,4 +67,4 @@ A batch that fails (a job deleted meanwhile, a SuppressionProvider error) is rol
 
 ## Data
 
-Tables `occurrence` (key job_id and scheduled_for), `job_state` (one row per job) and `flip` (revision `c7_eval`). All three are in the client delete map; deleting a result sets `occurrence.result_id` to null and the next evaluation decides again.
+Tables `occurrence` (key job_id and scheduled_for), `job_state` (one row per job) and `flip` (revision `c7_eval`). All three are in the client delete map, which locks the client's jobs before its steps; deleting a result sets `occurrence.result_id` to null and the next evaluation decides again. Closed occurrences stay as history; a retention purge (phase C10) must keep each job's newest closed occurrence and its newest `consecutive_failures_to_alert` closed ones that are not maintenance, which the job state still reads.

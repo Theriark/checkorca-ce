@@ -7,9 +7,14 @@ results arrived and with the job paused or not. After every evaluation:
 - job state ok means the newest closed occurrence is verified;
 - no occurrence is verified without a success (or a warning under
   warning_counts_ok), and an unknown result never verifies one.
+
+Over weeks, the worker's view (stored occurrences from the batch's window
+start and the repository's newest closed ones before it) gives the same
+evaluation as every stored occurrence.
 """
 
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -17,8 +22,14 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 import evaluator_runner as runner
-from app.evaluator.machine import window_start
-from app.evaluator.model import JobRules, Occurrence, Result
+from app.evaluator.machine import evaluate, window_start
+from app.evaluator.model import (
+    CLOSED_STATES,
+    JobRules,
+    MaintenanceWindow,
+    Occurrence,
+    Result,
+)
 from app.ingest.results import RESULT_STATUSES
 from app.schedule import parse_spec
 from helpers import FakeClock
@@ -95,6 +106,47 @@ def histories(draw: st.DrawFn) -> dict[str, Any]:
     return {"job": job, "steps": steps}
 
 
+@st.composite
+def long_histories(draw: st.DrawFn) -> dict[str, Any]:
+    """A job evaluated now and then over up to about seven weeks, so its runs
+    leave the window; every few days or daily, maybe with maintenance."""
+    job = draw(jobs())
+    if draw(st.booleans()):
+        every = f"{draw(st.integers(1, 9))}d"
+        spec = parse_spec("interval", every, job.spec.timezone, job.created_at)
+        job = replace(job, spec=spec)
+    job = replace(job, consecutive_failures_to_alert=draw(st.integers(1, 5)))
+    starts = draw(st.lists(st.integers(0, 40), max_size=2))
+    windows = [
+        MaintenanceWindow(
+            job.created_at + timedelta(days=day),
+            job.created_at + timedelta(days=day + draw(st.integers(1, 4))),
+        )
+        for day in starts
+    ]
+    at = job.created_at
+    steps = []
+    for _ in range(draw(st.integers(1, 10))):
+        at += timedelta(hours=draw(st.integers(1, 8 * 24)))
+        steps.append({"at": at, "results": draw(st.lists(results(at), max_size=2))})
+    return {"job": job, "windows": windows, "steps": steps}
+
+
+def repository_read(
+    stored: list[Occurrence], before: datetime, limit: int
+) -> list[Occurrence]:
+    """What EvaluationRepository.earlier returns for one job: the newest limit
+    closed occurrences before before that are not maintenance, and the newest
+    closed one (both queries may return it)."""
+    closed = [
+        item
+        for item in stored
+        if item.scheduled_for < before and item.state in CLOSED_STATES
+    ]
+    counted = [item for item in closed if item.state != "maintenance"]
+    return counted[-limit:] + closed[-1:]
+
+
 def replay(history: dict[str, Any]) -> runner.Run:
     steps = history["steps"]
     run = runner.Run(job=history["job"], windows=[], clock=FakeClock(steps[0]["at"]))
@@ -157,3 +209,45 @@ def test_one_evaluation_after_all_the_steps_gives_the_same_state(
         expected.state,
         expected.consecutive_failures,
     )
+
+
+@PROFILE
+@given(
+    history=long_histories(),
+    extra=st.integers(0, 3 * 24),
+    more=st.integers(0, 4),
+)
+def test_the_worker_view_of_older_runs_gives_the_same_evaluation(
+    history: dict[str, Any], extra: int, more: int
+) -> None:
+    """The tick reads stored occurrences from the earliest window start of
+    its batch (extra hours before this job's) and the newest closed ones
+    before that, up to the batch's highest threshold (more above this
+    job's): the same evaluation as from every stored occurrence."""
+    job = history["job"]
+    steps = history["steps"]
+    run = runner.Run(
+        job=job, windows=history["windows"], clock=FakeClock(steps[0]["at"])
+    )
+    for step in steps:
+        run.clock.advance(seconds=(step["at"] - run.clock.now()).total_seconds())
+        run.results += step["results"]
+        now = run.clock.now()
+        full = run.evaluate()
+        since = window_start(job, now) - timedelta(hours=extra)
+        stored = run.store.stored()
+        partial = evaluate(
+            job,
+            run.store.record,
+            [item for item in stored if item.scheduled_for >= since],
+            run.results,
+            now,
+            windows=run.windows,
+            earlier=repository_read(
+                stored, since, job.consecutive_failures_to_alert + more
+            ),
+        )
+        assert partial == full
+        run.store.apply(full)
+        runner.check_invariants(run)
+        check_verified(run)

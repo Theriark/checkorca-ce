@@ -13,8 +13,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from sqlalchemy import Row, delete, func, select, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import Row, delete, func, select, text, update
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.access import SYSTEM, AllowAllPolicy
@@ -33,6 +33,7 @@ from app.ext.events import Event, FlipCreated, OccurrenceChanged
 from app.ext.suppression import MaintenanceTarget
 from app.ingest.results import ParsedResult
 from app.ingest.store import record_result
+from app.repos.clients import ClientRepository
 from app.repos.evaluation import EvaluationRepository
 from app.security.tokens import new_ping_token
 from app.settings import load_settings
@@ -545,6 +546,126 @@ async def test_a_deleted_result_unlinks_its_occurrence(
     await evaluate_jobs(context, clock.now())
     (night,) = await occurrences(db_engine, job)
     assert night.state == "missed"
+
+
+async def test_a_weekly_job_counts_missed_weeks_past_the_window(
+    context: WorkerContext, db_engine: AsyncEngine, clock: FakeClock
+) -> None:
+    client = await add_client(db_engine)
+    job = await add_job(
+        db_engine,
+        client,
+        expr="7d",
+        schedule_kind="interval",
+        consecutive_failures_to_alert=3,
+    )
+    week = timedelta(days=7)
+    # Due a week after creation at 12:00Z, missed from 20:30Z.
+    for number in range(1, 4):
+        at(clock, CREATED + week * number + timedelta(hours=9))
+        await evaluate_jobs(context, clock.now())
+    first = (await occurrences(db_engine, job))[0]
+    assert first.scheduled_for == CREATED + week
+    assert first.scheduled_for < clock.now() - timedelta(days=14)
+    record = await record_of(db_engine, job)
+    assert record is not None
+    assert (record.state, record.consecutive_failures) == ("missed", 3)
+    names = [(flip.from_state, flip.to_state) for flip in await flips(db_engine)]
+    assert names == [("unknown", "warning"), ("warning", "missed")]
+
+
+async def test_a_verified_run_out_of_the_window_keeps_the_job_ok(
+    context: WorkerContext, db_engine: AsyncEngine, clock: FakeClock
+) -> None:
+    client = await add_client(db_engine)
+    job = await add_job(db_engine, client, expr="30d", schedule_kind="interval")
+    due = CREATED + timedelta(days=30)
+    await report(db_engine, job, "success", due + timedelta(hours=1))
+    at(clock, due + timedelta(hours=2))
+    await evaluate_jobs(context, clock.now())
+    at(clock, due + timedelta(days=20))
+    # Evaluated again (an hour passed) with no run in the window.
+    assert (await Evaluator(context).run(clock.now())).evaluated == 1
+    record = await record_of(db_engine, job)
+    assert record is not None and record.state == "ok"
+    names = [(flip.from_state, flip.to_state) for flip in await flips(db_engine)]
+    assert names == [("unknown", "ok")]
+
+
+async def test_a_job_another_worker_evaluated_meanwhile_is_left_out(
+    context: WorkerContext,
+    db_engine: AsyncEngine,
+    clock: FakeClock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = await add_client(db_engine)
+    await add_job(db_engine, client)
+    at(clock, OVERDUE_AT)
+    await evaluate_jobs(context, clock.now())
+    at(clock, MISSED_AT)
+    async with session(db_engine) as db:
+        stale = await EvaluationRepository(db, AllowAllPolicy()).candidates(
+            SYSTEM, results_since=MISSED_AT - timedelta(days=30)
+        )
+    # A second worker (after a lost worker lock) evaluates the job first.
+    await evaluate_jobs(context, clock.now())
+    before = await snapshot(db_engine)
+
+    async def read_before(self: Any, principal: Any, **kwargs: Any) -> Any:
+        return stale
+
+    monkeypatch.setattr(EvaluationRepository, "candidates", read_before)
+    tick = await Evaluator(context).run(clock.now())
+    assert (tick.due, tick.evaluated, tick.stale, tick.flips) == (1, 0, 1, 0)
+    assert await snapshot(db_engine) == before
+    (flip,) = await flips(db_engine)
+    assert (flip.from_state, flip.to_state) == ("unknown", "missed")
+
+
+async def test_a_client_being_deleted_is_left_out_without_waiting(
+    context: WorkerContext, db_engine: AsyncEngine, clock: FakeClock
+) -> None:
+    client = await add_client(db_engine)
+    await add_job(db_engine, client)
+    at(clock, MISSED_AT)
+    async with session(db_engine) as deleting:
+        clients = ClientRepository(deleting, AllowAllPolicy())
+        locked = await clients.get(SYSTEM, client.id, for_update=True)
+        assert locked is not None
+        tick = await Evaluator(context).run(clock.now())
+        assert (tick.evaluated, tick.stale, tick.failed_batches) == (0, 1, 0)
+        await clients.delete(SYSTEM, locked)
+        await deleting.commit()
+    tick = await Evaluator(context).run(clock.now())
+    assert (tick.candidates, tick.failed_batches) == (0, 0)
+    assert await snapshot(db_engine) == [[], [], []]
+
+
+async def test_a_client_delete_waits_for_a_batch_that_holds_its_jobs(
+    db_engine: AsyncEngine,
+) -> None:
+    client = await add_client(db_engine)
+    job = await add_job(db_engine, client)
+    async with session(db_engine) as batch:
+        repository = EvaluationRepository(batch, AllowAllPolicy())
+        assert await repository.claim(SYSTEM, []) == set()
+        candidates = await repository.candidates(SYSTEM, results_since=CREATED)
+        assert await repository.claim(SYSTEM, candidates) == {job.id}
+        async with session(db_engine) as deleting:
+            # A lock timeout instead of a wait: the delete cannot start.
+            await deleting.execute(text("SET LOCAL lock_timeout = '200ms'"))
+            clients = ClientRepository(deleting, AllowAllPolicy())
+            with pytest.raises(DBAPIError):
+                await clients.get(SYSTEM, client.id, for_update=True)
+        await batch.rollback()
+    async with session(db_engine) as deleting:
+        clients = ClientRepository(deleting, AllowAllPolicy())
+        found = await clients.get(SYSTEM, client.id, for_update=True)
+        assert found is not None
+        await clients.delete(SYSTEM, found)
+        await deleting.commit()
+    async with session(db_engine) as db:
+        assert await db.get(Job, job.id) is None
 
 
 async def test_100_clients_with_4_jobs_over_14_days_evaluate_in_under_2_seconds(

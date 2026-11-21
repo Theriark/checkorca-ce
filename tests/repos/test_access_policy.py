@@ -116,7 +116,7 @@ def test_the_c1_to_c7_repositories_are_covered() -> None:
         "FlipRepository",
         "JobStateRepository",
     }
-    assert len(REPOSITORY_METHODS) >= 72
+    assert len(REPOSITORY_METHODS) >= 74
 
 
 @pytest.mark.parametrize(

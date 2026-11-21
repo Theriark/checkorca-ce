@@ -12,9 +12,12 @@
 3. At most MAX_JOBS_PER_TICK jobs, never evaluated first, then the most
    overdue, in batches of BATCH_SIZE, and no new batch after BUDGET_SECONDS
    of the tick: each batch asks the SuppressionProvider for maintenance
-   windows, reads its occurrences and results, evaluates every job
-   (app/evaluator/machine.py) and writes the changes in one transaction. A
-   batch that fails (a job deleted meanwhile, a provider error) is rolled back
+   windows, then in one transaction claims its jobs (EvaluationRepository.
+   claim: locks without waiting and leaves out a job that is locked, was
+   deleted or was evaluated by another worker meanwhile), reads their
+   occurrences (and the newest closed ones before the window) and results,
+   evaluates every job (app/evaluator/machine.py) and writes the changes. A
+   batch that fails (a conflicting change, a provider error) is rolled back
    and evaluated again on the next tick.
 4. After the commit, OccurrenceChanged and FlipCreated go to every
    EventSubscriber (app/ext/events.py); an error of a subscriber is logged
@@ -149,6 +152,19 @@ class TickReport:
     failed_batches: int = 0
     left: int = 0
     events: int = 0
+    stale: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class History:
+    """What one batch read for its jobs, per job id: stored occurrences from
+    the batch's window start, the newest closed ones before it, results and
+    maintenance windows."""
+
+    stored: Mapping[uuid.UUID, Sequence[Occurrence]]
+    earlier: Mapping[uuid.UUID, Sequence[Occurrence]]
+    results: Mapping[uuid.UUID, Sequence[Result]]
+    windows: Mapping[uuid.UUID, Sequence[MaintenanceWindow]]
 
 
 @dataclass
@@ -163,6 +179,8 @@ class Plan:
     flips: list[dict[str, Any]] = field(default_factory=list)
     events: list[Event] = field(default_factory=list)
     evaluated: int = 0
+    # Jobs left out by the claim: locked, deleted or evaluated meanwhile.
+    stale: int = 0
 
     @property
     def rows(self) -> int:
@@ -348,16 +366,26 @@ class Evaluator:
             )
             return
         since = min((window_start(item, now) for item in rules.values()), default=now)
-        ids = list(rules)
         try:
             async with self.context.sessionmaker() as db:
                 repository = EvaluationRepository(db, self.context.policy)
-                stored = await repository.occurrences(SYSTEM, ids, since)
-                results = await repository.results(SYSTEM, ids, since)
+                claimed = await repository.claim(SYSTEM, batch)
+                ids = [job_id for job_id in rules if job_id in claimed]
+                limit = max(
+                    (rules[job_id].consecutive_failures_to_alert for job_id in ids),
+                    default=1,
+                )
+                history = History(
+                    stored=await repository.occurrences(SYSTEM, ids, since),
+                    earlier=await repository.earlier(SYSTEM, ids, since, limit),
+                    results=await repository.results(SYSTEM, ids, since),
+                    windows=windows,
+                )
                 for candidate in batch:
-                    self._evaluate(
-                        plan, candidate, rules, stored, results, windows, report
-                    )
+                    if candidate.job.id in claimed:
+                        self._evaluate(plan, candidate, rules, history, report)
+                    else:
+                        plan.stale += 1
                 await repository.save(SYSTEM, plan.changes())
                 await db.commit()
         except IntegrityError as error:
@@ -370,6 +398,7 @@ class Evaluator:
             )
             return
         report.evaluated += plan.evaluated
+        report.stale += plan.stale
         report.rows += plan.rows
         report.flips += len(plan.flips)
         report.events += len(plan.events)
@@ -380,9 +409,7 @@ class Evaluator:
         plan: Plan,
         candidate: Candidate,
         rules: Mapping[uuid.UUID, JobRules],
-        stored: Mapping[uuid.UUID, Sequence[Occurrence]],
-        results: Mapping[uuid.UUID, Sequence[Result]],
-        windows: Mapping[uuid.UUID, Sequence[MaintenanceWindow]],
+        history: History,
         report: TickReport,
     ) -> None:
         job_id = candidate.job.id
@@ -396,11 +423,12 @@ class Evaluator:
             evaluation = evaluate(
                 job_rules,
                 to_record(candidate.record),
-                stored.get(job_id, ()),
-                results.get(job_id, ()),
+                history.stored.get(job_id, ()),
+                history.results.get(job_id, ()),
                 plan.now,
                 suppressed=suppressed,
-                windows=windows.get(job_id, ()),
+                windows=history.windows.get(job_id, ()),
+                earlier=history.earlier.get(job_id, ()),
             )
         except ValueError as error:
             logger.warning("job %s could not be evaluated", job_id, exc_info=error)
@@ -413,15 +441,17 @@ class Evaluator:
 async def evaluate_jobs(context: "WorkerContext", now: datetime) -> None:
     """The tick hook (app/worker/loop.py TICK_HOOKS)."""
     report = await Evaluator(context).run(now)
-    if report.evaluated or report.failed_batches or report.skipped:
+    if report.evaluated or report.failed_batches or report.skipped or report.stale:
         logger.info(
             "evaluated %d of %d jobs: %d occurrence rows, %d flips, "
-            "%d skipped, %d failed batches, %d left for the next tick",
+            "%d skipped, %d changed meanwhile, %d failed batches, "
+            "%d left for the next tick",
             report.evaluated,
             report.candidates,
             report.rows,
             report.flips,
             report.skipped,
+            report.stale,
             report.failed_batches,
             report.left,
         )

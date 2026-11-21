@@ -28,7 +28,11 @@ written changes nothing (idempotent).
    failing or missed once the count reaches consecutive_failures_to_alert;
    below the threshold a failure shows as warning. Every change of the job
    state is one flip; a late success turns missed into verified and the job
-   state back to ok, which is the recovery flip.
+   state back to ok, which is the recovery flip. The state looks past the
+   window: the newest closed occurrence before it, and the newest
+   consecutive_failures_to_alert closed ones that are not maintenance, so a
+   weekly or monthly job keeps its state and its count of failures when its
+   runs leave the window (earlier_view).
 6. A paused or archived job (or one of an archived client) is suppressed:
    its open occurrences are removed, nothing else changes and no flip is
    made. When it comes back, occurrences start again at that moment, so the
@@ -99,6 +103,28 @@ def first_time(job: JobRules, record: StateRecord, now: datetime) -> datetime:
     if record.eval_from is not None:
         start = max(start, record.eval_from)
     return start
+
+
+def earlier_view(
+    occurrences: Iterable[Occurrence], start: datetime, threshold: int
+) -> list[Occurrence]:
+    """The closed occurrences due before start that the job state still
+    depends on, oldest first: the newest one (the state when the window has
+    none) and the newest threshold that are not maintenance (enough to tell
+    whether a run of failures reaches the threshold; maintenance neither
+    counts nor breaks a run)."""
+    by_time = {
+        item.scheduled_for: item
+        for item in occurrences
+        if item.scheduled_for < start and item.state in CLOSED_STATES
+    }
+    if not by_time:
+        return []
+    closed = [by_time[moment] for moment in sorted(by_time)]
+    counted = [item for item in closed if item.state != "maintenance"]
+    kept = {item.scheduled_for: item for item in counted[-max(threshold, 1) :]}
+    kept[closed[-1].scheduled_for] = closed[-1]
+    return [kept[moment] for moment in sorted(kept)]
 
 
 def expected_times(job: JobRules, start: datetime, now: datetime) -> list[datetime]:
@@ -237,7 +263,7 @@ def flip_reason(before: JobState, derived: Derived, threshold: int) -> str:
     """Why the job state changed, in one sentence for notifications."""
     newest = derived.newest
     if newest is None:
-        return "No run has an outcome in the evaluated window"
+        return "No run has an outcome yet"
     run = f"run due {_when(newest.scheduled_for)}"
     if derived.state == "ok" and before in ("failing", "missed"):
         text = f"Recovered: the {run} was verified"
@@ -298,16 +324,21 @@ def evaluate(
     *,
     suppressed: bool = False,
     windows: Sequence[MaintenanceWindow] = (),
+    earlier: Sequence[Occurrence] = (),
 ) -> Evaluation:
     """Evaluate one job at time now.
 
     record is what job_state holds (None before the first evaluation), stored
     the job's occurrences, results its bound results; windows the job's
-    maintenance windows. Stored occurrences older than the window are left
-    alone.
+    maintenance windows. earlier holds stored occurrences due before stored
+    (the worker reads only the newest of them; at least earlier_view's).
+    Stored occurrences older than the window are left alone; the closed ones
+    of earlier_view still decide the job state.
     """
     before = record or StateRecord()
     start = window_start(job, now)
+    threshold = job.consecutive_failures_to_alert
+    older = earlier_view([*earlier, *stored], start, threshold)
     stored = [item for item in stored if item.scheduled_for >= start]
     if suppressed:
         return _suppress(before, stored)
@@ -345,8 +376,9 @@ def evaluate(
     gone = [item for item in stored if item.scheduled_for not in computed]
     deletes = tuple(item for item in gone if item.state in OPEN_STATES)
     kept = [item for item in gone if item.state not in OPEN_STATES]
-    history = sorted([*computed.values(), *kept], key=lambda item: item.scheduled_for)
-    threshold = job.consecutive_failures_to_alert
+    history = sorted(
+        [*older, *computed.values(), *kept], key=lambda item: item.scheduled_for
+    )
     derived = derive_state(history, now, threshold)
     if before.last_success_at is not None:
         ended.append(before.last_success_at)
