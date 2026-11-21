@@ -43,6 +43,7 @@ FLIP_FIELDS = {"id", "job_id", "client_id", "from_state", "to_state", "reason", 
 # overdue at 07:00Z the next morning and missed from 07:30Z.
 NIGHT = "2027-01-04T23:00:00Z"
 MISSED_AT = datetime(2027, 1, 5, 7, 30, tzinfo=UTC)
+STEP = timedelta(hours=11)
 
 
 @pytest.fixture
@@ -59,7 +60,12 @@ async def worker(
     await built.engine.dispose()
 
 
-def at(clock: FakeClock, moment: datetime) -> None:
+async def at(client: httpx.AsyncClient, clock: FakeClock, moment: datetime) -> None:
+    """Moves the clock to moment, using the session at least every 11 hours so
+    the 12-hour idle limit never signs the test out."""
+    while moment - clock.now() > STEP:
+        clock.advance(seconds=STEP.total_seconds())
+        assert (await client.get("/api/v1/auth/me")).status_code == 200
     clock.advance(seconds=(moment - clock.now()).total_seconds())
 
 
@@ -79,7 +85,7 @@ async def test_a_silent_night_shows_as_missed_with_one_flip(
     clock: FakeClock,
 ) -> None:
     job = await nightly_job(client, csrf)
-    at(clock, MISSED_AT - timedelta(minutes=30))
+    await at(client, clock, MISSED_AT - timedelta(minutes=30))
     await tick(worker, clock)
     url = f"/api/v1/jobs/{job['id']}/occurrences"
     (night, tonight) = (await client.get(url)).json()["items"]
@@ -93,7 +99,7 @@ async def test_a_silent_night_shows_as_missed_with_one_flip(
     )
     assert (await client.get("/api/v1/flips")).json()["items"] == []
 
-    at(clock, MISSED_AT)
+    await at(client, clock, MISSED_AT)
     await tick(worker, clock)
     night = (await client.get(url)).json()["items"][0]
     assert night == {
@@ -131,7 +137,7 @@ async def test_a_late_ping_gives_verified_and_one_recovery_flip(
     clock: FakeClock,
 ) -> None:
     job = await nightly_job(client, csrf)
-    at(clock, MISSED_AT)
+    await at(client, clock, MISSED_AT)
     await tick(worker, clock)
     clock.advance(hours=2)
     path = "/api/v1/ping/" + str(job["ping_url"]).rsplit("/", 1)[1]
@@ -166,7 +172,7 @@ async def test_flips_filter_by_job_client_and_time(
     freight = await make_client(client, csrf, FREIGHT)
     first = await make_job(client, csrf, dental["id"], NIGHTLY)
     second = await make_job(client, csrf, freight["id"], NIGHTLY, schedule_expr="22:00")
-    at(clock, MISSED_AT)
+    await at(client, clock, MISSED_AT)
     await tick(worker, clock)
     every = (await client.get("/api/v1/flips")).json()["items"]
     assert {flip["job_id"] for flip in every} == {first["id"], second["id"]}
@@ -197,7 +203,7 @@ async def test_occurrences_take_a_range_and_pages(
     clock: FakeClock,
 ) -> None:
     job = await nightly_job(client, csrf)
-    at(clock, MISSED_AT + timedelta(days=2))
+    await at(client, clock, MISSED_AT + timedelta(days=2))
     await tick(worker, clock)
     url = f"/api/v1/jobs/{job['id']}/occurrences"
     window = {"from": "2027-01-04T00:00:00Z", "to": "2027-01-10T00:00:00Z"}
@@ -244,7 +250,7 @@ async def test_a_paused_job_lists_no_expected_runs(
         f"/api/v1/jobs/{job['id']}/pause", headers={CSRF_HEADER: csrf}
     )
     assert paused.status_code == 200
-    at(clock, MISSED_AT)
+    await at(client, clock, MISSED_AT)
     await tick(worker, clock)
     url = f"/api/v1/jobs/{job['id']}/occurrences"
     assert (await client.get(url)).json()["items"] == []
@@ -266,7 +272,7 @@ async def test_deleting_the_client_leaves_no_evaluator_row(
     db_engine: AsyncEngine,
 ) -> None:
     job = await nightly_job(client, csrf)
-    at(clock, MISSED_AT)
+    await at(client, clock, MISSED_AT)
     await tick(worker, clock)
 
     async def count() -> list[int]:

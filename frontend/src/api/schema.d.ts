@@ -1045,6 +1045,63 @@ export interface paths {
       };
     };
   };
+  "/api/v1/jobs/{job_id}/occurrences": {
+    get: {
+      /** List Occurrences */
+      parameters: {
+        query: {
+          from?: string | null;
+          to?: string | null;
+          cursor?: string | null;
+          limit?: number;
+        };
+        path: {
+          job_id: string;
+        };
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["OccurrencePage"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/flips": {
+    get: {
+      /** List Flips */
+      parameters: {
+        query: {
+          job_id?: string | null;
+          client_id?: string | null;
+          since?: string | null;
+          cursor?: string | null;
+          limit?: number;
+        };
+        path: never;
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["FlipPage"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
   "/api/v1/ingest/email/{inbox_code}": {
     post: {
       /** Ingest Email */
@@ -1672,6 +1729,20 @@ one result on); timezone defaults to the digest time zone of Settings. */
       field: string;
       message: string;
     };
+    /** One change of a job's state; the single source of alerts. */
+    FlipOut: {
+      id: string;
+      job_id: string;
+      client_id: string;
+      from_state: "ok" | "warning" | "failing" | "missed" | "unknown" | "paused" | "maintenance";
+      to_state: "ok" | "warning" | "failing" | "missed" | "unknown" | "paused" | "maintenance";
+      reason: string;
+      at: string;
+    };
+    FlipPage: {
+      items: components["schemas"]["FlipOut"][];
+      next_cursor: string | null;
+    };
     HeaderOut: {
       name: string;
       value: string;
@@ -1931,6 +2002,20 @@ by ping_token, or by client_hint and job_name for the matcher. */
       password: string;
       role: "admin" | "technician";
     };
+    /** One expected run of a job. note explains the state in a few words
+(recovered after retry, late result, started, never finished). */
+    OccurrenceOut: {
+      job_id: string;
+      scheduled_for: string;
+      deadline: string;
+      state: "pending" | "running" | "verified" | "warning" | "failed" | "overdue" | "missed" | "maintenance";
+      result_id: string | null;
+      note: string | null;
+    };
+    OccurrencePage: {
+      items: components["schemas"]["OccurrenceOut"][];
+      next_cursor: string | null;
+    };
     /** A custom pack as Pack YAML; its id must be the id in the URL. */
     PackBody: {
       yaml: string;
@@ -2162,6 +2247,8 @@ export type operations = {
   list_results_api_v1_results_get: paths["/api/v1/results"]["get"];
   create_result_api_v1_results_post: paths["/api/v1/results"]["post"];
   list_job_results_api_v1_jobs__job_id__results_get: paths["/api/v1/jobs/{job_id}/results"]["get"];
+  list_occurrences_api_v1_jobs__job_id__occurrences_get: paths["/api/v1/jobs/{job_id}/occurrences"]["get"];
+  list_flips_api_v1_flips_get: paths["/api/v1/flips"]["get"];
   ingest_email_api_v1_ingest_email__inbox_code__post: paths["/api/v1/ingest/email/{inbox_code}"]["post"];
   ping_success_api_v1_ping__ping_token__get: paths["/api/v1/ping/{ping_token}"]["get"];
   ping_success_api_v1_ping__ping_token__post: paths["/api/v1/ping/{ping_token}"]["post"];
