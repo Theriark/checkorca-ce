@@ -101,6 +101,20 @@ for (const [width, scheme] of [
     const cove = dialog.getByRole('radio', { name: /Cove server/ });
     await expect(cove).toBeVisible();
     await expect(dialog.getByRole('radio')).toHaveCount(1);
+    // The row reads name over client with the key chip beside them (or under
+    // them on a phone); the chip never sits left of the name or over the client.
+    const nameBox = await cove.locator('.co-assign__job-name').boundingBox();
+    const clientBox = await cove.locator('.co-assign__job-client').boundingBox();
+    const keyBox = await cove.locator('.co-assign__job-key').boundingBox();
+    const rowBox = await cove.boundingBox();
+    expect(nameBox && clientBox && keyBox && rowBox).toBeTruthy();
+    if (nameBox && clientBox && keyBox && rowBox) {
+      expect(nameBox.x).toBeLessThanOrEqual(keyBox.x);
+      expect(nameBox.y).toBeLessThanOrEqual(keyBox.y);
+      expect(keyBox.x + keyBox.width).toBeLessThanOrEqual(rowBox.x + rowBox.width + 0.5);
+      const overlaps = keyBox.x < clientBox.x + clientBox.width && clientBox.x < keyBox.x + keyBox.width && keyBox.y < clientBox.y + clientBox.height && clientBox.y < keyBox.y + keyBox.height;
+      expect(overlaps).toBe(false);
+    }
     await cove.click();
     // The job's key names another job name: keep or replace, keep by default.
     await expect(dialog.getByText('This job already has the key “Old tool name”. The mail names the job “Archive copy”.')).toBeVisible();
