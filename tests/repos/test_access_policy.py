@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy import false
 
 import app.repos.clients
+import app.repos.evaluation
 import app.repos.heartbeat
 import app.repos.inboxes
 import app.repos.jobs
@@ -38,6 +39,7 @@ from helpers import ADMIN_EMAIL, ADMIN_PASSWORD, TEST_FERNET_KEY, running, sign_
 # Importing the modules registers every repository class.
 MODULES = (
     app.repos.clients,
+    app.repos.evaluation,
     app.repos.heartbeat,
     app.repos.inboxes,
     app.repos.jobs,
@@ -95,7 +97,7 @@ def build(cls: type[Repository], policy: Any) -> Repository:
     return cls(NoDatabase(), policy)
 
 
-def test_the_c1_to_c5_repositories_are_covered() -> None:
+def test_the_c1_to_c7_repositories_are_covered() -> None:
     names = {cls.__name__ for cls in repositories()}
     assert names >= {
         "UserRepository",
@@ -109,8 +111,12 @@ def test_the_c1_to_c5_repositories_are_covered() -> None:
         "JobResultRepository",
         "HeartbeatRepository",
         "PackRepository",
+        "EvaluationRepository",
+        "OccurrenceRepository",
+        "FlipRepository",
+        "JobStateRepository",
     }
-    assert len(REPOSITORY_METHODS) >= 65
+    assert len(REPOSITORY_METHODS) >= 72
 
 
 @pytest.mark.parametrize(
