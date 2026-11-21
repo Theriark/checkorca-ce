@@ -1,0 +1,25 @@
+From: NAS-01 <nas-01@example.com>
+To: alerts@example.net
+Subject: [NAS-01] Active Backup for Business - Backup task Office PCs has completed
+Date: Sun, 22 Nov 2026 01:22:10 +0000
+Message-ID: <abb-success-pc-task@example.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Dear user,
+
+Backup task Office PCs on NAS-01 has completed.
+
+Task: Office PCs
+Device: PC-RECEPTION-01
+Backup type: PC
+Server: NAS-01
+Start time: 2026-11-22 01:00:03
+End time: 2026-11-22 01:21:47
+Transferred data: 3.4 GB
+
+This message was sent by Active Backup for Business on NAS-01.
+(Synthetic fixture written from public documentation; not a real mail.)
+
+Sincerely,
+Synology DiskStation

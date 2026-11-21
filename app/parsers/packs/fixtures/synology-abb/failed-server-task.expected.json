@@ -1,0 +1,16 @@
+[
+  {
+    "status": "failed",
+    "job_name": "Physical Servers",
+    "client_hint": null,
+    "started_at": "2026-11-24T01:00:00+00:00",
+    "finished_at": "2026-11-24T01:05:31+00:00",
+    "run_id": null,
+    "details": {
+      "host": "NAS-01",
+      "device": "SRV-APP-03",
+      "backup_type": "Physical Server",
+      "error": "The device is offline or cannot be reached at 192.0.2.30 (synthetic)"
+    }
+  }
+]
