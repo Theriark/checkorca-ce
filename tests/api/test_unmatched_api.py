@@ -34,6 +34,7 @@ from helpers import (
 )
 
 DENTAL = "Fictional Dental Clinic"
+FREIGHT = "Example Freight Ltd"
 ARCHIVE = "Weekly archive copy"
 
 
@@ -399,6 +400,29 @@ async def test_assign_at_the_alias_limit_says_so(
     assert binding["reason"] == "alias_limit"
     aliases = (await client.get(f"/api/v1/clients/{dental['id']}")).json()["aliases"]
     assert aliases == ["FDC"]
+
+
+async def test_assign_never_takes_an_alias_or_name_of_another_client(
+    client: httpx.AsyncClient, csrf: str, db_engine: AsyncEngine, clock: FakeClock
+) -> None:
+    dental = await make_client(client, csrf, DENTAL)
+    freight = await make_client(client, csrf, FREIGHT, aliases=["Shared Office"])
+    # Archived or not, the hint must not name two clients.
+    archived = await client.post(
+        f"/api/v1/clients/{freight['id']}/archive", headers={CSRF_HEADER: csrf}
+    )
+    assert archived.is_success, archived.text
+    job = await make_job(client, csrf, dental["id"], ARCHIVE)
+    body = {"job_id": job["id"]}
+    for hint in ("shared-office", FREIGHT.upper()):
+        result_id = await add_result(db_engine, clock, client_hint=hint)
+        assigned = await post(client, csrf, f"{result_id}/assign", body)
+        assert assigned.status_code == 200, assigned.text
+        binding = assigned.json()
+        assert binding["client_alias_added"] is False
+        assert binding["reason"] == "alias_of_other_client"
+    aliases = (await client.get(f"/api/v1/clients/{dental['id']}")).json()["aliases"]
+    assert aliases == []
 
 
 async def test_assign_keeps_a_binding_made_meanwhile(

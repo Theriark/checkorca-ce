@@ -182,11 +182,13 @@ async def teach_client(
         return False, "no_client_hint"
     if names_client(client.name, client.aliases, hint):
         return False, "already_known"
+    clients = ClientRepository(db, services.policy)
+    # Another client known by the hint would make it name two clients.
+    if await clients.named_elsewhere(principal, client.id, hint):
+        return False, "alias_of_other_client"
     if len(client.aliases) >= MAX_ALIASES:
         return False, "alias_limit"
-    await ClientRepository(db, services.policy).update(
-        principal, client, aliases=[*client.aliases, hint]
-    )
+    await clients.update(principal, client, aliases=[*client.aliases, hint])
     return True, None
 
 

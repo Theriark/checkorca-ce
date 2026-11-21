@@ -36,7 +36,9 @@ PackStatus = Literal["verified", "unverified-synthetic"]
 BenchOutcome = Literal["parsed", "unmatched", "error"]
 SkipReason = Literal["invalid", "timeout", "deadline", "memory"]
 # Why assign or create-job did not add the client hint as an alias.
-AliasReason = Literal["no_client_hint", "already_known", "alias_limit"]
+AliasReason = Literal[
+    "no_client_hint", "already_known", "alias_of_other_client", "alias_limit"
+]
 
 # A pasted mail for the test bench (the store takes 5 MB; a sample is less).
 MAX_TEST_MAIL: Final = 1024 * 1024
@@ -189,7 +191,7 @@ class Binding(BaseModel):
     names another job name, the next identical mail binds only if the job's
     name is that job name. client_alias_added: the result's client hint became
     an alias of the client; else reason says why not (no_client_hint,
-    already_known, alias_limit). also_bound: other
+    already_known, alias_of_other_client, alias_limit). also_bound: other
     unmatched results with the same names bound as well.
     """
 

@@ -8,6 +8,7 @@ from sqlalchemy import func, or_, select, tuple_
 
 from app.access import Principal
 from app.db.models import Client, name_key
+from app.matcher import names_client
 from app.repos.base import Repository, guarded
 from app.repos.client_delete import delete_client_rows
 
@@ -80,6 +81,17 @@ class ClientRepository(Repository):
             query = query.with_for_update()
         query = self.policy.scope(principal, self.resource, query)
         return (await self.db.scalars(query)).one_or_none()
+
+    @guarded("list")
+    async def named_elsewhere(
+        self, principal: Principal, client_id: uuid.UUID, hint: str
+    ) -> bool:
+        """Whether a client other than client_id, archived or not, has the hint
+        as its name or one of its aliases (compared as the matcher does)."""
+        query = select(Client.name, Client.aliases).where(Client.id != client_id)
+        query = self.policy.scope(principal, self.resource, query)
+        rows = (await self.db.execute(query)).all()
+        return any(names_client(row.name, row.aliases, hint) for row in rows)
 
     @guarded("create")
     async def create(

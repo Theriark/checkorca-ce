@@ -167,7 +167,7 @@ Admins and technicians alike; lists, gets, export and suggest-schedule also take
 | `current_match_key` | the job's `match_key` after the call (null: none) |
 | `replaced_match_key` | the key `replace_match_key` replaced; null otherwise |
 | `client_alias_added` | the result's client hint is now an alias of the client |
-| `reason` | why no alias was added: `no_client_hint` (the result has none), `already_known` (the client's name or an alias already), `alias_limit` (the client has its 50 aliases); null when one was added |
+| `reason` | why no alias was added: `no_client_hint` (the result has none), `already_known` (the client's name or an alias already), `alias_of_other_client` (another client, archived or not, has the hint as its name or an alias: adding it would make the hint name two clients), `alias_limit` (the client has its 50 aliases); null when one was added |
 | `also_bound` | other unmatched results with the same names bound in the same call |
 
 assign keeps a job's other key unless asked: with `replace_match_key` false (the default) a job whose `match_key` names another job name keeps it, and the answer has `match_key_set` false and that key in `current_match_key`. The next identical mail then waits in Unmatched again unless the job's name equals its job name, so C5-F shows the kept key and offers to assign again with `replace_match_key` true. A key of the same words (compared as the matcher compares them) is no other key and is not rewritten. A replacement writes the audit event `job.match_key_replaced` (target the job; details `result_id`, `old_match_key`, `new_match_key`) besides `unmatched.assign`. A job name without letters or digits is never made a key.
