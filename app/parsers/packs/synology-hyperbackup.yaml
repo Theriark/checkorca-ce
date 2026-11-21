@@ -7,7 +7,10 @@
 # on the product name and the signature.
 #
 # Rules look for a failure first, then a partial completion (warning), then
-# completion: "partially completed" never reads as success.
+# completion: "partially completed" never reads as success. A negated
+# completion ("could not be completed", "was not completed", "has not
+# succeeded") is a failure, and success needs "has", "was" or "is" right
+# before the word, so a task named "Completed Projects" is not a success.
 id: synology-hyperbackup
 version: 1
 vendor: Synology Hyper Backup
@@ -42,9 +45,9 @@ extract:
 status_rules:
   - status: failed
     in: subject
-    regex: '(?i)\b(?:failed|cancell?ed|aborted|could[ \t]+not[ \t]+(?:be[ \t]+)?(?:complete|run))'
+    regex: '(?i)\b(?:failed|cancell?ed|aborted)\b|(?:\b(?:not|never|cannot)|n[''’]t)[ \t]+(?:yet[ \t]+)?(?:be(?:en)?[ \t]+)?(?:complete|succe|run)'
   - status: failed
-    regex: '(?im)^[ \t]*+(?:The[ \t]+)?(?:data[ \t]+)?backup[ \t]+task\b[^\r\n]{0,240}?\b(?:has[ \t]+|was[ \t]+)?(?:failed|cancell?ed|aborted)\b'
+    regex: '(?im)^[ \t]*+(?:The[ \t]+)?(?:data[ \t]+)?backup[ \t]+task\b[^\r\n]{0,240}?(?:\b(?:failed|cancell?ed|aborted)\b|(?:\b(?:not|never|cannot)|n[''’]t)[ \t]+(?:yet[ \t]+)?(?:be(?:en)?[ \t]+)?(?:complete|succe|run))'
   - status: warning
     in: subject
     regex: '(?i)\bpartially[ \t]+(?:completed|successful)\b'
@@ -52,9 +55,9 @@ status_rules:
     regex: '(?im)^[ \t]*+(?:The[ \t]+)?(?:data[ \t]+)?backup[ \t]+task\b[^\r\n]{0,240}?\b(?:has[ \t]+|was[ \t]+)?partially[ \t]+(?:completed|successful)\b'
   - status: success
     in: subject
-    regex: '(?i)\b(?:has[ \t]+)?(?:completed|succeeded)\b'
+    regex: '(?i)\b(?:has|was|is)[ \t]+(?:been[ \t]+)?(?:completed|succeeded)\b'
   - status: success
-    regex: '(?im)^[ \t]*+(?:The[ \t]+)?(?:data[ \t]+)?backup[ \t]+task\b[^\r\n]{0,240}?\b(?:has[ \t]+|was[ \t]+)?(?:completed|succeeded)\b'
+    regex: '(?im)^[ \t]*+(?:The[ \t]+)?(?:data[ \t]+)?backup[ \t]+task\b[^\r\n]{0,240}?\b(?:has|was|is)[ \t]+(?:been[ \t]+)?(?:completed|succeeded)\b'
 fixtures:
   - {name: success-offsite-task, origin: synthetic, class: success}
   - {name: warning-partially-completed, origin: synthetic, class: warning}
