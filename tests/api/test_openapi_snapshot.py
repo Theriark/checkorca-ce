@@ -138,6 +138,47 @@ def test_the_document_describes_the_c5_routes() -> None:
     assert "issues" in problem
 
 
+def test_the_document_describes_the_c7_routes() -> None:
+    """Occurrence and Flip fields exactly as in the Interfaces chapter."""
+    document = generate()
+    paths = document["paths"]
+    occurrences = paths["/api/v1/jobs/{job_id}/occurrences"]["get"]
+    names = {parameter["name"] for parameter in occurrences["parameters"]}
+    assert {"job_id", "from", "to", "cursor", "limit"} <= names
+    flips = paths["/api/v1/flips"]["get"]
+    names = {parameter["name"] for parameter in flips["parameters"]}
+    assert {"job_id", "client_id", "since", "cursor", "limit"} <= names
+    schemas = document["components"]["schemas"]
+    assert set(schemas["OccurrenceOut"]["properties"]) == {
+        "job_id",
+        "scheduled_for",
+        "deadline",
+        "state",
+        "result_id",
+        "note",
+    }
+    assert set(schemas["FlipOut"]["properties"]) == {
+        "id",
+        "job_id",
+        "client_id",
+        "from_state",
+        "to_state",
+        "reason",
+        "at",
+    }
+    states = schemas["OccurrenceOut"]["properties"]["state"]["enum"]
+    assert states == [
+        "pending",
+        "running",
+        "verified",
+        "warning",
+        "failed",
+        "overdue",
+        "missed",
+        "maintenance",
+    ]
+
+
 def test_errors_are_declared_as_problem_documents() -> None:
     """The 4XX answers carry the media type the handlers send."""
     for path, operations in generate()["paths"].items():
