@@ -35,7 +35,7 @@ import { PageHeader } from '../shared/PageHeader';
 import { errorSentence } from '../shared/errors';
 import { ClientDialog } from './ClientDialog';
 import { DeleteClientDialog } from './DeleteClientDialog';
-import { useArchiveClient, useClient, useUpdateClient } from './queries';
+import { useArchiveClient, useClient, useForgetClient, useUpdateClient } from './queries';
 import '../features.css';
 
 const ALL = 'all';
@@ -176,6 +176,7 @@ export function ClientDetailPage() {
   const client = useClient(clientId);
   const archive = useArchiveClient(clientId);
   const restore = useUpdateClient(clientId);
+  const forget = useForgetClient(clientId);
   const pluginTabs = usePluginSlot('clientTabs');
   const actions = useJobActions();
   const [tab, setTab] = useState(JOBS_TAB);
@@ -316,7 +317,7 @@ export function ClientDetailPage() {
       <Tabs label={strings.clients.detail.pluginTabs} items={tabs} value={tab} onValueChange={setTab} />
 
       <ClientDialog open={editOpen} onOpenChange={setEditOpen} client={data} />
-      <DeleteClientDialog open={deleteOpen} onOpenChange={setDeleteOpen} client={data} onDeleted={() => void navigate({ to: '/clients' })} />
+      <DeleteClientDialog open={deleteOpen} onOpenChange={setDeleteOpen} client={data} onDeleted={() => void navigate({ to: '/clients' }).then(forget)} />
       <ConfirmDialog
         open={archiveOpen}
         onOpenChange={setArchiveOpen}

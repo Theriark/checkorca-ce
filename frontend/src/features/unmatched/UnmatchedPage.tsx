@@ -167,8 +167,11 @@ export function UnmatchedPage() {
   const list = useUnmatchedList();
   const items = useMemo(() => list.data?.pages.flatMap((page) => page.items) ?? [], [list.data]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [assignOpen, setAssignOpen] = useState(false);
-  const [create, setCreate] = useState<{ readonly open: boolean; readonly suggest: boolean }>({ open: false, suggest: false });
+  // Each dialog keeps the result it was opened for: once that result is bound
+  // it leaves the queue and the view moves on, while the dialog still reads
+  // the answer back for the result it worked on.
+  const [assign, setAssign] = useState<{ readonly open: boolean; readonly result: UnmatchedOut | null }>({ open: false, result: null });
+  const [create, setCreate] = useState<{ readonly open: boolean; readonly suggest: boolean; readonly result: UnmatchedOut | null }>({ open: false, suggest: false, result: null });
   // The pick, or the newest result once the queue is known (so a bound result
   // leaving the queue moves the view to the next one without a click).
   const selected = items.find((item) => item.result_id === selectedId) ?? items[0] ?? null;
@@ -242,13 +245,13 @@ export function UnmatchedPage() {
                   </p>
                 </div>
                 <div className="co-unmatched__actions">
-                  <Button variant="primary" iconStart={<Briefcase size={16} />} onClick={() => setCreate({ open: true, suggest: false })}>
+                  <Button variant="primary" iconStart={<Briefcase size={16} />} onClick={() => setCreate({ open: true, suggest: false, result: selected })}>
                     {copy.createJob}
                   </Button>
-                  <Button variant="secondary" iconStart={<Link2 size={16} />} onClick={() => setAssignOpen(true)}>
+                  <Button variant="secondary" iconStart={<Link2 size={16} />} onClick={() => setAssign({ open: true, result: selected })}>
                     {copy.assign}
                   </Button>
-                  <Button variant="secondary" iconStart={<Sparkles size={16} />} onClick={() => setCreate({ open: true, suggest: true })}>
+                  <Button variant="secondary" iconStart={<Sparkles size={16} />} onClick={() => setCreate({ open: true, suggest: true, result: selected })}>
                     {copy.suggest}
                   </Button>
                 </div>
@@ -277,8 +280,8 @@ export function UnmatchedPage() {
         </section>
       </div>
 
-      <AssignDialog open={assignOpen} onOpenChange={setAssignOpen} result={selected} />
-      <CreateJobDrawer open={create.open} suggest={create.suggest} onOpenChange={(open) => setCreate((current) => ({ ...current, open }))} result={selected} />
+      <AssignDialog open={assign.open} onOpenChange={(open) => setAssign((current) => ({ ...current, open }))} result={assign.result} />
+      <CreateJobDrawer open={create.open} suggest={create.suggest} onOpenChange={(open) => setCreate((current) => ({ ...current, open }))} result={create.result} />
     </div>
   );
 }

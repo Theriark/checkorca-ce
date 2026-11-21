@@ -1284,8 +1284,11 @@
   background: color-mix(in srgb, var(--primary) 7%, transparent);
 }
 
+/* The active line number keeps the full text colour: the secondary colour on
+   the tinted gutter is 3.98:1 in light, under the 4.5:1 AA needs. */
 .co-yaml .cm-activeLineGutter {
   background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--text);
 }
 
 .co-yaml .cm-selectionBackground,
