@@ -189,11 +189,13 @@ export function importResultOf(body: string, dryRun: boolean): ImportResult {
   return { created: rows - errors.length, updated: 0, clients_created: 1, errors, dry_run: dryRun };
 }
 
-/** Routes clients, jobs, the CSV routes and the preview to the store. */
+/** Routes clients, jobs, the CSV routes and the preview to the store. The
+ *  seed is cloned: the handlers write into the records (an alias learned by
+ *  an assign, a key replaced), and tests of one worker share the module. */
 export async function installFakeApi(page: Page, seed: { readonly clients?: readonly ClientOut[]; readonly jobs?: readonly JobOut[] } = {}): Promise<FakeStore> {
   const store: FakeStore = {
-    clients: [...(seed.clients ?? [HARBOURSIDE, NORTHWIND, ORCHARD])],
-    jobs: [...(seed.jobs ?? SEED_JOBS)],
+    clients: structuredClone([...(seed.clients ?? [HARBOURSIDE, NORTHWIND, ORCHARD])]),
+    jobs: structuredClone([...(seed.jobs ?? SEED_JOBS)]),
     calls: [],
   };
 

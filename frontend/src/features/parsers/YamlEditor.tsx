@@ -6,8 +6,9 @@
  * at their line. Read-only for a built-in pack. The syntax colours are the
  * tok- classes of the class highlighter, styled in features.css from the
  * design tokens, so both themes pass contrast (the default highlight style
- * has fixed light-theme colours). A read-only editor is still focusable, so
- * its scrolling text can be reached from the keyboard.
+ * has fixed light-theme colours). The content is always a tab stop (tabindex
+ * 0): a read-only contenteditable is not one by itself, and the scrolling
+ * text must be reachable from the keyboard whether it is editable or not.
  */
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { yaml } from '@codemirror/lang-yaml';
@@ -36,10 +37,9 @@ export interface YamlEditorProps {
   readonly id?: string;
 }
 
-/** Read-only (not editable) and, when read-only, focusable: a contenteditable
- *  of false is not a tab stop, and the text still scrolls. */
+/** Read-only means not editable either (no caret, no input). */
 function editability(readOnly: boolean) {
-  return [EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly), EditorView.contentAttributes.of(readOnly ? { tabindex: '0' } : {})];
+  return [EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)];
 }
 
 export function YamlEditor({ value, onChange, readOnly = false, label, marks = [], id }: YamlEditorProps) {
@@ -67,7 +67,7 @@ export function YamlEditor({ value, onChange, readOnly = false, label, marks = [
         keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
         readOnlyCompartment.current.of(editability(readOnly)),
         EditorView.lineWrapping,
-        EditorView.contentAttributes.of({ 'aria-label': label, ...(id ? { id } : {}) }),
+        EditorView.contentAttributes.of({ 'aria-label': label, tabindex: '0', ...(id ? { id } : {}) }),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
             onChangeRef.current?.(update.state.doc.toString());
