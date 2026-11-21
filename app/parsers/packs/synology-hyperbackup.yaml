@@ -1,0 +1,61 @@
+# Synology Hyper Backup task notifications (dev-work-plan C6-I). Written from
+# Synology's public DSM and Hyper Backup documentation, not from a real mail:
+# unverified-synthetic until an MSP sends a redacted sample
+# (docs/parser-packs.md). DSM sends one plain-text mail per backup task event
+# (completed, partially completed, failed, cancelled), from the sender the NAS
+# was given and signed by the NAS ("Synology DiskStation"), so the claim rests
+# on the product name and the signature.
+#
+# Rules look for a failure first, then a partial completion (warning), then
+# completion: "partially completed" never reads as success.
+id: synology-hyperbackup
+version: 1
+vendor: Synology Hyper Backup
+status: unverified-synthetic
+docs_url: https://kb.synology.com/en-global/DSM/help/HyperBackup/data_backup
+description: >-
+  Backup task notification of Synology Hyper Backup: result from the subject
+  or the notification sentence, task name, NAS, destination, times and the
+  backed-up size.
+match:
+  all:
+    - body: '(?i)\bHyper[ \t]*+Backup\b'
+  any:
+    - subject: '(?i)\bHyper[ \t]*+Backup\b'
+    - body: '(?im)^[ \t]*+Synology[ \t]+(?:DiskStation|RackStation|NAS|FlashStation)[ \t]*+\r?$'
+extract:
+  job_name:
+    regex: '(?im)^[ \t]*+Task(?:[ \t]+name)?[ \t]*+:[ \t]*+(?P<job_name>\S[^\r\n]{0,199})'
+  started_at:
+    regex: '(?im)^[ \t]*+Start[ \t]+time[ \t]*+:[ \t]*+(?P<started_at>\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2})?)'
+  finished_at:
+    regex: '(?im)^[ \t]*+End[ \t]+time[ \t]*+:[ \t]*+(?P<finished_at>\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2})?)'
+  details:
+    host:
+      regex: '(?im)^[ \t]*+(?:Server|NAS|Hostname)[ \t]*+:[ \t]*+(?P<host>\S[^\r\n]{0,99})'
+    destination:
+      regex: '(?im)^[ \t]*+(?:Destination|Target)[ \t]*+:[ \t]*+(?P<destination>\S[^\r\n]{0,99})'
+    processed:
+      regex: '(?im)^[ \t]*+(?:Backup[ \t]+)?(?:data[ \t]+)?size[ \t]*+:[ \t]*+(?P<processed>\d[^\r\n]{0,59})'
+    error:
+      regex: '(?im)^[ \t]*+(?:Error|Reason)[ \t]*+:[ \t]*+(?P<error>\S[^\r\n]{0,199})'
+status_rules:
+  - status: failed
+    in: subject
+    regex: '(?i)\b(?:failed|cancell?ed|aborted|could[ \t]+not[ \t]+(?:be[ \t]+)?(?:complete|run))'
+  - status: failed
+    regex: '(?im)^[ \t]*+(?:The[ \t]+)?(?:data[ \t]+)?backup[ \t]+task\b[^\r\n]{0,240}?\b(?:has[ \t]+|was[ \t]+)?(?:failed|cancell?ed|aborted)\b'
+  - status: warning
+    in: subject
+    regex: '(?i)\bpartially[ \t]+(?:completed|successful)\b'
+  - status: warning
+    regex: '(?im)^[ \t]*+(?:The[ \t]+)?(?:data[ \t]+)?backup[ \t]+task\b[^\r\n]{0,240}?\b(?:has[ \t]+|was[ \t]+)?partially[ \t]+(?:completed|successful)\b'
+  - status: success
+    in: subject
+    regex: '(?i)\b(?:has[ \t]+)?(?:completed|succeeded)\b'
+  - status: success
+    regex: '(?im)^[ \t]*+(?:The[ \t]+)?(?:data[ \t]+)?backup[ \t]+task\b[^\r\n]{0,240}?\b(?:has[ \t]+|was[ \t]+)?(?:completed|succeeded)\b'
+fixtures:
+  - {name: success-offsite-task, origin: synthetic, class: success}
+  - {name: warning-partially-completed, origin: synthetic, class: warning}
+  - {name: failed-destination-offline, origin: synthetic, class: failed}

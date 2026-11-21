@@ -1,0 +1,15 @@
+[
+  {
+    "status": "failed",
+    "job_name": "Offsite to Example Cloud",
+    "client_hint": null,
+    "started_at": "2026-11-24T03:00:00+00:00",
+    "finished_at": "2026-11-24T03:02:05+00:00",
+    "run_id": null,
+    "details": {
+      "host": "NAS-02",
+      "destination": "backup.example.test/nas-02",
+      "error": "The backup destination is offline (synthetic)"
+    }
+  }
+]

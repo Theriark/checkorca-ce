@@ -1,0 +1,16 @@
+From: NAS-02 <nas-02@example.net>
+To: alerts@example.net
+Subject: [NAS-02] Hyper Backup - Backup task Local USB Copy has partially completed
+Date: Mon, 23 Nov 2026 04:12:00 +0100
+Message-ID: <hb-warning-partially-completed@example.net>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: base64
+
+RGVhciB1c2VyLAoKRGF0YSBiYWNrdXAgdGFzayBMb2NhbCBVU0IgQ29weSBvbiBOQVMtMDIgaGFz
+IHBhcnRpYWxseSBjb21wbGV0ZWQuIDMgZmlsZXMgd2VyZSBza2lwcGVkLgoKVGFzayBuYW1lOiBM
+b2NhbCBVU0IgQ29weQpTZXJ2ZXI6IE5BUy0wMgpEZXN0aW5hdGlvbjogVVNCLURpc2stMQpTdGFy
+dCB0aW1lOiAyMDI2LTExLTIzIDA0OjAwOjAwCkVuZCB0aW1lOiAyMDI2LTExLTIzIDA0OjExOjQw
+CkJhY2t1cCBkYXRhIHNpemU6IDg4LjEgR0IKCkZyb20gSHlwZXIgQmFja3VwIG9uIE5BUy0wMi4K
+KFN5bnRoZXRpYyBmaXh0dXJlIHdyaXR0ZW4gZnJvbSBwdWJsaWMgZG9jdW1lbnRhdGlvbjsgbm90
+IGEgcmVhbCBtYWlsLikKClNpbmNlcmVseSwKU3lub2xvZ3kgRGlza1N0YXRpb24K

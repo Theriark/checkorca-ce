@@ -1,0 +1,15 @@
+[
+  {
+    "status": "success",
+    "job_name": "Offsite to Example Cloud",
+    "client_hint": null,
+    "started_at": "2026-11-22T03:00:00+00:00",
+    "finished_at": "2026-11-22T03:30:58+00:00",
+    "run_id": null,
+    "details": {
+      "host": "NAS-02",
+      "destination": "backup.example.test/nas-02",
+      "processed": "412.7 GB"
+    }
+  }
+]
