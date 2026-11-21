@@ -1,0 +1,15 @@
+[
+  {
+    "status": "failed",
+    "job_name": "Image Weekly",
+    "client_hint": "Fictional Dental Clinic",
+    "started_at": "2026-11-24T01:00:00+00:00",
+    "finished_at": "2026-11-24T01:19:31+00:00",
+    "run_id": null,
+    "details": {
+      "host": "SRV-APP-03",
+      "duration": "00:19:31",
+      "error": "Unable to connect to the storage account backup.example.test (synthetic)"
+    }
+  }
+]

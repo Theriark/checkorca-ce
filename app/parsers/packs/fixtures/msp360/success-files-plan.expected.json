@@ -1,0 +1,17 @@
+[
+  {
+    "status": "success",
+    "job_name": "Daily Files",
+    "client_hint": "Fictional Law Office",
+    "started_at": "2026-11-22T20:00:00+00:00",
+    "finished_at": "2026-11-22T20:12:45+00:00",
+    "run_id": null,
+    "details": {
+      "host": "WS-ACCT-03",
+      "duration": "00:12:45",
+      "files_copied": "412",
+      "files_failed": "0",
+      "processed": "2.31 GB"
+    }
+  }
+]

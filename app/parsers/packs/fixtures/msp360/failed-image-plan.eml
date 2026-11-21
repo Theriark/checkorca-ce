@@ -1,0 +1,25 @@
+From: "Backup Notifications" <backup-notify@example.com>
+To: alerts@example.net
+Subject: Backup plan "Image Weekly" on SRV-APP-03 - Failed
+Date: Tue, 24 Nov 2026 01:20:00 +0000
+Message-ID: <msp360-failed-image-plan@example.com>
+MIME-Version: 1.0
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+
+<html><body>
+<!-- Synthetic fixture written from public documentation; not a real mail. -->
+<h2>Backup plan "Image Weekly" failed</h2>
+<table>
+<tr><td>Plan:</td><td>Image Weekly</td></tr>
+<tr><td>Computer:</td><td>SRV-APP-03</td></tr>
+<tr><td>Company:</td><td>Fictional Dental Clinic</td></tr>
+<tr><td>Status:</td><td>Failed</td></tr>
+<tr><td>Start time:</td><td>11/24/2026 1:00:00 AM</td></tr>
+<tr><td>End time:</td><td>11/24/2026 1:19:31 AM</td></tr>
+<tr><td>Duration:</td><td>00:19:31</td></tr>
+<tr><td>Error:</td><td>Unable to connect to the storage account backup.example.test (sy=
+nthetic)</td></tr>
+</table>
+<div>MSP360 Managed Backup (synthetic fixture for Checkorca-CE)</div>
+</body></html>
