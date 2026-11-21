@@ -216,4 +216,33 @@ describe('/inboxes', () => {
     expect(await screen.findByText('Veeam reports')).toBeTruthy();
     expect(screen.getByRole('button', { name: strings.inboxes.new })).toBeTruthy();
   });
+
+  it('moves and checks the kind with the arrow keys: one tab stop, the checked kind (C4-F item 9); an IMAP inbox has no Access section (item 1)', async () => {
+    const user = userEvent.setup();
+    stubFetch({ ...ME, ...STATUS, 'GET /api/v1/inboxes': THREE });
+    renderApp('/inboxes');
+    await screen.findByText('Veeam reports');
+    await user.click(screen.getByRole('button', { name: strings.inboxes.new }));
+    const drawer = await screen.findByRole('dialog', { name: strings.inboxForm.createTitle });
+    const group = within(drawer).getByRole('radiogroup', { name: strings.inboxForm.kind });
+    const radios = within(group).getAllByRole('radio');
+    expect(radios.map((radio) => radio.getAttribute('tabindex'))).toEqual(['0', '-1', '-1', '-1']);
+    (radios[0] as HTMLElement).focus();
+    await user.keyboard('{ArrowRight}');
+    expect(within(group).getByRole('radio', { name: /IMAP/ }).getAttribute('aria-checked')).toBe('true');
+    expect(document.activeElement).toBe(within(group).getByRole('radio', { name: /IMAP/ }));
+    await user.keyboard('{End}');
+    expect((radios[3] as HTMLElement).getAttribute('aria-checked')).toBe('true');
+    expect(document.activeElement).toBe(radios[3]);
+    await user.keyboard('{ArrowRight}');
+    expect(within(group).getByRole('radio', { name: /SMTP/ }).getAttribute('aria-checked')).toBe('true');
+    expect(within(group).getAllByRole('radio').filter((radio) => radio.getAttribute('tabindex') === '0')).toHaveLength(1);
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    // The IMAP inbox's edit drawer has the IMAP settings and no empty Access heading.
+    await user.click((await screen.findByText('Alerts mailbox')).closest('tr') as HTMLElement);
+    const edit = await screen.findByRole('dialog', { name: strings.inboxForm.editTitle });
+    expect(within(edit).getByLabelText(strings.inboxForm.host)).toBeTruthy();
+    expect(within(edit).queryByText(strings.inboxForm.sectionAccess)).toBeNull();
+  });
 });

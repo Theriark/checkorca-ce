@@ -505,6 +505,11 @@
   line-height: 1.45;
 }
 
+.co-stale__alert {
+  display: grid;
+  gap: 2px;
+}
+
 .co-stale__title {
   font-size: var(--text-16);
   font-weight: 600;

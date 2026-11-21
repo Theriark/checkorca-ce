@@ -14,8 +14,9 @@ for (const scheme of SCHEMES) {
       await page.goto('/clients');
       const banner = page.getByTestId('stale-worker-banner');
       await expect(banner).toBeVisible();
-      await expect(banner).toHaveAttribute('role', 'alert');
-      await expect(banner).toContainText('The worker is not running');
+      // The fixed sentence is the alert; the changing age sits outside it.
+      await expect(banner.getByRole('alert')).toContainText('The worker is not running');
+      await expect(banner.getByRole('alert')).not.toContainText('22 minutes');
       await expect(banner).toContainText('No heartbeat for 22 minutes.');
       await expect(banner.locator('svg')).toHaveCount(1);
       // Signal red fill with light text.

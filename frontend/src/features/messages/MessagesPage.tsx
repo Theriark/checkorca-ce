@@ -63,6 +63,7 @@ export function MessagesPage() {
               <span className="co-chip co-chip--icon" title={strings.messages.duplicateHint}>
                 <CopyCheck size={12} aria-hidden="true" />
                 {strings.messages.duplicate}
+                <span className="sr-only">: {strings.messages.duplicateHint}</span>
               </span>
             )}
           </span>
@@ -129,6 +130,7 @@ export function MessagesPage() {
         ? strings.messages.countOne
         : fill(strings.messages.count, { count })
     : strings.messages.lead;
+  const hasDuplicates = duplicates.size > 0;
 
   return (
     <div className="co-page">
@@ -192,6 +194,14 @@ export function MessagesPage() {
           </div>
         }
       />
+      {hasDuplicates && (
+        <p className="co-note">
+          <CopyCheck size={14} aria-hidden="true" />
+          <span>
+            <strong>{strings.messages.duplicate}:</strong> {strings.messages.duplicateHint}
+          </span>
+        </p>
+      )}
       {list.hasNextPage && (
         <div className="co-list-foot">
           <Button variant="secondary" onClick={() => void list.fetchNextPage()} loading={list.isFetchingNextPage}>

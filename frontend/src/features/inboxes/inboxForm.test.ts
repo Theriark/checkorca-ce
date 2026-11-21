@@ -7,9 +7,18 @@ import { initialState, parseAllowlist, retargetsImap, serverErrors, toBody, toPa
 
 describe('inbox form', () => {
   it('parses the allowlist one sender per line, lower case, without duplicates, and names the first bad line', () => {
-    expect(parseAllowlist('Alerts@Example.com\n\n@example.com\nalerts@example.com\n')).toEqual({ senders: ['alerts@example.com', '@example.com'], badLine: null });
-    expect(parseAllowlist('alerts@example.com\nnot an address')).toEqual({ senders: ['alerts@example.com'], badLine: 2 });
-    expect(parseAllowlist('')).toEqual({ senders: [], badLine: null });
+    expect(parseAllowlist('Alerts@Example.com\n\n@example.com\nalerts@example.com\n')).toEqual({ senders: ['alerts@example.com', '@example.com'], badLine: null, longLine: null });
+    expect(parseAllowlist('alerts@example.com\nnot an address')).toEqual({ senders: ['alerts@example.com'], badLine: 2, longLine: null });
+    expect(parseAllowlist('')).toEqual({ senders: [], badLine: null, longLine: null });
+  });
+
+  it('applies the API limits locally: 254 characters an entry and 100 entries (C4-F item 2)', () => {
+    const long = `${'a'.repeat(250)}@example.com`;
+    expect(parseAllowlist(`ok@example.com\n${long}`)).toEqual({ senders: ['ok@example.com'], badLine: null, longLine: 2 });
+    expect(validate({ ...initialState(null), label: 'x', allowlist: `ok@example.com\n${long}` }, null)).toEqual({ allowlist: 'Line 2 is longer than 254 characters.' });
+    const many = Array.from({ length: 101 }, (_, index) => `s${index}@example.com`).join('\n');
+    expect(validate({ ...initialState(null), label: 'x', allowlist: many }, null)).toEqual({ allowlist: 'At most 100 senders; the list has 101.' });
+    expect(validate({ ...initialState(null), label: 'x', allowlist: many.split('\n').slice(0, 100).join('\n') }, null)).toEqual({});
   });
 
   it('asks for a label, and for the IMAP settings of an IMAP inbox', () => {
@@ -59,5 +68,8 @@ describe('inbox form', () => {
     const passwordError = new ApiError({ title: 'IMAP password required', status: 422, detail: 'Send the IMAP password again to change the host, port, TLS setting or user name.' });
     expect(serverErrors(passwordError)).toEqual({ password: 'Send the IMAP password again to change the host, port, TLS setting or user name.' });
     expect(serverErrors(new ApiError({ title: 'Internal Server Error', status: 500 }))).toEqual({});
+    // An indexed entry of the allowlist lands on the list, with its line (C4-F item 2).
+    const listError = new ApiError({ title: 'Unprocessable', status: 422, errors: [{ field: 'body.sender_allowlist.2', message: 'not an address or a domain' }] });
+    expect(serverErrors(listError)).toEqual({ allowlist: 'Line 3: not an address or a domain' });
   });
 });
