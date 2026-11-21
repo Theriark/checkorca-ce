@@ -37,6 +37,7 @@ from app.api.problems import ProblemError
 from app.api.v1.job_schemas import ClientOut, ClientPage, ClientPatch, NewClient
 from app.db.models import NAME_LENGTH, Client
 from app.repos.clients import ClientRepository
+from app.repos.evaluation import JobStateRepository
 from app.repos.jobs import JobRepository, JobState, job_state, worst_state
 
 router = APIRouter(prefix="/clients", tags=["clients"])
@@ -72,9 +73,12 @@ async def describe(
     """The clients with the counts of their jobs by state (one query)."""
     jobs = JobRepository(db, services.policy)
     found = await jobs.for_clients(principal, [client.id for client in clients])
+    records = await JobStateRepository(db, services.policy).for_jobs(
+        principal, [job.id for job in found]
+    )
     states: dict[uuid.UUID, list[JobState]] = defaultdict(list)
     for job in found:
-        states[job.client_id].append(job_state(job, now))
+        states[job.client_id].append(job_state(job, now, records.get(job.id)))
     return [
         ClientOut(
             id=client.id,

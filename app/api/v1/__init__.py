@@ -6,6 +6,7 @@ from app.api.problems import PROBLEM_RESPONSES
 from app.api.v1 import (
     auth,
     clients,
+    evaluation,
     inboxes,
     ingest,
     jobs,
@@ -29,6 +30,7 @@ router.include_router(schedule.router)
 router.include_router(inboxes.router)
 router.include_router(messages.router)
 router.include_router(results.router)
+router.include_router(evaluation.router)
 router.include_router(ingest.router)
 router.include_router(packs.router)
 router.include_router(unmatched.router)
