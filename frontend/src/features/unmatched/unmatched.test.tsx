@@ -104,8 +104,9 @@ describe('/unmatched', () => {
   it('shows the empty state, the error state with a retry, and a purged message', async () => {
     stubFetch({ ...ME, ...STATUS, 'GET /api/v1/unmatched': { status: 200, body: { items: [], next_cursor: null } } });
     const first = renderApp('/unmatched');
+    // Both panes say it: the queue and the detail.
     expect(await screen.findAllByText(strings.unmatched.emptyTitle)).toHaveLength(2);
-    expect(screen.getByText(strings.unmatched.emptyLead)).toBeTruthy();
+    expect(screen.getAllByText(strings.unmatched.emptyLead)).toHaveLength(2);
     first.unmount();
     vi.unstubAllGlobals();
 
