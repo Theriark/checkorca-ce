@@ -99,9 +99,7 @@ def _address(name: str, value: Any) -> str:
     except ValueError:
         raise ChannelConfigError(name, "Use an e-mail address.") from None
     if any(c in ADDRESS_SPECIALS or ord(c) < 32 or ord(c) == 127 for c in address):
-        raise ChannelConfigError(
-            name, "Use one plain address such as ops@example.com."
-        )
+        raise ChannelConfigError(name, "Use one plain address such as ops@example.com.")
     return address
 
 
