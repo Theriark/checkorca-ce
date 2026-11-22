@@ -1,10 +1,10 @@
 """The channel kinds the server can deliver with (the ChannelKind seam).
 
-CE registers email. The table allows the kinds slack, teams and webhook too
-(app/db/models.py CHANNEL_KINDS): phase C9-I registers them here, on top of
-app/ext/notifications.py and app/security/ssrf.py, without a schema change.
-A channel whose kind is not registered can be listed and deleted, but not
-created, changed, tested or sent to.
+CE registers email (app/notify/email.py) and, from phase C9-I, slack, teams
+and webhook (app/notify/webhook.py), all of app/db/models.py CHANNEL_KINDS
+and the allowed values of the channels API, without a schema change. A
+channel whose kind is not registered (a plugin kind of a later edition) can
+be listed and deleted, but not created, changed, tested or sent to.
 """
 
 from collections.abc import Iterable, Iterator, Mapping
@@ -12,6 +12,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from app.db.models import CHANNEL_KINDS
 from app.ext.notifications import ChannelKind
 from app.notify.email import EmailKind
+from app.notify.webhook import SlackKind, TeamsKind, WebhookKind
 
 
 class KindRegistry(Mapping[str, ChannelKind]):
@@ -38,5 +39,5 @@ class KindRegistry(Mapping[str, ChannelKind]):
 
 
 def default_kinds() -> KindRegistry:
-    """The CE kinds: email (C9-I adds slack, teams and webhook)."""
-    return KindRegistry([EmailKind()])
+    """The CE kinds: email, slack, teams and webhook (phase C9-I)."""
+    return KindRegistry([EmailKind(), SlackKind(), TeamsKind(), WebhookKind()])
