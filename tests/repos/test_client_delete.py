@@ -40,11 +40,13 @@ from app.repos.notifications import (
     ChannelRuleRepository,
     NotificationRepository,
 )
+from app.security.crypto import SecretBox
 from helpers import (
     ADMIN_EMAIL,
     ADMIN_PASSWORD,
     CLIENT_NAMES,
     CSRF_HEADER,
+    TEST_FERNET_KEY,
     make_client,
     make_job,
     sign_in,
@@ -211,17 +213,29 @@ async def add_notifications(
     client_id: uuid.UUID,
     job_id: uuid.UUID,
     other_client: uuid.UUID,
-) -> uuid.UUID:
-    """Notification rows around one client; returns the channel.
+) -> tuple[uuid.UUID, uuid.UUID]:
+    """Notification rows around one client; returns both channels.
 
-    One channel with a rule for every job, one for the client, one for its
-    job and one for the other client; a notification for every flip and a
-    digest (it names no client).
+    One e-mail channel with a rule for every job, one for the client, one for
+    its job and one for the other client, and one webhook channel (C9-I) with
+    a rule for the deleted client's job; a notification for every flip and a
+    digest (it names no client) on each.
     """
     policy = AllowAllPolicy()
+    box = SecretBox(TEST_FERNET_KEY)
     async with async_sessionmaker(engine, expire_on_commit=False)() as db:
         channel = await ChannelRepository(db, policy).create(
             SYSTEM, kind="email", label="Ops mail", now=RECEIVED, config={}
+        )
+        # A channel of an HTTP kind (C9-I), its URL the stored secret: its
+        # rows follow the same map.
+        hook = await ChannelRepository(db, policy).create(
+            SYSTEM,
+            kind="webhook",
+            label="Ops hook",
+            now=RECEIVED,
+            config={"url_set": True, "url_host": "127.0.0.1"},
+            secret_enc=box.encrypt("http://127.0.0.1:9/services/T000/B000/x"),
         )
         rules = ChannelRuleRepository(db, policy)
         for scope, scope_id in (
@@ -246,8 +260,21 @@ async def add_notifications(
         common = {"channel_id": channel.id, "created_at": RECEIVED}
         rows = [row | common | {"next_attempt_at": RECEIVED} for row in rows]
         assert await NotificationRepository(db, policy).queue(SYSTEM, rows) == 4
+        # The webhook channel hears of the same flips and gets the digest,
+        # and one rule scoped to the deleted client's job.
+        await rules.create(
+            SYSTEM,
+            channel_id=hook.id,
+            scope="job",
+            scope_id=job_id,
+            events=["missed"],
+            now=RECEIVED,
+        )
+        for row in rows:
+            row["channel_id"] = hook.id
+        assert await NotificationRepository(db, policy).queue(SYSTEM, rows) == 4
         await db.commit()
-    return channel.id
+    return channel.id, hook.id
 
 
 async def rows_of(engine: AsyncEngine, client_id: uuid.UUID) -> dict[str, int]:
@@ -288,13 +315,13 @@ async def test_delete_removes_the_client_and_its_rows_only(
         uuid.UUID(freight["id"]),
         uuid.UUID(kept_job["id"]),
     )
-    channel_id = await add_notifications(
+    channel_id, hook_id = await add_notifications(
         db_engine, dental_id, uuid.UUID(jobs[0]["id"]), uuid.UUID(freight["id"])
     )
     before = await rows_of(db_engine, dental_id)
     assert before == {
-        "notification": 2,
-        "channel_rule": 2,
+        "notification": 4,
+        "channel_rule": 3,
         "flip": 2,
         "occurrence": 1,
         "job_state": 1,
@@ -329,8 +356,8 @@ async def test_delete_removes_the_client_and_its_rows_only(
         "job": 0,
         "client": 0,
     }
-    assert (await client.get(f"/api/v1/clients/{dental['id']}")).status_code == 404
-    assert (await client.get(f"/api/v1/jobs/{kept_job['id']}")).status_code == 200
+    assert (await client.get(f"/api/v1/clients/{dental['id']})).status_code == 404
+    assert (await client.get(f"/api/v1/jobs/{kept_job['id']})).status_code == 200
 
     async with db_engine.connect() as connection:
         remaining = (await connection.execute(select(Job.client_id))).scalars()
@@ -359,7 +386,15 @@ async def test_delete_removes_the_client_and_its_rows_only(
         rules = set((await connection.execute(query)).all())
         assert rules == {("all", None), ("client", uuid.UUID(freight["id"]))}
         query = select(Channel.id)
-        assert (await connection.execute(query)).scalars().all() == [channel_id]
+        assert set((await connection.execute(query)).scalars().all()) == {
+            channel_id,
+            hook_id,
+        }
+        # The webhook channel kept its stored secret and its answer form.
+        query = select(Channel.config, Channel.secret_enc).where(Channel.id == hook_id)
+        config, secret = (await connection.execute(query)).one()
+        assert config == {"url_set": True, "url_host": "127.0.0.1"}
+        assert secret is not None and "services" not in secret
         query = select(AuditEvent).where(AuditEvent.action == "client.delete")
         audit = (await connection.execute(query)).one()
     # Only the id and the user: no name, notes or counts of the client.
