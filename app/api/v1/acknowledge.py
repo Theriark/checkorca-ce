@@ -12,7 +12,7 @@ from fastapi import APIRouter, Request
 
 from app.api.deps import DbDep, ServicesDep, SessionDep, record_audit
 from app.api.v1.job_schemas import JobOut
-from app.api.v1.jobs import job_out, load_job, state_record
+from app.api.v1.jobs import acknowledger_emails, job_out, load_job, state_record
 from app.repos.dashboard import DashboardRepository
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -44,4 +44,5 @@ async def acknowledge_job(
     )
     await db.commit()
     record = await state_record(services, db, context.principal, job)
-    return job_out(services, job, client.name, now, context.principal, record)
+    emails = await acknowledger_emails(services, db, context.principal, [job])
+    return job_out(services, job, client.name, now, context.principal, record, emails)

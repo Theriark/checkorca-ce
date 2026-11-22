@@ -2,12 +2,13 @@
 parse and notification queues, the evaluator lag, the version and the
 extension API level.
 
-Admins and technicians, or an API token of scope read. The notification
-queues stay 0 until phase C9 sends notifications.
+Admins and technicians, or an API token of scope read. pending_notifications
+counts the queued and retrying notifications, failed_notifications those that
+failed for good in the last 24 hours (phase C9).
 """
 
 from datetime import timedelta
-from typing import cast
+from typing import Final, cast
 
 from fastapi import APIRouter
 
@@ -26,9 +27,13 @@ from app.repos.dashboard import DashboardRepository
 from app.repos.heartbeat import HeartbeatRepository
 from app.repos.inboxes import InboxRepository
 from app.repos.messages import RawMessageRepository
+from app.repos.notifications import NotificationRepository
 from app.worker.heartbeat import heartbeat_view
 
 router = APIRouter(prefix="/system", tags=["system"])
+
+# failed_notifications counts the failures of this last stretch of time.
+FAILED_SPAN: Final = timedelta(hours=24)
 
 
 @router.get("/status")
@@ -50,6 +55,9 @@ async def system_status(
         principal, now=now
     )
     lag = timedelta(0) if oldest is None else max(now - oldest, timedelta(0))
+    waiting, failed = await NotificationRepository(db, services.policy).queue_counts(
+        principal, failed_since=now - FAILED_SPAN
+    )
     return SystemStatus(
         worker=WorkerStatus(
             heartbeat_at=heartbeat.at,
@@ -68,7 +76,9 @@ async def system_status(
             for inbox in inboxes
         ],
         queue=QueueStatus(
-            pending_messages=pending, pending_notifications=0, failed_notifications=0
+            pending_messages=pending,
+            pending_notifications=waiting,
+            failed_notifications=failed,
         ),
         evaluator_lag_seconds=round(lag.total_seconds(), 3),
         version=__version__,
