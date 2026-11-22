@@ -146,7 +146,8 @@ for (const [width, scheme] of [
     // word pwned (the job name itself contains it as text), so the table must stay.
     await expect(inner.locator('table')).toHaveCount(1);
     expect(await page.evaluate(() => (window as unknown as { __pwned?: number }).__pwned)).toBeUndefined();
-    await expectAccessible(page);
+    // The frame runs no script, so axe checks the dialog and the frame element only.
+    await expectAccessible(page, { frames: false });
     await page.screenshot({ path: shot('digest-preview', width, scheme) });
     await dialog.getByRole('tab', { name: 'As text' }).click();
     await expect(dialog.getByTestId('digest-text')).toContainText('<script>alert(1)</script>');
