@@ -745,6 +745,30 @@ export interface paths {
       };
     };
   };
+  "/api/v1/jobs/{job_id}/acknowledge": {
+    post: {
+      /** Acknowledge Job */
+      parameters: {
+        query: never;
+        path: {
+          job_id: string;
+        };
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["JobOut"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
   "/api/v1/schedule/preview": {
     post: {
       /** Preview Schedule */
@@ -1581,15 +1605,264 @@ export interface paths {
       };
     };
   };
+  "/api/v1/dashboard/today": {
+    get: {
+      /** Dashboard Today */
+      parameters: {
+        query: never;
+        path: never;
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["DashboardToday"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/dashboard/ribbon": {
+    get: {
+      /** Dashboard Ribbon */
+      parameters: {
+        query: {
+          from?: string | null;
+          to?: string | null;
+          problems_only?: boolean;
+        };
+        path: never;
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["Ribbon"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/dashboard/trend": {
+    get: {
+      /** Dashboard Trend */
+      parameters: {
+        query: {
+          days?: number;
+        };
+        path: never;
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["Trend"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/dashboard/breakdown": {
+    get: {
+      /** Dashboard Breakdown */
+      parameters: {
+        query: {
+          by?: "vendor" | "client";
+          days?: number;
+        };
+        path: never;
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["Breakdown"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/activity": {
+    get: {
+      /** List Activity */
+      parameters: {
+        query: {
+          kind?: "ingest" | "flip" | "notification" | "config" | null;
+          cursor?: string | null;
+          limit?: number;
+        };
+        path: never;
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["ActivityPage"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/digest/preview": {
+    get: {
+      /** Digest Preview */
+      parameters: {
+        query: {
+          date?: string | null;
+        };
+        path: never;
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["DigestPreview"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/exports/day.csv": {
+    get: {
+      /** Export Day */
+      parameters: {
+        query: {
+          date?: string | null;
+        };
+        path: never;
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "text/csv": string;
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/exports/history.csv": {
+    get: {
+      /** Export History */
+      parameters: {
+        query: {
+          from?: string | null;
+          to?: string | null;
+          client_id?: string | null;
+        };
+        path: never;
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "text/csv": string;
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/clients/{client_id}/export.csv": {
+    get: {
+      /** Export Client */
+      parameters: {
+        query: never;
+        path: {
+          client_id: string;
+        };
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "text/csv": string;
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
 }
 
 export interface components {
   schemas: {
+    /** One entry of the timeline. ref_kind and ref_id point to what it is
+about (job, message, or the target of a configuration change). */
+    ActivityItem: {
+      id: string;
+      at: string;
+      kind: "ingest" | "flip" | "notification" | "config";
+      summary: string;
+      ref_kind: string | null;
+      ref_id: string | null;
+    };
+    ActivityPage: {
+      items: components["schemas"]["ActivityItem"][];
+      next_cursor: string | null;
+    };
     /** replace_match_key: a job whose match key names another job name takes
 the result's job name instead (the old key is answered and audited). */
     AssignRequest: {
       job_id: string;
       replace_match_key?: boolean;
+    };
+    /** A job that needs a look. expected_by is the deadline of its newest due
+run; raw_message_id the message of the result that decided that run (none
+for a silent run or a ping). */
+    AttentionItem: {
+      client_id: string;
+      client_name: string;
+      job_id: string;
+      job_name: string;
+      state: "missed" | "overdue" | "failed" | "warning";
+      expected_by: string | null;
+      last_success_at: string | null;
+      raw_message_id: string | null;
+      acknowledged_at: string | null;
     };
     /** The mail as the engine reads it: decoded headers and the visible text
 (HTML as text, at most 256 KiB). Span offsets point into these. */
@@ -1664,6 +1937,19 @@ unmatched results with the same names bound as well. */
       file: string;
       inbox_id: string;
     };
+    Breakdown: {
+      by: "vendor" | "client";
+      items: components["schemas"]["BreakdownItem"][];
+    };
+    /** key: the parser pack id (none for jobs without a pack) or the client
+id; label: the pack's vendor or the client's name. */
+    BreakdownItem: {
+      key: string;
+      label: string;
+      verified: number;
+      failed: number;
+      silent: number;
+    };
     ClientOut: {
       id: string;
       name: string;
@@ -1685,6 +1971,13 @@ unmatched results with the same names bound as well. */
       notes?: string | null;
       aliases?: string[] | null;
       archived?: boolean | null;
+    };
+    /** Due runs of the last 24 hours that were verified; ratio is null when
+none was due. */
+    Coverage: {
+      verified: number;
+      expected: number;
+      ratio: number | null;
     };
     /** A job made from an unmatched result, for an existing client (client_id)
 or a client by name (client_name: found, or created). name defaults to the
@@ -1724,6 +2017,21 @@ one result on); timezone defaults to the digest time zone of Settings. */
       email: string;
       password: string;
     };
+    DashboardToday: {
+      generated_at: string;
+      stats: components["schemas"]["Stats"];
+      coverage: components["schemas"]["Coverage"];
+      attention: components["schemas"]["AttentionItem"][];
+      heartbeat: components["schemas"]["HeartbeatOut"];
+      demo_seeded: boolean;
+    };
+    /** The morning digest of date as it would be sent. */
+    DigestPreview: {
+      date: string;
+      subject: string;
+      html: string;
+      text: string;
+    };
     /** One invalid input: where it is (for example body.email) and why. */
     FieldProblem: {
       field: string;
@@ -1746,6 +2054,12 @@ one result on); timezone defaults to the digest time zone of Settings. */
     HeaderOut: {
       name: string;
       value: string;
+    };
+    /** The worker heartbeat; stale when older than 3 minutes or missing. */
+    HeartbeatOut: {
+      at: string | null;
+      age_seconds: number | null;
+      stale: boolean;
     };
     ImapOut: {
       host: string | null;
@@ -2088,6 +2402,8 @@ too-many-records or memory, at path). skipped: the packs left out. */
     };
     QueueStatus: {
       pending_messages: number;
+      pending_notifications: number;
+      failed_notifications: number;
     };
     /** The stored result; job_id is null until the matcher binds it. */
     ResultAccepted: {
@@ -2110,6 +2426,37 @@ too-many-records or memory, at path). skipped: the packs left out. */
     ResultPage: {
       items: components["schemas"]["ResultOut"][];
       next_cursor: string | null;
+    };
+    /** The Night Ribbon: clients by name, their jobs by name, each job's runs
+in the window by time. morning_line_at is the digest time in the window
+(null when the window holds none). */
+    Ribbon: {
+      window: components["schemas"]["RibbonWindow"];
+      morning_line_at: string | null;
+      clients: components["schemas"]["RibbonClient"][];
+    };
+    RibbonClient: {
+      id: string;
+      name: string;
+      jobs: components["schemas"]["RibbonJob"][];
+    };
+    RibbonJob: {
+      id: string;
+      name: string;
+      occurrences: components["schemas"]["RibbonOccurrence"][];
+    };
+    /** One run: pending ones after now are still expected. result_at is when
+the deciding result says the run ended (finished, else received). */
+    RibbonOccurrence: {
+      scheduled_for: string;
+      deadline: string;
+      state: "pending" | "running" | "verified" | "warning" | "failed" | "overdue" | "missed" | "maintenance";
+      result_at: string | null;
+    };
+    /** [from, to): build it with model_validate({"from": ..., "to": ...}). */
+    RibbonWindow: {
+      from: string;
+      to: string;
     };
     /** The next times, or why the schedule cannot be used (error and field). */
     SchedulePreview: {
@@ -2142,12 +2489,28 @@ timezone; basis is the time read of each run; results how many runs. */
       user: components["schemas"]["UserOut"];
       csrf_token: string;
     };
+    /** One stat card: value now, its change against 24 hours earlier, and the
+14 values of the last 14 days, oldest first (the last one is value). */
+    Stat: {
+      value: number;
+      delta_vs_yesterday: number;
+      spark14: number[];
+    };
+    Stats: {
+      verified: components["schemas"]["Stat"];
+      failed: components["schemas"]["Stat"];
+      silent: components["schemas"]["Stat"];
+      unmatched: components["schemas"]["Stat"];
+      paused: components["schemas"]["Stat"];
+    };
     SystemStatus: {
       worker: components["schemas"]["WorkerStatus"];
       inboxes: components["schemas"]["InboxActivity"][];
       queue: components["schemas"]["QueueStatus"];
+      evaluator_lag_seconds: number;
       version: string;
       revision: string | null;
+      extension_api_level: number;
     };
     TokenOut: {
       id: string;
@@ -2161,6 +2524,17 @@ timezone; basis is the time read of each run; results how many runs. */
     TokenPage: {
       items: components["schemas"]["TokenOut"][];
       next_cursor: string | null;
+    };
+    /** Oldest day first; the last day is today (so far). */
+    Trend: {
+      items: components["schemas"]["TrendDay"][];
+    };
+    /** Due runs of one calendar day in the digest zone. */
+    TrendDay: {
+      date: string;
+      verified: number;
+      failed: number;
+      silent: number;
     };
     /** A result no job is bound to yet. */
     UnmatchedOut: {
@@ -2235,6 +2609,7 @@ export type operations = {
   pause_job_api_v1_jobs__job_id__pause_post: paths["/api/v1/jobs/{job_id}/pause"]["post"];
   resume_job_api_v1_jobs__job_id__resume_post: paths["/api/v1/jobs/{job_id}/resume"]["post"];
   archive_job_api_v1_jobs__job_id__archive_post: paths["/api/v1/jobs/{job_id}/archive"]["post"];
+  acknowledge_job_api_v1_jobs__job_id__acknowledge_post: paths["/api/v1/jobs/{job_id}/acknowledge"]["post"];
   preview_schedule_api_v1_schedule_preview_post: paths["/api/v1/schedule/preview"]["post"];
   list_inboxes_api_v1_inboxes_get: paths["/api/v1/inboxes"]["get"];
   create_inbox_api_v1_inboxes_post: paths["/api/v1/inboxes"]["post"];
@@ -2268,4 +2643,13 @@ export type operations = {
   suggest_schedule_api_v1_unmatched__result_id__suggest_schedule_get: paths["/api/v1/unmatched/{result_id}/suggest-schedule"]["get"];
   create_job_api_v1_unmatched__result_id__create_job_post: paths["/api/v1/unmatched/{result_id}/create-job"]["post"];
   system_status_api_v1_system_status_get: paths["/api/v1/system/status"]["get"];
+  dashboard_today_api_v1_dashboard_today_get: paths["/api/v1/dashboard/today"]["get"];
+  dashboard_ribbon_api_v1_dashboard_ribbon_get: paths["/api/v1/dashboard/ribbon"]["get"];
+  dashboard_trend_api_v1_dashboard_trend_get: paths["/api/v1/dashboard/trend"]["get"];
+  dashboard_breakdown_api_v1_dashboard_breakdown_get: paths["/api/v1/dashboard/breakdown"]["get"];
+  list_activity_api_v1_activity_get: paths["/api/v1/activity"]["get"];
+  digest_preview_api_v1_digest_preview_get: paths["/api/v1/digest/preview"]["get"];
+  export_day_api_v1_exports_day_csv_get: paths["/api/v1/exports/day.csv"]["get"];
+  export_history_api_v1_exports_history_csv_get: paths["/api/v1/exports/history.csv"]["get"];
+  export_client_api_v1_clients__client_id__export_csv_get: paths["/api/v1/clients/{client_id}/export.csv"]["get"];
 };
