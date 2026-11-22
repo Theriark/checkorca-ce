@@ -13,13 +13,15 @@ Later phases register here, so the loop itself does not change:
   tick or the hooks after it.
 - RECEIVERS: long-running channels started while the lock is held and stopped
   when it is given up (C4-I: the SMTP listener on 2525 and the IMAP poller).
+- build_context: the context of a worker process, with the NotificationQueue
+  subscriber (C9) that queues a notification for each flip.
 """
 
 import asyncio
 import logging
 import os
 import socket
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Final, Protocol
@@ -32,10 +34,15 @@ from app.db.engine import make_engine
 from app.db.locks import WORKER_LOCK
 from app.evaluator.tick import evaluate_jobs
 from app.ext.events import EventSubscriber
+from app.ext.notifications import ChannelKind
 from app.ext.parsers import ParserPackSource, TablePackSource
+from app.ext.reports import ReportRenderer
 from app.ext.suppression import NoSuppression, SuppressionProvider
 from app.ingest.imap import ImapPoller
 from app.ingest.smtp import SmtpReceiver
+from app.notify.digest import DigestRenderer
+from app.notify.dispatcher import NotificationQueue, dispatch_notifications
+from app.notify.registry import default_kinds
 from app.repos.heartbeat import HeartbeatRepository
 from app.security.crypto import SecretBox
 from app.seed.demo import seed_demo_data
@@ -54,7 +61,8 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class WorkerContext:
     """What hooks and receivers share: settings, database, clock, policy, the
-    parser packs, the maintenance windows and the event subscribers."""
+    parser packs, the maintenance windows, the event subscribers, the channel
+    kinds and the digest renderer."""
 
     settings: Settings
     engine: AsyncEngine
@@ -64,8 +72,14 @@ class WorkerContext:
     secret_box: SecretBox
     pack_source: ParserPackSource = field(default_factory=TablePackSource)
     suppression: SuppressionProvider = field(default_factory=NoSuppression)
-    # Get FlipCreated and OccurrenceChanged after each evaluator commit.
+    # Get FlipCreated and OccurrenceChanged after each evaluator commit and
+    # NotificationSent after each dispatcher commit. build_context adds the
+    # NotificationQueue (app/notify/dispatcher.py); without it no flip is
+    # notified (the demo seed replays its history so).
     subscribers: tuple[EventSubscriber, ...] = ()
+    # The kinds the dispatcher delivers with (app/notify/registry.py).
+    kinds: Mapping[str, ChannelKind] = field(default_factory=default_kinds)
+    report_renderer: ReportRenderer = field(default_factory=DigestRenderer)
 
 
 type TickHook = Callable[[WorkerContext, datetime], Awaitable[None]]
@@ -89,8 +103,15 @@ type ReceiverFactory = Callable[[WorkerContext], Receiver]
 
 # Phases append their hooks and receivers here. C8-B: the demo data, once,
 # before anything else (DEV_DEMO_DATA=1 only); C5-B: parse pending messages;
-# C7-B: evaluate the jobs (after the parse, so new results count at once).
-TICK_HOOKS: tuple[TickHook, ...] = (seed_demo_data, parse_messages, evaluate_jobs)
+# C7-B: evaluate the jobs (after the parse, so new results count at once);
+# C9-B: queue the digest and reminders and send what is due (after the
+# evaluator, so a flip of this tick is sent in this tick).
+TICK_HOOKS: tuple[TickHook, ...] = (
+    seed_demo_data,
+    parse_messages,
+    evaluate_jobs,
+    dispatch_notifications,
+)
 # C4-I: the SMTP listener on SMTP_PORT and the IMAP poller.
 RECEIVERS: tuple[ReceiverFactory, ...] = (SmtpReceiver, ImapPoller)
 
@@ -102,13 +123,17 @@ def default_holder() -> str:
 
 def build_context(settings: Settings, clock: Clock | None = None) -> WorkerContext:
     engine = make_engine(settings.database_url.get_secret_value())
+    sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
+    clock = clock or SystemClock()
+    policy = AllowAllPolicy()
     return WorkerContext(
         settings=settings,
         engine=engine,
-        sessionmaker=async_sessionmaker(engine, expire_on_commit=False),
-        clock=clock or SystemClock(),
-        policy=AllowAllPolicy(),
+        sessionmaker=sessionmaker,
+        clock=clock,
+        policy=policy,
         secret_box=SecretBox(settings.fernet_key.get_secret_value()),
+        subscribers=(NotificationQueue(sessionmaker, policy, clock),),
     )
 
 
