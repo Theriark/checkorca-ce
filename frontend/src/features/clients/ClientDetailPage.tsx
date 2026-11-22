@@ -4,7 +4,7 @@
  * restore, and the delete dialog that asks for the typed name.
  */
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
-import { Archive, ArchiveRestore, ArrowLeft, Download, Pencil, Plus, Trash2, Users } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowLeft, Download, History, Pencil, Plus, Trash2, Users } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 import { ApiError } from '../../api/client';
@@ -30,16 +30,20 @@ import { STATE_SEVERITY, stateLabel } from '../jobs/jobState';
 import { useJobList } from '../jobs/queries';
 import { useJobActions } from '../jobs/useJobActions';
 import { JOB_STATES } from '../../api/jobs';
+import { exportClientHistory } from '../dashboard/exports';
 import { ConfirmDialog } from '../shared/ConfirmDialog';
 import { PageHeader } from '../shared/PageHeader';
-import { errorSentence } from '../shared/errors';
+import { errorSentence, isStatus } from '../shared/errors';
 import { ClientDialog } from './ClientDialog';
+import { ClientHistoryTab, ClientRibbonTab } from './ClientHistory';
 import { DeleteClientDialog } from './DeleteClientDialog';
 import { useArchiveClient, useClient, useForgetClient, useUpdateClient } from './queries';
 import '../features.css';
 
 const ALL = 'all';
 const JOBS_TAB = 'jobs';
+const RIBBON_TAB = 'ribbon';
+const HISTORY_TAB = 'history';
 
 function Summary({ client }: { readonly client: ClientOut }) {
   const states = JOB_STATES.filter((state) => (client.status_counts[state] ?? 0) > 0);
@@ -186,6 +190,7 @@ export function ClientDetailPage() {
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const [drawer, setDrawer] = useState<{ readonly open: boolean; readonly job: JobOut | null }>({ open: false, job: null });
   const [exporting, setExporting] = useState(false);
+  const [exportingHistory, setExportingHistory] = useState(false);
 
   const crumbs = (
     <Link to="/clients" className="co-pagehead__crumb">
@@ -252,6 +257,18 @@ export function ClientDetailPage() {
     }
   };
 
+  const onExportHistory = async () => {
+    setExportingHistory(true);
+    try {
+      const name = await exportClientHistory(data.id);
+      toast({ tone: 'success', title: strings.exports.downloaded, description: name });
+    } catch (caught) {
+      toast({ tone: 'danger', title: strings.exports.failed, description: isStatus(caught, 422) ? strings.exports.tooMany : errorSentence(caught) });
+    } finally {
+      setExportingHistory(false);
+    }
+  };
+
   const tabs: TabItem[] = [
     {
       id: JOBS_TAB,
@@ -259,6 +276,8 @@ export function ClientDetailPage() {
       badge: data.job_count,
       content: <ClientJobs client={data} actions={actions} onNew={() => setDrawer({ open: true, job: null })} onEdit={(job) => setDrawer({ open: true, job })} />,
     },
+    { id: RIBBON_TAB, label: strings.clientHistory.ribbonTab, content: tab === RIBBON_TAB ? <ClientRibbonTab client={data} /> : null },
+    { id: HISTORY_TAB, label: strings.clientHistory.historyTab, content: tab === HISTORY_TAB ? <ClientHistoryTab client={data} /> : null },
     ...pluginTabs.map((item) => {
       const Component = item.component;
       return { id: item.id, label: item.label, content: <Component clientId={data.id} /> };
@@ -284,6 +303,9 @@ export function ClientDetailPage() {
             </Button>
             <Button variant="secondary" iconStart={<Download size={16} />} onClick={() => void onExport()} loading={exporting} loadingLabel={strings.jobs.exporting}>
               {strings.clients.detail.exportCsv}
+            </Button>
+            <Button variant="secondary" iconStart={<History size={16} />} onClick={() => void onExportHistory()} loading={exportingHistory} loadingLabel={strings.exports.preparing} title={strings.exports.clientHistoryLead}>
+              {strings.exports.clientHistory}
             </Button>
             {data.archived ? (
               <Button variant="secondary" iconStart={<ArchiveRestore size={16} />} onClick={onRestore} loading={restore.isPending}>
