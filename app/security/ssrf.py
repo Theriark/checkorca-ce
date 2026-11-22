@@ -13,10 +13,13 @@ check_target first:
    address that carries one of them (IPv4-mapped, SIIT, IPv4-compatible,
    6to4, NAT64).
 
-Two settings relax the rule: ALLOW_PRIVATE_TARGETS=true allows every address,
-and a host that is exactly one of OUTBOUND_ALLOWED_HOSTS (no wildcard, no
-subdomain) is allowed whatever it resolves to. Neither allows a cloud
-metadata address (METADATA_ADDRESSES).
+Two settings relax the rule: ALLOW_PRIVATE_TARGETS=true allows every other
+address, and a host that is exactly one of OUTBOUND_ALLOWED_HOSTS (no
+wildcard, no subdomain) is allowed whatever it resolves to. Neither allows a
+link-local or a cloud metadata address (phase C9-I decided the security
+review note of C9-B: link-local has no legitimate webhook receiver, and it
+is where metadata services answer, so it joined METADATA_ADDRESSES in the
+never set).
 
 The caller connects to one of Target.addresses, not to the name again, so the
 DNS answer cannot change between the check and the connection (DNS
@@ -61,8 +64,8 @@ ADVICE: Final = (
     "ALLOW_PRIVATE_TARGETS."
 )
 NEVER: Final = (
-    "Metadata addresses are never called, whatever OUTBOUND_ALLOWED_HOSTS and "
-    "ALLOW_PRIVATE_TARGETS say."
+    "Link-local and metadata addresses are never called, whatever "
+    "OUTBOUND_ALLOWED_HOSTS and ALLOW_PRIVATE_TARGETS say."
 )
 
 type IpAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
@@ -117,6 +120,17 @@ def is_metadata(address: IpAddress) -> bool:
         if inner is not None and inner in METADATA_ADDRESSES:
             return True
     return address in METADATA_ADDRESSES
+
+
+def is_never(address: IpAddress) -> bool:
+    """An address no setting ever allows: a cloud metadata or a link-local
+    address (fe80::/10, 169.254.0.0/16, and either inside an IPv6 address).
+    Link-local is where the metadata services answer, and no webhook receiver
+    lives there, so phase C9-I refused it under ALLOW_PRIVATE_TARGETS and
+    OUTBOUND_ALLOWED_HOSTS too."""
+    if address.is_link_local:
+        return True
+    return is_metadata(address)
 
 
 def refusal(address: IpAddress) -> str | None:
@@ -199,10 +213,11 @@ async def check_target(
         for address in addresses
         if (reason := refusal(address)) is not None
     ]
-    # A metadata address is never allowed, whatever the settings say.
-    metadata = [item for item in refused if is_metadata(item[0])]
-    if metadata:
-        address, reason = metadata[0]
+    # A link-local or metadata address is never allowed, whatever the
+    # settings say.
+    never = [item for item in refused if is_never(item[0])]
+    if never:
+        address, reason = never[0]
         raise TargetRefused(refused_text(host, literal, address, reason, NEVER))
     if not refused:
         allowed_by = "public"
