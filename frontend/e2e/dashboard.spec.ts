@@ -142,7 +142,9 @@ for (const [width, scheme] of [
     const inner = page.frameLocator('[data-testid="digest-frame"]');
     await expect(inner.locator('body')).toContainText('Morning check');
     await expect(inner.locator('body')).toContainText(HOSTILE_JOB_NAME);
-    await expect(inner.locator('body')).not.toContainText('pwned');
+    // The fixture's script and onerror would replace the whole body with the
+    // word pwned (the job name itself contains it as text), so the table must stay.
+    await expect(inner.locator('table')).toHaveCount(1);
     expect(await page.evaluate(() => (window as unknown as { __pwned?: number }).__pwned)).toBeUndefined();
     await expectAccessible(page);
     await page.screenshot({ path: shot('digest-preview', width, scheme) });

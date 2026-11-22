@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 import { installFakeApi, installIngestApi } from './fakeApi';
+import { installDashboardApi } from './fakeDashboard';
 import { ADMIN, SCHEMES, TECHNICIAN, WIDTHS, expectAccessible, expectNoHorizontalOverflow, setView, shot, stubApi, watchConsole } from './helpers';
 
 for (const scheme of SCHEMES) {
@@ -8,8 +9,9 @@ for (const scheme of SCHEMES) {
     test(`stale-heartbeat banner on every signed-in screen at ${width} px, ${scheme}`, async ({ page }) => {
       const errors = watchConsole(page);
       await stubApi(page, { me: ADMIN, workerStale: true });
-      await installFakeApi(page);
+      const fake = await installFakeApi(page);
       await installIngestApi(page);
+      await installDashboardApi(page, { fake });
       await setView(page, width, scheme);
       await page.goto('/clients');
       const banner = page.getByTestId('stale-worker-banner');
