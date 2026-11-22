@@ -42,11 +42,11 @@ RUN groupadd --system --gid 10001 checkorca \
         --shell /usr/sbin/nologin checkorca
 COPY --from=builder /opt/venv /opt/venv
 # Debian security fixes the pinned base image does not carry yet (found by the
-# grype scan of ci.yml), and no pip in the runtime image. Drop zlib1g
-# once Dependabot's base digest ships zlib1g 1:1.3.dfsg+really1.3.1-1+deb13u1
-# or later (CVE-2026-85091). Drop libc6 and libc-bin once the base digest ships
-# 2.41-12+deb13u5 or later (CVE-2026-19499, CVE-2026-5435); on 2026-11-22 the
-# newest python:3.12-slim (the pinned digest) still had 2.41-12+deb13u4.
+# grype scan of ci.yml), and no pip in the runtime image. Drop zlib1g once
+# Dependabot's base digest ships zlib1g 1:1.3.dfsg+really1.3.1-1+deb13u1 or
+# later (CVE-2026-85091), and libc6 and libc-bin once it ships 2.41-12+deb13u5
+# or later (CVE-2026-19499, CVE-2026-5435). On 2026-11-22 the newest
+# python:3.12-slim (the pinned digest) still had 2.41-12+deb13u4.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends --only-upgrade \
         zlib1g libc6 libc-bin \
