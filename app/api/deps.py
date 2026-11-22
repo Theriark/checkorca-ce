@@ -21,6 +21,7 @@ from app.clock import Clock
 from app.db.models import AppSession, AppUser
 from app.ext.audit import AuditRecord, AuditSink, DetailValue
 from app.ext.parsers import ParserPackSource
+from app.ext.reports import ReportRenderer
 from app.repos.sessions import SessionRepository
 from app.repos.tokens import TokenRepository
 from app.security.crypto import SecretBox
@@ -59,6 +60,8 @@ class Services:
     bench_limiter: RateLimiter
     # The packs that parse mail (and that packs/test tries).
     pack_source: ParserPackSource
+    # How the morning digest reads (digest/preview).
+    report_renderer: ReportRenderer
 
 
 def get_services(request: Request) -> Services:

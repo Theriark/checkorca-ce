@@ -57,16 +57,24 @@ def unguard_cell(value: str) -> str:
     return value
 
 
-def render(rows: Iterable[Sequence[str | int | None]]) -> str:
-    """The CSV text: the header line, then one guarded line per row."""
+def render_table(
+    columns: Sequence[str], rows: Iterable[Sequence[str | int | None]]
+) -> str:
+    """CSV text: the header line, then one guarded line per row (the exports
+    of phase C8-B use it too)."""
     buffer = io.StringIO()
     writer = csv.writer(buffer, lineterminator="\r\n")
-    writer.writerow(COLUMNS)
+    writer.writerow(columns)
     for row in rows:
         writer.writerow(
             [guard_cell("" if value is None else str(value)) for value in row]
         )
     return buffer.getvalue()
+
+
+def render(rows: Iterable[Sequence[str | int | None]]) -> str:
+    """The jobs CSV text: the header line, then one guarded line per row."""
+    return render_table(COLUMNS, rows)
 
 
 @dataclass(frozen=True, slots=True)
