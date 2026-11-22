@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Theriark/checkorca-ce/main/docs/webhook-payload.schema.json",
+  "title": "Checkorca-CE webhook payload (version 1)",
+  "description": "What Checkorca-CE POSTs to a webhook channel: one JSON object per notification. Every time is ISO 8601 UTC with Z, at second precision; ids are UUIDs as strings. The payload of a flip event carries the job, the client, the change and the occurrence that caused it; the digest payload carries the date, the counts and the jobs that need attention. schema_version is 1: a later version adds fields and never changes or removes one.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["event", "at", "url", "product", "schema_version"],
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "description": "The version of this payload; 1."
+    },
+    "product": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The name of the sending product, Checkorca-CE."
+    },
+    "event": {
+      "enum": [
+        "failing",
+        "missed",
+        "warning",
+        "recovered",
+        "reminder",
+        "digest",
+        "test"
+      ],
+      "description": "What the notification is about: a change of a job's state (failing, missed, warning, recovered), its 24-hour reminder, the daily digest, or a channel test."
+    },
+    "at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+      "description": "When the thing happened: the flip's time, the digest's generated time, the test's time."
+    },
+    "url": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Where to look: the job's page, the Morning check, the site's front page for a test."
+    },
+    "job": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "kind"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid",
+          "description": "The job's id."
+        },
+        "name": {
+          "type": "string",
+          "description": "The job's name, as the site shows it."
+        },
+        "kind": {
+          "enum": ["backup", "script", "other"],
+          "description": "The job's kind."
+        }
+      }
+    },
+    "client": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid",
+          "description": "The client's id."
+        },
+        "name": {
+          "type": "string",
+          "description": "The client's name, as the site shows it."
+        }
+      }
+    },
+    "state": {
+      "enum": [
+        "ok",
+        "warning",
+        "failing",
+        "missed",
+        "unknown",
+        "paused",
+        "maintenance"
+      ],
+      "description": "The job's new state."
+    },
+    "previous_state": {
+      "enum": [
+        "ok",
+        "warning",
+        "failing",
+        "missed",
+        "unknown",
+        "paused",
+        "maintenance"
+      ],
+      "description": "The job's state before the change."
+    },
+    "reason": {
+      "type": "string",
+      "description": "Why the state changed, one readable sentence."
+    },
+    "occurrence": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["scheduled_for", "deadline"],
+          "properties": {
+            "scheduled_for": {
+              "type": ["string", "null"],
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+              "description": "When the run was due."
+            },
+            "deadline": {
+              "type": ["string", "null"],
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+              "description": "When the run was late (scheduled for plus the grace)."
+            }
+          }
+        }
+      ],
+      "description": "The run the change is about, or null when the flip names none."
+    },
+    "date": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+      "description": "The local day of the digest."
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verified", "failed", "silent", "warning"],
+      "properties": {
+        "verified": {
+          "$ref": "#/$defs/count",
+          "description": "Runs that finished verified."
+        },
+        "failed": {
+          "$ref": "#/$defs/count",
+          "description": "Runs that failed."
+        },
+        "silent": {
+          "$ref": "#/$defs/count",
+          "description": "Runs that never reported (missed or overdue)."
+        },
+        "warning": {
+          "$ref": "#/$defs/count",
+          "description": "Runs that finished with a warning."
+        }
+      }
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["client", "job", "state"],
+        "properties": {
+          "client": {
+            "type": "string",
+            "description": "The client's name."
+          },
+          "job": {
+            "type": "string",
+            "description": "The job's name."
+          },
+          "state": {
+            "enum": ["missed", "overdue", "failed", "warning"],
+            "description": "The job's newest run in the window, by its state."
+          }
+        }
+      },
+      "description": "The jobs that need attention, silent first, then failed, then warning."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "enum": ["failing", "missed", "warning", "recovered", "reminder"]
+          }
+        },
+        "required": ["event"]
+      },
+      "then": {
+        "required": ["job", "client", "state", "previous_state", "reason"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "digest"
+          }
+        },
+        "required": ["event"]
+      },
+      "then": {
+        "required": ["date", "counts", "items"]
+      }
+    }
+  ],
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

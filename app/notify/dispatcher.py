@@ -539,7 +539,9 @@ class Dispatcher:
                 url=f"{base}/",
             )
             report = context.report_renderer.render(digest)
-            return digest_message(report, f"{base}/", notification.digest_day)
+            return digest_message(
+                report, f"{base}/", notification.digest_day, digest
+            )
         if notification.flip_id is None:
             return None
         repository = NotificationRepository(db, context.policy)
@@ -551,6 +553,7 @@ class Dispatcher:
             flip_id=flip.id,
             job_id=flip.job_id,
             job=found.job_name,
+            job_kind=found.job_kind,
             client_id=flip.client_id,
             client=found.client_name,
             from_state=flip.from_state,
@@ -558,6 +561,7 @@ class Dispatcher:
             reason=flip.reason,
             at=flip.at,
             scheduled_for=flip.scheduled_for,
+            deadline=found.deadline,
             url=f"{base}/jobs/{flip.job_id}",
         )
         return flip_message(notification.event, facts, zone)
