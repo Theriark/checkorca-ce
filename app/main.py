@@ -6,7 +6,7 @@ paths under /api/ stay 404 problem documents.
 """
 
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -26,9 +26,11 @@ from app.api.problems import EXCEPTION_HANDLERS, problem_media_type
 from app.clock import Clock, SystemClock
 from app.db.engine import check_database, make_engine
 from app.ext.audit import AuditSink, DatabaseAuditSink
+from app.ext.notifications import ChannelKind
 from app.ext.parsers import ParserPackSource, TablePackSource
 from app.ext.reports import ReportRenderer
 from app.notify.digest import DigestRenderer
+from app.notify.registry import default_kinds
 from app.security.crypto import SecretBox
 from app.security.passwords import PasswordService
 from app.security.ratelimit import RateLimiter
@@ -59,12 +61,13 @@ def create_app(
     pack_source: ParserPackSource | None = None,
     bench: BenchRunner | None = None,
     report_renderer: ReportRenderer | None = None,
+    channel_kinds: Mapping[str, ChannelKind] | None = None,
 ) -> FastAPI:
     """Build the application. The engine connects on first use only.
 
-    clock, policy, audit, pack_source and report_renderer replace the CE
-    defaults (tests, and EE through the extension seams); bench replaces the
-    test bench runner (tests).
+    clock, policy, audit, pack_source, report_renderer and channel_kinds
+    replace the CE defaults (tests, and EE through the extension seams); bench
+    replaces the test bench runner (tests).
     """
     config = settings or get_settings()
     engine = make_engine(config.database_url.get_secret_value())
@@ -84,6 +87,7 @@ def create_app(
         bench_limiter=RateLimiter(*BENCH_RATE, clock=clock),
         pack_source=pack_source or TablePackSource(),
         report_renderer=report_renderer or DigestRenderer(),
+        channel_kinds=default_kinds() if channel_kinds is None else channel_kinds,
     )
 
     @asynccontextmanager

@@ -169,6 +169,14 @@ class JobPatch(Body):
     archived: bool | None = None
 
 
+class AcknowledgedBy(BaseModel):
+    """Who acknowledged the job's state. email is null for an API token: only
+    signed-in users see addresses."""
+
+    id: uuid.UUID
+    email: str | None
+
+
 class JobOut(BaseModel):
     """A job; its state is paused or unknown until the evaluator keeps it (C7)."""
 
@@ -199,6 +207,10 @@ class JobOut(BaseModel):
     state_since: datetime | None
     last_success_at: datetime | None
     acknowledged_at: datetime | None
+    # Addition (C9-B): who acknowledged; null when nobody did (or the user
+    # was deleted). Always sent; optional in the document so clients built
+    # before C9-B keep compiling.
+    acknowledged_by: AcknowledgedBy | None = None
     created_at: datetime
     updated_at: datetime
 

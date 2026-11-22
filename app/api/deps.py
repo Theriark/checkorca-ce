@@ -7,7 +7,7 @@ header (Bearer) for scripts, with the scope ingest or read.
 
 import ipaddress
 import math
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Annotated
 
@@ -20,6 +20,7 @@ from app.api.problems import ProblemError
 from app.clock import Clock
 from app.db.models import AppSession, AppUser
 from app.ext.audit import AuditRecord, AuditSink, DetailValue
+from app.ext.notifications import ChannelKind
 from app.ext.parsers import ParserPackSource
 from app.ext.reports import ReportRenderer
 from app.repos.sessions import SessionRepository
@@ -62,6 +63,8 @@ class Services:
     pack_source: ParserPackSource
     # How the morning digest reads (digest/preview).
     report_renderer: ReportRenderer
+    # The notification channel kinds (channels CRUD and test).
+    channel_kinds: Mapping[str, ChannelKind]
 
 
 def get_services(request: Request) -> Services:
