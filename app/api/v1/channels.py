@@ -4,10 +4,13 @@ channels/check-url tries the SSRF guard on a URL (phase C9-B).
 Admins create, change, delete and test channels (signed in, X-CSRF-Token);
 admins and technicians, or an API token of scope read, list and read them.
 The secret is write-only (legal D-6): it is encrypted with FERNET_KEY before
-it is stored, and answers carry secret_set and a masked hint only. Audit
-events name the changed fields, never their values. A channel whose kind is
-not registered (slack, teams and webhook until phase C9-I) can be listed and
-deleted only.
+it is stored, and answers carry secret_set and a masked hint only. A kind
+whose credential is a URL (slack, teams and webhook, phase C9-I) takes the
+URL in config.url: it is stored as the secret, answered as url_set and
+url_host only, and its target is checked (app/security/ssrf.py) before the
+channel is created or changed and on every send and test. Audit events name
+the changed fields, never their values. A channel whose kind is not
+registered (a plugin kind of a later edition) can be listed and deleted only.
 """
 
 import uuid
@@ -68,6 +71,41 @@ def channel_locked(channel: Channel) -> ProblemError:
         f"The channel kind {channel.kind} is not available on this server; "
         "the channel can only be deleted.",
     )
+
+
+def secret_conflict(kind: ChannelKind) -> ProblemError:
+    """422: a kind whose credential is a URL takes it in config.url, so it
+    has no separate secret to send."""
+    message = (
+        f"The channel kind {kind.name} takes its URL in config.{kind.url_key}; "
+        "send no secret."
+    )
+    return ProblemError(
+        422,
+        "Invalid channel settings",
+        message,
+        errors=[FieldProblem(field="body.secret", message=message)],
+    )
+
+
+async def refuse_target(url: str, services: Services, field: str) -> None:
+    """422 with the guard's sentence when url may not be called: creating or
+    changing a channel of a URL kind checks the target before it is stored
+    (the send and the test check it again, on every request)."""
+    settings = services.settings
+    try:
+        await check_target(
+            url,
+            allow_private=settings.allow_private_targets,
+            allowed_hosts=settings.allowed_hosts,
+        )
+    except TargetRefused as error:
+        raise ProblemError(
+            422,
+            "Target refused",
+            str(error),
+            errors=[FieldProblem(field=field, message=str(error))],
+        ) from None
 
 
 def config_problem(error: ChannelConfigError) -> ProblemError:
@@ -151,6 +189,16 @@ async def list_channels(
     )
 
 
+def url_credential(kind: ChannelKind, config: dict[str, Any]) -> str | None:
+    """The URL a kind with a url_key is sent in its config (None when it sent
+    none): it becomes the channel's secret. check_config has validated it by
+    the time the caller stores it."""
+    if kind.url_key is None:
+        return None
+    sent = config.get(kind.url_key)
+    return sent if isinstance(sent, str) and sent.strip() else None
+
+
 @router.post("", status_code=201)
 async def create_channel(
     body: NewChannel,
@@ -159,12 +207,18 @@ async def create_channel(
     services: ServicesDep,
     db: DbDep,
 ) -> ChannelOut:
-    """Create a channel; 422 names an unusable setting."""
+    """Create a channel; 422 names an unusable setting. A kind with a URL
+    credential (slack, teams, webhook) takes the URL in config.url, stores it
+    as its secret and checks the target before the channel exists."""
     kind = services.channel_kinds.get(body.kind)
     if kind is None:
         raise kind_unavailable(body.kind)
-    secret = body.secret or None
+    if kind.url_key is not None and body.secret is not None:
+        raise secret_conflict(kind)
+    secret = body.secret or None or url_credential(kind, body.config)
     config = checked_config(kind, body.config, has_secret=secret is not None)
+    if kind.url_key is not None and secret is not None:
+        await refuse_target(secret, services, f"body.config.{kind.url_key}")
     channel = await ChannelRepository(db, services.policy).create(
         context.principal,
         kind=body.kind,
@@ -238,7 +292,9 @@ async def update_channel(
     db: DbDep,
 ) -> ChannelOut:
     """Change the label, enabled, the settings or the secret (see
-    ChannelPatch)."""
+    ChannelPatch). A kind with a URL credential takes the new URL in
+    config.url, checks its target and stores it as the secret; removing it is
+    refused as an e-mail channel without its relay host."""
     channel = await load_channel(services, db, context, channel_id)
     changes: dict[str, Any] = {}
     if body.label is not None and body.label != channel.label:
@@ -249,6 +305,8 @@ async def update_channel(
         kind = services.channel_kinds.get(channel.kind)
         if kind is None:
             raise channel_locked(channel)
+        if kind.url_key is not None and body.secret is not None:
+            raise secret_conflict(kind)
         stored = dict(channel.config)
         merged = dict(stored)
         for key, value in (body.config or {}).items():
@@ -256,9 +314,17 @@ async def update_channel(
                 merged.pop(key, None)
             else:
                 merged[key] = value
-        has_secret = (
-            channel.secret_enc is not None if body.secret is None else body.secret != ""
-        )
+        sent = url_credential(kind, dict(body.config or {}))
+        if kind.url_key is not None and kind.url_key in (body.config or {}):
+            # The URL sent replaces the stored one; sending null or an empty
+            # URL would remove the channel's target, which is refused.
+            has_secret = sent is not None
+        else:
+            has_secret = (
+                channel.secret_enc is not None
+                if body.secret is None
+                else body.secret != ""
+            )
         config = checked_config(kind, merged, has_secret=has_secret)
         moved = sorted(
             key for key in kind.secret_targets if config.get(key) != stored.get(key)
@@ -281,6 +347,10 @@ async def update_channel(
             changes["secret_enc"] = (
                 None if body.secret == "" else services.secret_box.encrypt(body.secret)
             )
+        elif sent is not None:
+            # A URL sent always counts as a change, like a secret.
+            await refuse_target(sent, services, f"body.config.{kind.url_key}")
+            changes["secret_enc"] = services.secret_box.encrypt(sent)
     if changes:
         await ChannelRepository(db, services.policy).update(
             context.principal, channel, now=services.clock.now(), **changes
