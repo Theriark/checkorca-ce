@@ -1,0 +1,9 @@
+{
+  "@type": "MessageCard",
+  "@context": "http://schema.org/extensions",
+  "themeColor": "D0202A",
+  "summary": "Checkorca-CE: Fictional Dental Clinic / Nightly server backup missed its run",
+  "title": "Checkorca-CE: Fictional Dental Clinic / Nightly server backup missed its run",
+  "text": "Fictional Dental Clinic / Nightly server backup missed its run.\n\nState: ok to missed at 2027-01-05 07:30 (Europe/Lisbon)\nWhy: The run was due at 23:00 and nothing reported by 01:00.\nRun due: 2027-01-04 23:00\n\nOpen the job: https://ce-dev-checkorca.theriark.dev/jobs/22222222-2222-4222-8222-222222222222\n\nSent by Checkorca-CE.\n",
+  "sections": []
+}

@@ -1,0 +1,25 @@
+{
+  "@type": "MessageCard",
+  "@context": "http://schema.org/extensions",
+  "themeColor": "121417",
+  "summary": "Checkorca-CE morning check 2027-01-05",
+  "title": "Checkorca-CE morning check 2027-01-05",
+  "text": "Morning check, 2027-01-05.\n",
+  "sections": [
+    {
+      "text": "Verified 41, failed 1, silent 1, warning 2"
+    },
+    {
+      "facts": [
+        {
+          "name": "Missed: Fictional Freight Ltd / Hyper Backup nightly",
+          "value": "due 2027-01-04T23:00:00Z"
+        },
+        {
+          "name": "Failed: Fictional Dental Clinic / Veeam BR",
+          "value": "due 2027-01-04T22:00:00Z"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "text": "This is a test of the notification channel Ops hook, sent at 2027-01-05T08:00:00+00:00. Notifications about your jobs will arrive like this one. Open Checkorca-CE: https://ce-dev-checkorca.theriark.dev/",
+  "blocks": [
+    {
+      "type": "header",
+      "text": {
+        "type": "plain_text",
+        "text": "Checkorca-CE: test of the channel Ops hook"
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "This is a test of the notification channel Ops hook, sent at 2027-01-05T08:00:00+00:00.\n\nNotifications about your jobs will arrive like this one.\n\nOpen Checkorca-CE: https://ce-dev-checkorca.theriark.dev/\n"
+      }
+    }
+  ]
+}

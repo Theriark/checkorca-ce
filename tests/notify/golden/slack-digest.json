@@ -1,0 +1,40 @@
+{
+  "text": "Morning check, 2027-01-05.",
+  "blocks": [
+    {
+      "type": "header",
+      "text": {
+        "type": "plain_text",
+        "text": "Checkorca-CE morning check 2027-01-05"
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "Verified: 41, failed: 1, silent: 1, warning: 2"
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "Missed: Fictional Freight Ltd / Hyper Backup nightly, due 2027-01-04T23:00:00Z"
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "Failed: Fictional Dental Clinic / Veeam BR, due 2027-01-04T22:00:00Z"
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "<https://ce-dev-checkorca.theriark.dev/|Open the Morning check>"
+      }
+    }
+  ]
+}

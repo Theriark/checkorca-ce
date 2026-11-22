@@ -1,0 +1,9 @@
+{
+  "@type": "MessageCard",
+  "@context": "http://schema.org/extensions",
+  "themeColor": "121417",
+  "summary": "Checkorca-CE: test of the channel Ops hook",
+  "title": "Checkorca-CE: test of the channel Ops hook",
+  "text": "This is a test of the notification channel Ops hook, sent at 2027-01-05T08:00:00+00:00.\n\nNotifications about your jobs will arrive like this one.\n\nOpen Checkorca-CE: https://ce-dev-checkorca.theriark.dev/\n",
+  "sections": []
+}
