@@ -303,6 +303,10 @@ describe('/unmatched', () => {
     expect(summary.textContent).toContain(fill(strings.unmatched.aliasAdded, { hint: 'Harbourside Dental (fictional)' }));
     expect(await screen.findByText(strings.unmatched.created)).toBeTruthy();
     expect(await screen.findByText(strings.unmatched.clientCreated)).toBeTruthy();
+    // The binding refresh fetches the queue, not the suggestion again: the
+    // 422 was asked for exactly once (C5-F hygiene).
+    await waitFor(() => expect(calls.some((call) => call.method === 'GET' && call.url.includes('/unmatched?'))).toBe(true));
+    expect(calls.filter((call) => call.url.includes('/suggest-schedule'))).toHaveLength(1);
   });
 
   it('fills the schedule editor from a suggestion, and lands a 409 (name taken) as a form error', async () => {

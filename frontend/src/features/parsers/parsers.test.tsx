@@ -1,3 +1,4 @@
+import { EditorView } from '@codemirror/view';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -145,7 +146,9 @@ describe('/parsers', () => {
     await user.click(within(dialog).getByRole('button', { name: strings.parsers.importSubmit }));
     expect((await within(dialog).findByRole('alert')).textContent).toContain(strings.parsers.detail.builtinConflict);
     await user.click(within(dialog).getByRole('button', { name: strings.parsers.importSubmit }));
-    await waitFor(() => expect(within(dialog).getByRole('alert').textContent).toContain(strings.parsers.detail.changedMeanwhile));
+    // An import has nothing to reload: its own sentence, not the editor's.
+    await waitFor(() => expect(within(dialog).getByRole('alert').textContent).toContain(strings.parsers.importChangedMeanwhile));
+    expect(within(dialog).getByRole('alert').textContent).not.toContain(strings.parsers.detail.changedMeanwhile);
     expect(posts).toBe(2);
   });
 
@@ -217,6 +220,37 @@ describe('/parsers/packs/:id', () => {
     expect(screen.getByRole('button', { name: strings.parsers.detail.save }).hasAttribute('disabled')).toBe(true);
     expect(screen.getByRole('button', { name: strings.parsers.detail.discard }).hasAttribute('disabled')).toBe(true);
     expect(screen.getByText(fill(strings.parsers.detail.lines, { count: CUSTOM_PACK.yaml.split('\n').length }))).toBeTruthy();
+  });
+
+  it('tells a save 409 apart by its title: a pack saved meanwhile asks for a reload, a built-in id for a copy (C5-F hygiene)', async () => {
+    const user = userEvent.setup();
+    let puts = 0;
+    stubFetch({
+      ...ME,
+      ...STATUS,
+      [`GET /api/v1/packs/${CUSTOM_PACK.id}`]: { status: 200, body: CUSTOM_PACK },
+      [`PUT /api/v1/packs/${CUSTOM_PACK.id}`]: () => {
+        puts += 1;
+        return puts === 1
+          ? { status: 409, body: { title: 'Parser pack changed meanwhile', status: 409, detail: 'acme-backup was saved by another request; load it and try again.' } }
+          : { status: 409, body: { title: 'Built-in parser pack', status: 409, detail: 'acme-backup ships with the product.' } };
+      },
+    });
+    renderApp(`/parsers/packs/${CUSTOM_PACK.id}`);
+    expect(await screen.findByRole('heading', { level: 1, name: CUSTOM_PACK.id })).toBeTruthy();
+    const editor = screen.getByTestId('yaml-editor');
+    await waitFor(() => expect(editor.querySelector('.cm-editor')).toBeTruthy());
+    // Edit through the bundled editor's own view, as a keystroke would.
+    const view = EditorView.findFromDOM(editor.querySelector('.cm-editor') as HTMLElement);
+    expect(view).toBeTruthy();
+    view?.dispatch({ changes: { from: 0, insert: '# edited\n' } });
+    const save = await screen.findByRole('button', { name: strings.parsers.detail.save });
+    await waitFor(() => expect(save.hasAttribute('disabled')).toBe(false));
+    await user.click(save);
+    expect((await screen.findByRole('alert')).textContent).toContain(strings.parsers.detail.changedMeanwhile);
+    await user.click(screen.getByRole('button', { name: strings.parsers.detail.save }));
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain(strings.parsers.detail.builtinConflict));
+    expect(puts).toBe(2);
   });
 
   it('shows the not-found state for an unknown pack, inside the shell', async () => {
