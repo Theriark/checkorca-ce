@@ -754,6 +754,12 @@
   color: var(--text-secondary);
 }
 
+/* The arrow keeps its 14 px; a long change ("-23 vs yesterday") wraps its
+   words instead of squeezing the arrow to a dot. */
+.co-stat__change svg {
+  flex: none;
+}
+
 .co-stat__change--success {
   color: var(--status-success);
 }
@@ -778,6 +784,7 @@
 
   .co-stat__change {
     justify-content: flex-start;
+    white-space: normal;
   }
 }
 

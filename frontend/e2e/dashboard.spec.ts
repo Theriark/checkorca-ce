@@ -40,6 +40,18 @@ for (const scheme of SCHEMES) {
         await expect(page.getByTestId('ribbon-chips')).toHaveCount(0);
         // The drawing never leaves its lane.
         await expectNoContainerOverflow(page, ['.co-nr__lane', '.co-nr__axis']);
+        // No hour label prints over the morning label.
+        const underMorning = await ribbon.locator('.co-nr__axis-svg').evaluate((svg) => {
+          const morning = svg.querySelector('.co-nr__morning-label')?.getBoundingClientRect();
+          if (!morning) {
+            return -1;
+          }
+          return Array.from(svg.querySelectorAll('.co-nr__tick-label')).filter((label) => {
+            const box = label.getBoundingClientRect();
+            return box.right > morning.left && box.left < morning.right;
+          }).length;
+        });
+        expect(underMorning).toBe(0);
       } else {
         const chips = page.getByTestId('ribbon-chips');
         await expect(chips).toBeVisible();
@@ -59,6 +71,13 @@ for (const scheme of SCHEMES) {
       await expect(rows.nth(0)).toContainText(HOSTILE_CLIENT_NAME);
       await expect(rows.nth(2)).toContainText('Acknowledged');
       await expect(rows.nth(2).getByRole('link', { name: 'Open message' })).toBeVisible();
+      // The buttons never squeeze the job and client names (66 px at 768 once).
+      const bodyWidths = await attention.locator('.co-attn__body').evaluateAll((items) => items.map((item) => item.getBoundingClientRect().width));
+      expect(Math.min(...bodyWidths)).toBeGreaterThan(160);
+      // The change arrows keep their 14 px (one shrank to a dot at 1440 once).
+      const arrows = await page.getByTestId('stat-cards').locator('.co-stat__change svg').evaluateAll((items) => items.map((item) => Math.round(item.getBoundingClientRect().width)));
+      expect(arrows.length).toBeGreaterThan(0);
+      expect(arrows.every((arrow) => arrow === 14)).toBe(true);
       // Trend, breakdown and activity.
       await expect(page.getByRole('img', { name: /Last 30 days: 30 days/ })).toBeVisible();
       await expect(page.getByRole('list', { name: /Breakdown/ }).locator('.co-bd__row')).toHaveCount(3);

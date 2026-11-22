@@ -63,10 +63,35 @@ function anchorAt(x: number, width: number, halfWidth: number): 'start' | 'middl
   return 'middle';
 }
 
+/** Half the width of an hour label ("21:00" at 11 px) and of the morning label ("Morning digest at 07:30"). */
+const TICK_HALF = 20;
+const MORNING_HALF = 70;
+
+/** The left and right edge of a label drawn at x with the anchor anchorAt picks. */
+function extentAt(x: number, width: number, halfWidth: number): readonly [number, number] {
+  const anchor = anchorAt(x, width, halfWidth);
+  if (anchor === 'start') {
+    return [x, x + 2 * halfWidth];
+  }
+  if (anchor === 'end') {
+    return [x - 2 * halfWidth, x];
+  }
+  return [x - halfWidth, x + halfWidth];
+}
+
 function Axis({ scale, ribbon, now }: { readonly scale: Scale; readonly ribbon: Ribbon; readonly now: Date }) {
   const ticks = hourTicks(ribbon.window);
   const nowInside = inWindow(ribbon.window, now);
   const morningX = ribbon.morning_line_at ? scale.x(ribbon.morning_line_at) : null;
+  // An hour label under the morning label would print over it: the tick stays, its label goes.
+  const morning = morningX === null ? null : extentAt(morningX, scale.width, MORNING_HALF);
+  const clearOfMorning = (x: number) => {
+    if (!morning) {
+      return true;
+    }
+    const [left, right] = extentAt(x, scale.width, TICK_HALF);
+    return right < morning[0] || left > morning[1];
+  };
   return (
     <svg className="co-nr__axis-svg" width={scale.width} height={AXIS_HEIGHT} viewBox={`0 0 ${scale.width} ${AXIS_HEIGHT}`} aria-hidden="true" focusable="false">
       {ticks.map((tick) => {
@@ -74,16 +99,18 @@ function Axis({ scale, ribbon, now }: { readonly scale: Scale; readonly ribbon: 
         return (
           <g key={tick.iso}>
             <line className="co-nr__tick" x1={x} y1={AXIS_HEIGHT - 6} x2={x} y2={AXIS_HEIGHT} />
-            <text className="co-nr__tick-label" x={x} y={AXIS_HEIGHT - 10} textAnchor={anchorAt(x, scale.width, 20)}>
-              {formatTime(tick.iso)}
-            </text>
+            {clearOfMorning(x) && (
+              <text className="co-nr__tick-label" x={x} y={AXIS_HEIGHT - 10} textAnchor={anchorAt(x, scale.width, TICK_HALF)}>
+                {formatTime(tick.iso)}
+              </text>
+            )}
           </g>
         );
       })}
       {morningX !== null && (
         <g>
           <line className="co-nr__morning" x1={morningX} y1={AXIS_HEIGHT - 8} x2={morningX} y2={AXIS_HEIGHT} />
-          <text className="co-nr__morning-label" x={morningX} y={8} textAnchor={anchorAt(morningX, scale.width, 70)}>
+          <text className="co-nr__morning-label" x={morningX} y={8} textAnchor={anchorAt(morningX, scale.width, MORNING_HALF)}>
             {fill(strings.ribbon.morningLine, { time: formatTime(ribbon.morning_line_at ?? '') })}
           </text>
         </g>
