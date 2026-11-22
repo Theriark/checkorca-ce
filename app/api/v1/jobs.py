@@ -9,6 +9,7 @@ until a time (pause with until).
 
 import codecs
 import uuid
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
@@ -33,6 +34,7 @@ from app.api.problems import FieldProblem, ProblemError
 from app.api.v1 import jobs_csv
 from app.api.v1.clients import SearchQuery, parse_name_cursor
 from app.api.v1.job_schemas import (
+    AcknowledgedBy,
     ImportProblem,
     ImportResult,
     JobKind,
@@ -49,11 +51,13 @@ from app.db.models import Client, Job, JobStateRecord, name_key
 from app.repos.clients import ClientRepository
 from app.repos.evaluation import JobStateRepository
 from app.repos.jobs import JobFilters, JobRepository, JobState, job_state
+from app.repos.users import UserRepository
 from app.schedule import ScheduleSpec
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
-COLUMNS = frozenset(Job.__table__.columns.keys())
+# The columns JobOut takes as they are; acknowledged_by becomes an object.
+COPIED = frozenset(Job.__table__.columns.keys()) - {"acknowledged_by"}
 
 CSV_MEDIA_TYPE = "text/csv"
 CSV_RESPONSE: dict[int | str, dict[str, Any]] = {
@@ -109,16 +113,22 @@ def job_out(
     now: datetime,
     principal: Principal,
     record: JobStateRecord | None = None,
+    emails: Mapping[uuid.UUID, str] | None = None,
 ) -> JobOut:
     """The job with its state; record is the evaluator's (None before the
-    first evaluation)."""
+    first evaluation), emails the addresses of the users who acknowledged
+    (acknowledger_emails)."""
     # Every column JobOut shares with the table, then the derived fields.
     stored = {
-        field: getattr(job, field) for field in JobOut.model_fields if field in COLUMNS
+        field: getattr(job, field) for field in JobOut.model_fields if field in COPIED
     }
     # The ping token alone lets its holder report results (C4), so a read-only
     # API token never sees it; only signed-in users do.
     url = None if principal.kind == "token" else ping_url(services, job)
+    acknowledged_by = None
+    if job.acknowledged_by is not None:
+        email = None if emails is None else emails.get(job.acknowledged_by)
+        acknowledged_by = AcknowledgedBy(id=job.acknowledged_by, email=email)
     return JobOut(
         **stored,
         client_name=client_name,
@@ -126,7 +136,21 @@ def job_out(
         state=job_state(job, now, record),
         state_since=None if record is None else record.since,
         last_success_at=None if record is None else record.last_success_at,
+        acknowledged_by=acknowledged_by,
     )
+
+
+async def acknowledger_emails(
+    services: Services, db: AsyncSession, principal: Principal, jobs: Sequence[Job]
+) -> dict[uuid.UUID, str]:
+    """The addresses of the users who acknowledged these jobs (one query);
+    none for an API token, which sees user ids only."""
+    if principal.kind == "token":
+        return {}
+    ids = {job.acknowledged_by for job in jobs if job.acknowledged_by is not None}
+    if not ids:
+        return {}
+    return await UserRepository(db, services.policy).emails(principal, ids)
 
 
 async def state_record(
@@ -179,9 +203,12 @@ async def list_jobs(
     if len(found) > limit:
         last, _, _ = items[-1]
         next_cursor = encode_cursor({"name_key": last.name_key, "id": str(last.id)})
+    emails = await acknowledger_emails(
+        services, db, principal, [job for job, _, _ in items]
+    )
     return JobPage(
         items=[
-            job_out(services, job, name, now, principal, record)
+            job_out(services, job, name, now, principal, record, emails)
             for job, name, record in items
         ],
         next_cursor=next_cursor,
@@ -457,7 +484,9 @@ async def get_job(
     if client is None:
         raise job_not_found()
     record = await state_record(services, db, principal, job)
-    return job_out(services, job, client.name, services.clock.now(), principal, record)
+    emails = await acknowledger_emails(services, db, principal, [job])
+    now = services.clock.now()
+    return job_out(services, job, client.name, now, principal, record, emails)
 
 
 async def save(
@@ -496,7 +525,8 @@ async def save(
     # Without changes this only ends the transaction and its row lock.
     await db.commit()
     record = await state_record(services, db, context.principal, job)
-    return job_out(services, job, client.name, now, context.principal, record)
+    emails = await acknowledger_emails(services, db, context.principal, [job])
+    return job_out(services, job, client.name, now, context.principal, record, emails)
 
 
 @router.patch("/{job_id}")
