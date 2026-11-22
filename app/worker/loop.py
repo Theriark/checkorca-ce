@@ -38,6 +38,7 @@ from app.ingest.imap import ImapPoller
 from app.ingest.smtp import SmtpReceiver
 from app.repos.heartbeat import HeartbeatRepository
 from app.security.crypto import SecretBox
+from app.seed.demo import seed_demo_data
 from app.settings import Settings
 from app.worker.lock import WorkerLock, wait_for_stop
 from app.worker.parse import parse_messages
@@ -86,9 +87,10 @@ class Receiver(Protocol):
 
 type ReceiverFactory = Callable[[WorkerContext], Receiver]
 
-# Phases append their hooks and receivers here. C5-B: parse pending messages;
+# Phases append their hooks and receivers here. C8-B: the demo data, once,
+# before anything else (DEV_DEMO_DATA=1 only); C5-B: parse pending messages;
 # C7-B: evaluate the jobs (after the parse, so new results count at once).
-TICK_HOOKS: tuple[TickHook, ...] = (parse_messages, evaluate_jobs)
+TICK_HOOKS: tuple[TickHook, ...] = (seed_demo_data, parse_messages, evaluate_jobs)
 # C4-I: the SMTP listener on SMTP_PORT and the IMAP poller.
 RECEIVERS: tuple[ReceiverFactory, ...] = (SmtpReceiver, ImapPoller)
 
