@@ -179,6 +179,48 @@ def test_the_document_describes_the_c7_routes() -> None:
     ]
 
 
+def test_the_document_describes_the_c9_routes() -> None:
+    """Channels, rules, notifications and the digest settings; the channel
+    secret is write-only (D-6) and jobs say who acknowledged."""
+    document = generate()
+    paths = document["paths"]
+    for path, method in (
+        ("/api/v1/channels", "get"),
+        ("/api/v1/channels", "post"),
+        ("/api/v1/channels/{channel_id}", "get"),
+        ("/api/v1/channels/{channel_id}", "patch"),
+        ("/api/v1/channels/{channel_id}", "delete"),
+        ("/api/v1/channels/{channel_id}/test", "post"),
+        ("/api/v1/channels/check-url", "post"),
+        ("/api/v1/channel-rules", "get"),
+        ("/api/v1/channel-rules", "post"),
+        ("/api/v1/channel-rules/{rule_id}", "patch"),
+        ("/api/v1/channel-rules/{rule_id}", "delete"),
+        ("/api/v1/notifications", "get"),
+        ("/api/v1/settings", "get"),
+        ("/api/v1/settings", "patch"),
+    ):
+        assert method in paths[path], (method, path)
+    schemas = document["components"]["schemas"]
+    hidden = {"secret", "secret_enc", "password"}
+    for name in ("ChannelOut", "ChannelPage", "ChannelTestResult"):
+        assert not hidden & set(schemas[name]["properties"])
+    assert "secret" in schemas["NewChannel"]["properties"]
+    channel = set(schemas["ChannelOut"]["properties"])
+    assert {"secret_set", "secret_hint", "last_status"} <= channel
+    notification = schemas["NotificationOut"]["properties"]
+    expected = {"flip_id", "channel_id", "status", "attempts", "error", "sent_at"}
+    assert expected <= set(notification)
+    assert notification["status"]["enum"] == ["queued", "sent", "retrying", "failed"]
+    assert set(schemas["DigestSettingsOut"]["properties"]) == {
+        "digest_time_local",
+        "digest_timezone",
+        "reminder_24h",
+    }
+    assert "acknowledged_by" in schemas["JobOut"]["properties"]
+    assert set(schemas["AcknowledgedBy"]["properties"]) == {"id", "email"}
+
+
 def test_errors_are_declared_as_problem_documents() -> None:
     """The 4XX answers carry the media type the handlers send."""
     for path, operations in generate()["paths"].items():

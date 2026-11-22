@@ -20,18 +20,26 @@ from app.db.base import Base
 from app.db.models import (
     AppUser,
     AuditEvent,
+    Channel,
+    ChannelRule,
     Client,
     Flip,
     Job,
     JobResult,
     JobStateRecord,
+    Notification,
     Occurrence,
     RawMessage,
 )
 from app.ingest.results import ParsedResult
 from app.ingest.store import record_result, store_raw
-from app.repos.client_delete import CLIENT_DELETE_MAP
+from app.repos.client_delete import CLIENT_DELETE_MAP, SCOPED_TABLES
 from app.repos.inboxes import InboxRepository
+from app.repos.notifications import (
+    ChannelRepository,
+    ChannelRuleRepository,
+    NotificationRepository,
+)
 from helpers import (
     ADMIN_EMAIL,
     ADMIN_PASSWORD,
@@ -66,8 +74,12 @@ def map_tables() -> list[str]:
 
 
 def test_the_map_covers_every_table_that_references_a_client() -> None:
-    assert set(map_tables()) == tables_holding_client_rows()
+    """Every table whose foreign keys lead to a client, and the tables that
+    name a client or job without one (channel_rule.scope_id)."""
+    assert set(map_tables()) == tables_holding_client_rows() | SCOPED_TABLES
     assert len(map_tables()) == len(set(map_tables()))
+    assert {"notification", "channel_rule"} <= set(map_tables())
+    assert "channel" not in map_tables()
 
 
 def test_a_table_is_deleted_before_the_tables_it_references() -> None:
@@ -194,6 +206,50 @@ async def add_evaluation(
     return flips[-1].id
 
 
+async def add_notifications(
+    engine: AsyncEngine,
+    client_id: uuid.UUID,
+    job_id: uuid.UUID,
+    other_client: uuid.UUID,
+) -> uuid.UUID:
+    """Notification rows around one client; returns the channel.
+
+    One channel with a rule for every job, one for the client, one for its
+    job and one for the other client; a notification for every flip and a
+    digest (it names no client).
+    """
+    policy = AllowAllPolicy()
+    async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+        channel = await ChannelRepository(db, policy).create(
+            SYSTEM, kind="email", label="Ops mail", now=RECEIVED, config={}
+        )
+        rules = ChannelRuleRepository(db, policy)
+        for scope, scope_id in (
+            ("all", None),
+            ("client", client_id),
+            ("job", job_id),
+            ("client", other_client),
+        ):
+            await rules.create(
+                SYSTEM,
+                channel_id=channel.id,
+                scope=scope,
+                scope_id=scope_id,
+                events=["missed"],
+                now=RECEIVED,
+            )
+        flips = (await db.scalars(select(Flip.id))).all()
+        rows: list[dict[str, Any]] = [
+            {"flip_id": flip_id, "event": "missed"} for flip_id in flips
+        ]
+        rows.append({"digest_day": RECEIVED.date(), "event": "digest"})
+        common = {"channel_id": channel.id, "created_at": RECEIVED}
+        rows = [row | common | {"next_attempt_at": RECEIVED} for row in rows]
+        assert await NotificationRepository(db, policy).queue(SYSTEM, rows) == 4
+        await db.commit()
+    return channel.id
+
+
 async def rows_of(engine: AsyncEngine, client_id: uuid.UUID) -> dict[str, int]:
     """For each table of the map, the rows that belong to the client."""
     counts: dict[str, int] = {}
@@ -232,8 +288,13 @@ async def test_delete_removes_the_client_and_its_rows_only(
         uuid.UUID(freight["id"]),
         uuid.UUID(kept_job["id"]),
     )
+    channel_id = await add_notifications(
+        db_engine, dental_id, uuid.UUID(jobs[0]["id"]), uuid.UUID(freight["id"])
+    )
     before = await rows_of(db_engine, dental_id)
     assert before == {
+        "notification": 2,
+        "channel_rule": 2,
         "flip": 2,
         "occurrence": 1,
         "job_state": 1,
@@ -258,6 +319,8 @@ async def test_delete_removes_the_client_and_its_rows_only(
     )
     assert deleted.status_code == 204
     assert await rows_of(db_engine, dental_id) == {
+        "notification": 0,
+        "channel_rule": 0,
         "flip": 0,
         "occurrence": 0,
         "job_state": 0,
@@ -287,6 +350,16 @@ async def test_delete_removes_the_client_and_its_rows_only(
         for table in (Occurrence, JobStateRecord):
             query = select(func.count()).select_from(table)
             assert (await connection.execute(query)).scalar_one() == 0
+        # The other client's notification and the digest stay; so do the
+        # channel, its rule for every job and its rule for the other client.
+        query = select(Notification.flip_id, Notification.event)
+        left = set((await connection.execute(query)).all())
+        assert left == {(kept_flip, "missed"), (None, "digest")}
+        query = select(ChannelRule.scope, ChannelRule.scope_id)
+        rules = set((await connection.execute(query)).all())
+        assert rules == {("all", None), ("client", uuid.UUID(freight["id"]))}
+        query = select(Channel.id)
+        assert (await connection.execute(query)).scalars().all() == [channel_id]
         query = select(AuditEvent).where(AuditEvent.action == "client.delete")
         audit = (await connection.execute(query)).one()
     # Only the id and the user: no name, notes or counts of the client.
