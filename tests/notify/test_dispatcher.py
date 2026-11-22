@@ -319,7 +319,7 @@ async def test_the_retry_ladder_then_failed(
 ) -> None:
     recorder = Recorder(db_engine)
     context = dataclasses.replace(context, subscribers=(*context.subscribers, recorder))
-    job = await add_job(context, await add_client(context))
+    await add_job(context, await add_client(context))
     channel = await add_channel(context, secret=SECRET)
     await add_rule(context, channel, ["missed"])
     kind.failures = 100
