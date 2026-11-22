@@ -40,12 +40,14 @@ from sqlalchemy.orm import defer
 from app.access import Principal
 from app.db.models import (
     AuditEvent,
+    Channel,
     Client,
     Flip,
     Inbox,
     Job,
     JobResult,
     JobStateRecord,
+    Notification,
     Occurrence,
     ParserPack,
     RawMessage,
@@ -76,7 +78,12 @@ CONFIG_PREFIXES: Final[tuple[str, ...]] = (
     "unmatched.",
     "token.",
     "user.",
+    "channel.",
+    "channel_rule.",
+    "settings.",
 )
+# Notifications shown as activity: the ones that ended, sent or failed.
+FINAL_NOTIFICATION_STATUSES: Final[tuple[str, ...]] = ("sent", "failed")
 BreakdownBy = Literal["vendor", "client"]
 ActivityKind = Literal["ingest", "flip", "notification", "config"]
 
@@ -481,9 +488,11 @@ class DashboardRepository(Repository):
         limit: int,
     ) -> list[ActivityRow]:
         """The newest limit entries of the timeline before the (at, id)
-        cursor, newest first: one query per kind (notifications arrive in
-        phase C9)."""
+        cursor, newest first: one query per kind. A notification counts when
+        it ended (sent, or failed for good), at its last attempt."""
         found: list[ActivityRow] = []
+        if "notification" in kinds:
+            found += await self._notification_activity(principal, after, limit)
         if "flip" in kinds:
             flips = (
                 select(
@@ -579,6 +588,62 @@ class DashboardRepository(Repository):
                 )
         found.sort(key=lambda item: (item.at, item.id), reverse=True)
         return found[:limit]
+
+    async def _notification_activity(
+        self,
+        principal: Principal,
+        after: tuple[datetime, uuid.UUID] | None,
+        limit: int,
+    ) -> list[ActivityRow]:
+        at = Notification.last_attempt_at
+        query = (
+            select(
+                Notification.id,
+                at,
+                Notification.event,
+                Notification.status,
+                Channel.label,
+                Notification.channel_id,
+                Flip.job_id,
+                Job.name,
+                Client.name,
+            )
+            .join(Channel, Channel.id == Notification.channel_id)
+            .outerjoin(Flip, Flip.id == Notification.flip_id)
+            .outerjoin(Job, Job.id == Flip.job_id)
+            .outerjoin(Client, Client.id == Flip.client_id)
+            .where(
+                Notification.status.in_(FINAL_NOTIFICATION_STATUSES),
+                at.is_not(None),
+            )
+            .order_by(at.desc(), Notification.id.desc())
+            .limit(limit)
+        )
+        if after is not None:
+            query = query.where(tuple_(at, Notification.id) < after)
+        query = self.policy.scope(principal, self.resource, query)
+        rows: list[ActivityRow] = []
+        for row in await self.db.execute(query):
+            moment = row[1]
+            if moment is None:  # left out by the query
+                continue
+            # The digest points to its channel, a flip's notice to the job.
+            subject = "Daily digest"
+            ref_kind, ref_id = "channel", str(row[5])
+            if row[6] is not None:
+                subject = f"{row[7]} ({row[8]}): {row[2]}"
+                ref_kind, ref_id = "job", str(row[6])
+            rows.append(
+                ActivityRow(
+                    id=row[0],
+                    at=moment,
+                    kind="notification",
+                    summary=f"{subject} {row[3]} to {row[4]}",
+                    ref_kind=ref_kind,
+                    ref_id=ref_id,
+                )
+            )
+        return rows
 
     @guarded("update")
     async def acknowledge(
