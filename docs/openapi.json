@@ -1502,6 +1502,50 @@
         }
       }
     },
+    "/api/v1/jobs/{job_id}/acknowledge": {
+      "post": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Acknowledge Job",
+        "description": "Acknowledge the job's state: someone is on it. The next flip of the\njob state clears it; 404 for an unknown job.",
+        "operationId": "acknowledge_job_api_v1_jobs__job_id__acknowledge_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobOut"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/schedule/preview": {
       "post": {
         "tags": [
@@ -3402,7 +3446,7 @@
           "system"
         ],
         "summary": "System Status",
-        "description": "A heartbeat older than 3 minutes (or none) is stale: the web app shows a\nred banner and /readyz answers 503.",
+        "description": "A heartbeat older than 3 minutes (or none) is stale: the web app shows a\nred banner and /readyz answers 503. evaluator_lag_seconds is how long the\noldest evaluation the evaluator owes has waited (a deadline it has not\nlooked at yet, or a job it never evaluated); 0 when it is up to date.",
         "operationId": "system_status_api_v1_system_status_get",
         "responses": {
           "200": {
@@ -3427,10 +3471,647 @@
           }
         }
       }
+    },
+    "/api/v1/dashboard/today": {
+      "get": {
+        "tags": [
+          "dashboard"
+        ],
+        "summary": "Dashboard Today",
+        "description": "The Morning check's numbers: the stat cards (each a value for the 24\nhours up to now, its change against the 24 hours before and 14 values,\noldest first), coverage of the last 24 hours, the jobs that need\nattention, the worker heartbeat and whether the demo data was seeded.",
+        "operationId": "dashboard_today_api_v1_dashboard_today_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardToday"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/ribbon": {
+      "get": {
+        "tags": [
+          "dashboard"
+        ],
+        "summary": "Dashboard Ribbon",
+        "description": "The Night Ribbon: every live job's runs due in [from, to), by client\nand job. Runs after now that are not written yet are listed as pending\nfrom the schedule (none for a paused job). problems_only keeps the jobs\nwith a warning, failed, overdue or missed run in the window.",
+        "operationId": "dashboard_ribbon_api_v1_dashboard_ribbon_get",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Start (inclusive); default 18:00 of the night in the digest zone.",
+              "title": "From"
+            },
+            "description": "Start (inclusive); default 18:00 of the night in the digest zone."
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "End (exclusive); default 12:00 after that night.",
+              "title": "To"
+            },
+            "description": "End (exclusive); default 12:00 after that night."
+          },
+          {
+            "name": "problems_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Problems Only"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ribbon"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/trend": {
+      "get": {
+        "tags": [
+          "dashboard"
+        ],
+        "summary": "Dashboard Trend",
+        "description": "Due runs per calendar day in the digest zone (verified, failed and\nsilent), oldest day first; today so far is the last day.",
+        "operationId": "dashboard_trend_api_v1_dashboard_trend_get",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 90,
+              "minimum": 1,
+              "description": "Calendar days in the digest zone, ending today.",
+              "default": 30,
+              "title": "Days"
+            },
+            "description": "Calendar days in the digest zone, ending today."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Trend"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/breakdown": {
+      "get": {
+        "tags": [
+          "dashboard"
+        ],
+        "summary": "Dashboard Breakdown",
+        "description": "Due runs of the same days as the trend, per vendor (the parser pack\nof the job) or per client, by label.",
+        "operationId": "dashboard_breakdown_api_v1_dashboard_breakdown_get",
+        "parameters": [
+          {
+            "name": "by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "vendor",
+                "client"
+              ],
+              "type": "string",
+              "default": "vendor",
+              "title": "By"
+            }
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 90,
+              "minimum": 1,
+              "description": "Calendar days in the digest zone, ending today.",
+              "default": 30,
+              "title": "Days"
+            },
+            "description": "Calendar days in the digest zone, ending today."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Breakdown"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/activity": {
+      "get": {
+        "tags": [
+          "dashboard"
+        ],
+        "summary": "List Activity",
+        "description": "What happened, newest first: messages received (ingest), changes of\njob states (flip), configuration changes (config) and, from phase C9,\nnotifications. kind narrows the list to one of them.",
+        "operationId": "list_activity_api_v1_activity_get",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "ingest",
+                    "flip",
+                    "notification",
+                    "config"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 512
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityPage"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/digest/preview": {
+      "get": {
+        "tags": [
+          "dashboard"
+        ],
+        "summary": "Digest Preview",
+        "description": "The morning digest of date as the ReportRenderer makes it: the runs\ndue in the 24 hours up to the digest time of that day. The HTML has no\nscript and every name in it is escaped; show it in a sandboxed frame.",
+        "operationId": "digest_preview_api_v1_digest_preview_get",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A day in the digest zone; default today.",
+              "title": "Date"
+            },
+            "description": "A day in the digest zone; default today."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DigestPreview"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/exports/day.csv": {
+      "get": {
+        "tags": [
+          "exports"
+        ],
+        "summary": "Export Day",
+        "description": "Every run due on date (a calendar day in the digest zone, default\ntoday), with its result: one row per occurrence, by time.",
+        "operationId": "export_day_api_v1_exports_day_csv_get",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A day in the digest zone; default today.",
+              "title": "Date"
+            },
+            "description": "A day in the digest zone; default today."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The runs due on the day, as CSV.",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/exports/history.csv": {
+      "get": {
+        "tags": [
+          "exports"
+        ],
+        "summary": "Export History",
+        "description": "Every run due from from to to (calendar days in the digest zone, both\nincluded, at most 366), of every client or of client_id: one row per\noccurrence, by time, with the columns of day.csv.",
+        "operationId": "export_history_api_v1_exports_history_csv_get",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "First day in the digest zone; default 29 days before to.",
+              "title": "From"
+            },
+            "description": "First day in the digest zone; default 29 days before to."
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Last day in the digest zone, included; default today.",
+              "title": "To"
+            },
+            "description": "Last day in the digest zone, included; default today."
+          },
+          {
+            "name": "client_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Client Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The runs due in the days, as CSV.",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/clients/{client_id}/export.csv": {
+      "get": {
+        "tags": [
+          "exports"
+        ],
+        "summary": "Export Client",
+        "description": "The full history of one client (legal D-4), one record per row: the\nclient, its jobs and their settings, occurrences, results, flips and\nmessages (headers only; the raw message stays in the app).",
+        "operationId": "export_client_api_v1_clients__client_id__export_csv_get",
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Client Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Everything recorded for the client, as CSV.",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "Problem details (RFC 9457)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "ActivityItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "ingest",
+              "flip",
+              "notification",
+              "config"
+            ],
+            "title": "Kind"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "ref_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref Kind"
+          },
+          "ref_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "at",
+          "kind",
+          "summary",
+          "ref_kind",
+          "ref_id"
+        ],
+        "title": "ActivityItem",
+        "description": "One entry of the timeline. ref_kind and ref_id point to what it is\nabout (job, message, or the target of a configuration change)."
+      },
+      "ActivityPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ActivityItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "ActivityPage"
+      },
       "AssignRequest": {
         "properties": {
           "job_id": {
@@ -3451,6 +4132,100 @@
         ],
         "title": "AssignRequest",
         "description": "replace_match_key: a job whose match key names another job name takes\nthe result's job name instead (the old key is answered and audited)."
+      },
+      "AttentionItem": {
+        "properties": {
+          "client_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Client Id"
+          },
+          "client_name": {
+            "type": "string",
+            "title": "Client Name"
+          },
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Job Id"
+          },
+          "job_name": {
+            "type": "string",
+            "title": "Job Name"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "missed",
+              "overdue",
+              "failed",
+              "warning"
+            ],
+            "title": "State"
+          },
+          "expected_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected By"
+          },
+          "last_success_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Success At"
+          },
+          "raw_message_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Message Id"
+          },
+          "acknowledged_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acknowledged At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "client_id",
+          "client_name",
+          "job_id",
+          "job_name",
+          "state",
+          "expected_by",
+          "last_success_at",
+          "raw_message_id",
+          "acknowledged_at"
+        ],
+        "title": "AttentionItem",
+        "description": "A job that needs a look. expected_by is the deadline of its newest due\nrun; raw_message_id the message of the result that decided that run (none\nfor a silent run or a ping)."
       },
       "BenchMail": {
         "properties": {
@@ -3811,6 +4586,65 @@
         ],
         "title": "Body_upload_message_api_v1_messages_upload_post"
       },
+      "Breakdown": {
+        "properties": {
+          "by": {
+            "type": "string",
+            "enum": [
+              "vendor",
+              "client"
+            ],
+            "title": "By"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BreakdownItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "by",
+          "items"
+        ],
+        "title": "Breakdown"
+      },
+      "BreakdownItem": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "verified": {
+            "type": "integer",
+            "title": "Verified"
+          },
+          "failed": {
+            "type": "integer",
+            "title": "Failed"
+          },
+          "silent": {
+            "type": "integer",
+            "title": "Silent"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "verified",
+          "failed",
+          "silent"
+        ],
+        "title": "BreakdownItem",
+        "description": "key: the parser pack id (none for jobs without a pack) or the client\nid; label: the pack's vendor or the client's name."
+      },
       "ClientOut": {
         "properties": {
           "id": {
@@ -3987,6 +4821,37 @@
         "type": "object",
         "title": "ClientPatch",
         "description": "Only the fields sent change."
+      },
+      "Coverage": {
+        "properties": {
+          "verified": {
+            "type": "integer",
+            "title": "Verified"
+          },
+          "expected": {
+            "type": "integer",
+            "title": "Expected"
+          },
+          "ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ratio"
+          }
+        },
+        "type": "object",
+        "required": [
+          "verified",
+          "expected",
+          "ratio"
+        ],
+        "title": "Coverage",
+        "description": "Due runs of the last 24 hours that were verified; ratio is null when\nnone was due."
       },
       "CreateJobRequest": {
         "properties": {
@@ -4265,6 +5130,75 @@
         ],
         "title": "Credentials"
       },
+      "DashboardToday": {
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generated At"
+          },
+          "stats": {
+            "$ref": "#/components/schemas/Stats"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/Coverage"
+          },
+          "attention": {
+            "items": {
+              "$ref": "#/components/schemas/AttentionItem"
+            },
+            "type": "array",
+            "title": "Attention"
+          },
+          "heartbeat": {
+            "$ref": "#/components/schemas/HeartbeatOut"
+          },
+          "demo_seeded": {
+            "type": "boolean",
+            "title": "Demo Seeded"
+          }
+        },
+        "type": "object",
+        "required": [
+          "generated_at",
+          "stats",
+          "coverage",
+          "attention",
+          "heartbeat",
+          "demo_seeded"
+        ],
+        "title": "DashboardToday"
+      },
+      "DigestPreview": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "subject": {
+            "type": "string",
+            "title": "Subject"
+          },
+          "html": {
+            "type": "string",
+            "title": "Html"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "subject",
+          "html",
+          "text"
+        ],
+        "title": "DigestPreview",
+        "description": "The morning digest of date as it would be sent."
+      },
       "FieldProblem": {
         "properties": {
           "field": {
@@ -4395,6 +5329,45 @@
           "value"
         ],
         "title": "HeaderOut"
+      },
+      "HeartbeatOut": {
+        "properties": {
+          "at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "age_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age Seconds"
+          },
+          "stale": {
+            "type": "boolean",
+            "title": "Stale"
+          }
+        },
+        "type": "object",
+        "required": [
+          "at",
+          "age_seconds",
+          "stale"
+        ],
+        "title": "HeartbeatOut",
+        "description": "The worker heartbeat; stale when older than 3 minutes or missing."
       },
       "ImapOut": {
         "properties": {
@@ -6879,11 +7852,21 @@
           "pending_messages": {
             "type": "integer",
             "title": "Pending Messages"
+          },
+          "pending_notifications": {
+            "type": "integer",
+            "title": "Pending Notifications"
+          },
+          "failed_notifications": {
+            "type": "integer",
+            "title": "Failed Notifications"
           }
         },
         "type": "object",
         "required": [
-          "pending_messages"
+          "pending_messages",
+          "pending_notifications",
+          "failed_notifications"
         ],
         "title": "QueueStatus"
       },
@@ -7069,6 +8052,164 @@
         ],
         "title": "ResultPage"
       },
+      "Ribbon": {
+        "properties": {
+          "window": {
+            "$ref": "#/components/schemas/RibbonWindow"
+          },
+          "morning_line_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Morning Line At"
+          },
+          "clients": {
+            "items": {
+              "$ref": "#/components/schemas/RibbonClient"
+            },
+            "type": "array",
+            "title": "Clients"
+          }
+        },
+        "type": "object",
+        "required": [
+          "window",
+          "morning_line_at",
+          "clients"
+        ],
+        "title": "Ribbon",
+        "description": "The Night Ribbon: clients by name, their jobs by name, each job's runs\nin the window by time. morning_line_at is the digest time in the window\n(null when the window holds none)."
+      },
+      "RibbonClient": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/RibbonJob"
+            },
+            "type": "array",
+            "title": "Jobs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "jobs"
+        ],
+        "title": "RibbonClient"
+      },
+      "RibbonJob": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "occurrences": {
+            "items": {
+              "$ref": "#/components/schemas/RibbonOccurrence"
+            },
+            "type": "array",
+            "title": "Occurrences"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "occurrences"
+        ],
+        "title": "RibbonJob"
+      },
+      "RibbonOccurrence": {
+        "properties": {
+          "scheduled_for": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Scheduled For"
+          },
+          "deadline": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Deadline"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "verified",
+              "warning",
+              "failed",
+              "overdue",
+              "missed",
+              "maintenance"
+            ],
+            "title": "State"
+          },
+          "result_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "scheduled_for",
+          "deadline",
+          "state",
+          "result_at"
+        ],
+        "title": "RibbonOccurrence",
+        "description": "One run: pending ones after now are still expected. result_at is when\nthe deciding result says the run ended (finished, else received)."
+      },
+      "RibbonWindow": {
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time",
+            "title": "From"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time",
+            "title": "To"
+          }
+        },
+        "type": "object",
+        "required": [
+          "from",
+          "to"
+        ],
+        "title": "RibbonWindow",
+        "description": "[from, to): build it with model_validate({\"from\": ..., \"to\": ...})."
+      },
       "SchedulePreview": {
         "properties": {
           "next": {
@@ -7253,6 +8394,61 @@
         ],
         "title": "SignedIn"
       },
+      "Stat": {
+        "properties": {
+          "value": {
+            "type": "integer",
+            "title": "Value"
+          },
+          "delta_vs_yesterday": {
+            "type": "integer",
+            "title": "Delta Vs Yesterday"
+          },
+          "spark14": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Spark14"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "delta_vs_yesterday",
+          "spark14"
+        ],
+        "title": "Stat",
+        "description": "One stat card: value now, its change against 24 hours earlier, and the\n14 values of the last 14 days, oldest first (the last one is value)."
+      },
+      "Stats": {
+        "properties": {
+          "verified": {
+            "$ref": "#/components/schemas/Stat"
+          },
+          "failed": {
+            "$ref": "#/components/schemas/Stat"
+          },
+          "silent": {
+            "$ref": "#/components/schemas/Stat"
+          },
+          "unmatched": {
+            "$ref": "#/components/schemas/Stat"
+          },
+          "paused": {
+            "$ref": "#/components/schemas/Stat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "verified",
+          "failed",
+          "silent",
+          "unmatched",
+          "paused"
+        ],
+        "title": "Stats"
+      },
       "SystemStatus": {
         "properties": {
           "worker": {
@@ -7268,6 +8464,10 @@
           "queue": {
             "$ref": "#/components/schemas/QueueStatus"
           },
+          "evaluator_lag_seconds": {
+            "type": "number",
+            "title": "Evaluator Lag Seconds"
+          },
           "version": {
             "type": "string",
             "title": "Version"
@@ -7282,6 +8482,10 @@
               }
             ],
             "title": "Revision"
+          },
+          "extension_api_level": {
+            "type": "integer",
+            "title": "Extension Api Level"
           }
         },
         "type": "object",
@@ -7289,8 +8493,10 @@
           "worker",
           "inboxes",
           "queue",
+          "evaluator_lag_seconds",
           "version",
-          "revision"
+          "revision",
+          "extension_api_level"
         ],
         "title": "SystemStatus"
       },
@@ -7394,6 +8600,53 @@
           "next_cursor"
         ],
         "title": "TokenPage"
+      },
+      "Trend": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TrendDay"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "Trend",
+        "description": "Oldest day first; the last day is today (so far)."
+      },
+      "TrendDay": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "verified": {
+            "type": "integer",
+            "title": "Verified"
+          },
+          "failed": {
+            "type": "integer",
+            "title": "Failed"
+          },
+          "silent": {
+            "type": "integer",
+            "title": "Silent"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "verified",
+          "failed",
+          "silent"
+        ],
+        "title": "TrendDay",
+        "description": "Due runs of one calendar day in the digest zone."
       },
       "UnmatchedOut": {
         "properties": {
