@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -6,6 +6,7 @@ import { fill, formatTime } from '../../lib/format';
 import { strings } from '../../strings';
 import { makeClient, makeFlip, makeJob, makeRibbon } from '../../test/fixtures';
 import { ADMIN, holdFetch, renderApp, stubFetch, type FetchAnswer } from '../../test/render';
+import { expectStaleNote } from '../../test/staleNote';
 import { saveBlob } from '../shared/download';
 
 // The export would otherwise click a temporary link; the mock records
@@ -112,6 +113,35 @@ describe('/clients/:id Night Ribbon tab', () => {
     await user.click(within(alert).getByRole('button', { name: strings.states.retry }));
     expect(await within(screen.getByRole('tabpanel')).findByTestId('night-ribbon')).toBeTruthy();
     expect(attempts).toBe(2);
+  });
+
+  it('keeps the ribbon on screen when a later refresh fails, with a stale note and no error card', async () => {
+    let failing = false;
+    const { calls } = stubFetch(
+      routes({
+        'GET /api/v1/dashboard/ribbon': () =>
+          failing ? { status: 500, body: { title: 'Internal Server Error', status: 500, detail: 'The ribbon could not be built.', request_id: 'req-22' } } : { status: 200, body: makeRibbon() },
+      }),
+    );
+    const start = Date.now();
+    renderApp(`/clients/${CLIENT.id}`);
+    const { panel } = await openTab(strings.clientHistory.ribbonTab);
+    expect(await within(panel).findByTestId('night-ribbon')).toBeTruthy();
+    const asked = () => calls.filter((call) => call.url.includes('/dashboard/ribbon')).length;
+    const before = asked();
+    failing = true;
+    // The page coming back into view refetches the ribbon (TanStack Query
+    // listens to visibilitychange), like the minute poll.
+    await act(async () => {
+      window.dispatchEvent(new Event('visibilitychange'));
+    });
+    await waitFor(() => expect(asked()).toBeGreaterThan(before));
+    const current = screen.getByRole('tabpanel');
+    expectStaleNote(await within(current).findByTestId('stale-data'), start);
+    expect(within(current).getByTestId('night-ribbon')).toBeTruthy();
+    expect(within(current).queryByRole('alert')).toBeNull();
+    expect(within(current).queryByText('req-22')).toBeNull();
+    expect(within(current).queryByRole('button', { name: strings.states.retry })).toBeNull();
   });
 
   it('shows the empty state when the client has no run in the ribbon window', async () => {

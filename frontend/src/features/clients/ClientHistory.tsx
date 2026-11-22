@@ -21,6 +21,7 @@ import { strings } from '../../strings';
 import { useRibbon } from '../dashboard/queries';
 import { STATE_SEVERITY } from '../jobs/jobState';
 import { useFlips, useJobList } from '../jobs/queries';
+import { StaleNote } from '../shared/StaleNote';
 import '../dashboard/dashboard.css';
 
 const CHIPS_QUERY = '(max-width: 639px)';
@@ -45,7 +46,9 @@ export function ClientRibbonTab({ client }: { readonly client: ClientOut }) {
       </SkeletonGroup>
     );
   }
-  if (ribbon.isError) {
+  // Only a first load that failed shows the error card: a failed 60 s poll
+  // keeps the ribbon on screen under a stale note.
+  if (ribbon.isLoadingError) {
     return <ErrorState error={ribbon.error} onRetry={() => void ribbon.refetch()} retrying={ribbon.isFetching} compact />;
   }
   if (!own) {
@@ -58,7 +61,10 @@ export function ClientRibbonTab({ client }: { readonly client: ClientOut }) {
   const label = fill(strings.ribbon.labelClient, { client: client.name, runs: countsOf(own).runs, ...windowWords });
   return (
     <div className="co-hist">
-      <p className="co-card__lead">{fill(strings.dashboard.ribbonLead, windowWords)}</p>
+      <p className="co-card__lead co-dash__lead">
+        {fill(strings.dashboard.ribbonLead, windowWords)}
+        <StaleNote queries={[ribbon]} />
+      </p>
       {chips ? <RibbonChips ribbon={own} label={label} showClients={false} /> : <NightRibbon ribbon={own} label={label} showClients={false} />}
     </div>
   );

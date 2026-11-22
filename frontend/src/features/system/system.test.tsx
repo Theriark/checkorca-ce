@@ -1,9 +1,10 @@
-import { screen, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { strings } from '../../strings';
 import { STALE_STATUS, makeStatus } from '../../test/fixtures';
 import { ADMIN, TECHNICIAN, renderApp, stubFetch } from '../../test/render';
+import { expectStaleNote } from '../../test/staleNote';
 
 const ME = { 'GET /api/v1/auth/me': { status: 200, body: ADMIN } };
 
@@ -82,6 +83,38 @@ describe('/system', () => {
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain('req-s');
     expect(within(alert).getByRole('button', { name: strings.states.retry })).toBeTruthy();
+  });
+
+  it('keeps the cards on screen when a later refresh fails, with a stale note instead of the error state', async () => {
+    let failing = false;
+    const { calls } = stubFetch({
+      ...ME,
+      'GET /api/v1/system/status': () => (failing ? { status: 500, body: { title: 'Internal Server Error', status: 500, request_id: 'req-s2' } } : { status: 200, body: makeStatus() }),
+    });
+    const start = Date.now();
+    renderApp('/system');
+    expect(await screen.findByTestId('system-version')).toBeTruthy();
+    const asked = () => calls.filter((call) => call.url.includes('/system/status')).length;
+    const before = asked();
+    failing = true;
+    // The status stays fresh for 30 s; a minute on, the page coming back
+    // into view refetches it (TanStack Query listens to visibilitychange),
+    // like the poll.
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => start + 60_000);
+    try {
+      await act(async () => {
+        window.dispatchEvent(new Event('visibilitychange'));
+      });
+      await waitFor(() => expect(asked()).toBeGreaterThan(before));
+      expectStaleNote(await screen.findByTestId('stale-data'), start);
+    } finally {
+      clock.mockRestore();
+    }
+    expect(screen.getByTestId('system-version').textContent).toBe('27.0.0');
+    expect(screen.getByTestId('worker-state').textContent).toContain(strings.system.heartbeatOk);
+    expect(within(screen.getByRole('main')).queryByRole('alert')).toBeNull();
+    expect(screen.queryByText('req-s2')).toBeNull();
+    expect(screen.queryByRole('button', { name: strings.states.retry })).toBeNull();
   });
 
   it('is the same page for the technician', async () => {

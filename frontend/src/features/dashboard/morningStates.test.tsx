@@ -7,10 +7,10 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { DashboardToday, DigestPreview } from '../../api/dashboard';
-import { fill, formatTime } from '../../lib/format';
 import { strings } from '../../strings';
 import { ACTIVITY_ITEMS, BREAKDOWN_CLIENT, BREAKDOWN_VENDOR, DIGEST, HOSTILE_ACTIVITY, HOSTILE_LINK, HOSTILE_NAME, makeRibbon, makeStatus, makeToday, makeTrend } from '../../test/fixtures';
 import { ADMIN, holdFetch, renderApp, stubFetch, type FetchAnswer } from '../../test/render';
+import { expectStaleNote } from '../../test/staleNote';
 
 /** Anything that would run if a hostile string became markup. */
 const HOSTILE_SELECTOR = 'script, img[onerror], a[href^="javascript:"]';
@@ -163,6 +163,7 @@ describe('/ (morning check) card states', () => {
       'GET /api/v1/dashboard/today': () => (failing ? problem(503, 'Try later.') : { status: 200, body: today }),
       'GET /api/v1/dashboard/trend': () => (failing ? problem(503, 'Trend later.') : { status: 200, body: { items: makeTrend(30) } }),
     });
+    const start = Date.now();
     renderApp('/');
     expect(await within(await screen.findByTestId('stat-cards')).findByText('12')).toBeTruthy();
     expect(await screen.findByRole('img', { name: /Last 30 days: 30 days/ })).toBeTruthy();
@@ -180,8 +181,9 @@ describe('/ (morning check) card states', () => {
     });
     await waitFor(() => expect(askedToday()).toBeGreaterThan(todayBefore));
     await waitFor(() => expect(askedTrend()).toBeGreaterThan(trendBefore));
-    const stale = await screen.findByTestId('stale-data');
-    expect(stale.textContent).toBe(fill(strings.dashboard.staleData, { time: formatTime(today.generated_at) }));
+    // The note names the time the data on screen was received, not the
+    // server's generated_at of a fresher answer.
+    expectStaleNote(await screen.findByTestId('stale-data'), start);
     // The last answer stays: numbers, coverage, attention list and trend.
     const cards = screen.getByTestId('stat-cards');
     expect(within(cards).getByText('12')).toBeTruthy();

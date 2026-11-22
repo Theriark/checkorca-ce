@@ -13,6 +13,7 @@ import { fill, formatDateTime } from '../../lib/format';
 import { APP_VERSION, strings } from '../../strings';
 import { KindBadge } from '../inboxes/KindBadge';
 import { PageHeader } from '../shared/PageHeader';
+import { StaleNote } from '../shared/StaleNote';
 import { useSystemStatus } from './queries';
 import { staleMinutes } from './stale';
 import '../features.css';
@@ -169,7 +170,17 @@ export function SystemPage() {
   const status = useSystemStatus();
   return (
     <div className="co-page">
-      <PageHeader icon={Server} title={copy.title} lead={copy.lead} badges={<span className="co-chip co-chip--icon"><Activity size={12} aria-hidden="true" />{copy.refreshed}</span>} />
+      <PageHeader
+        icon={Server}
+        title={copy.title}
+        lead={
+          <span className="co-dash__lead">
+            {copy.lead}
+            <StaleNote queries={[status]} />
+          </span>
+        }
+        badges={<span className="co-chip co-chip--icon"><Activity size={12} aria-hidden="true" />{copy.refreshed}</span>}
+      />
       {status.isPending ? (
         <SkeletonGroup className="co-sys__grid">
           <Skeleton height={220} radius="md" />
@@ -177,7 +188,7 @@ export function SystemPage() {
           <Skeleton height={180} radius="md" />
           <Skeleton height={180} radius="md" />
         </SkeletonGroup>
-      ) : status.isError ? (
+      ) : status.isLoadingError ? (
         <ErrorState error={status.error} onRetry={() => void status.refetch()} retrying={status.isFetching} />
       ) : (
         <div className="co-sys__grid">

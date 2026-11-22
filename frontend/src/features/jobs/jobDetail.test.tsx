@@ -6,6 +6,7 @@ import { formatDateTime } from '../../lib/format';
 import { strings } from '../../strings';
 import { HOSTILE_JOB, HOSTILE_NAME, OCCURRENCES, makeClient, makeFlip, makeJob, makeMessageDetail, makeOccurrence, makeStatus } from '../../test/fixtures';
 import { ADMIN, TECHNICIAN, holdFetch, renderApp, stubFetch } from '../../test/render';
+import { expectStaleNote } from '../../test/staleNote';
 
 const ME = { 'GET /api/v1/auth/me': { status: 200, body: ADMIN } };
 const STATUS = { 'GET /api/v1/system/status': { status: 200, body: makeStatus() } };
@@ -200,15 +201,17 @@ describe('/jobs/:id', () => {
     expect(attempts).toBe(3);
   });
 
-  it('keeps the job on screen when a later refetch of it fails', async () => {
+  it('keeps the job on screen when a later refetch of it fails, with a stale note', async () => {
     let failJob = false;
     const { calls } = stubFetch({
       ...routes(),
       [`GET /api/v1/jobs/${JOB.id}`]: () => (failJob ? serverError('req-poll') : { status: 200, body: JOB }),
     });
+    const start = Date.now();
     renderApp(`/jobs/${JOB.id}`);
     expect(await screen.findByRole('heading', { level: 1, name: HOSTILE_JOB })).toBeTruthy();
     await screen.findByTestId('day-strip');
+    expect(screen.queryByTestId('stale-data')).toBeNull();
     failJob = true;
     const before = jobGets(calls);
     // A visibility change refetches the stale queries (the test client keeps
@@ -224,6 +227,7 @@ describe('/jobs/:id', () => {
     expect(screen.getByTestId('day-strip')).toBeTruthy();
     expect(within(screen.getByRole('main')).queryByRole('alert')).toBeNull();
     expect(screen.queryByText('req-poll')).toBeNull();
+    expectStaleNote(await screen.findByTestId('stale-data'), start);
   });
 
   it('keeps the job on screen when its runs fail to load: the strip and the runs tab show the error with a retry', async () => {

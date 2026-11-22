@@ -32,6 +32,7 @@ import { countsOf } from '../../ribbon/ribbonLayout';
 import { strings } from '../../strings';
 import { useJobActions } from '../jobs/useJobActions';
 import { PageHeader } from '../shared/PageHeader';
+import { StaleNote } from '../shared/StaleNote';
 import { errorSentence, isStatus } from '../shared/errors';
 import { ActivityTimeline } from './ActivityTimeline';
 import { AttentionList } from './AttentionList';
@@ -189,9 +190,8 @@ export function MorningCheckPage() {
 
   const lead = data ? fill(copy.generatedAt, { time: formatTime(data.generated_at) }) : copy.lead;
   // A failed poll keeps the last answer on screen (TanStack Query keeps data
-  // on a refetch error); only a first load that failed shows an error state.
-  const refreshFailed = [today, ribbon, trend, breakdown, activity].some((query) => query.isRefetchError);
-
+  // on a refetch error) under a stale note; only a first load that failed
+  // shows an error state.
   return (
     <div className="co-page co-dash">
       <PageHeader
@@ -200,16 +200,7 @@ export function MorningCheckPage() {
         lead={
           <span className="co-dash__lead">
             {lead}
-            {today.isFetching && !today.isPending ? (
-              <span className="co-dash__refreshing">{copy.refreshing}</span>
-            ) : (
-              refreshFailed &&
-              data && (
-                <span className="co-dash__refreshing" data-testid="stale-data">
-                  {fill(copy.staleData, { time: formatTime(data.generated_at) })}
-                </span>
-              )
-            )}
+            {today.isFetching && !today.isPending ? <span className="co-dash__refreshing">{copy.refreshing}</span> : <StaleNote queries={[today, ribbon, trend, breakdown, activity]} />}
           </span>
         }
         badges={

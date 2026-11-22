@@ -25,6 +25,7 @@ import { OccurrenceBadge } from '../../ribbon/OccurrenceBadge';
 import { strings } from '../../strings';
 import { useAcknowledgeJob } from '../dashboard/queries';
 import { PageHeader } from '../shared/PageHeader';
+import { StaleNote } from '../shared/StaleNote';
 import { errorSentence } from '../shared/errors';
 import { useRawMessage } from '../unmatched/queries';
 import { DayStrip } from './DayStrip';
@@ -347,7 +348,12 @@ export function JobDetailPage() {
       <PageHeader
         icon={Briefcase}
         title={data.name}
-        lead={`${data.client_name} · ${kindLabel(data.kind)}`}
+        lead={
+          <span className="co-dash__lead">
+            {`${data.client_name} · ${kindLabel(data.kind)}`}
+            <StaleNote queries={[job, occurrences, flips]} />
+          </span>
+        }
         crumbs={<Crumbs job={data} />}
         badges={
           <>
