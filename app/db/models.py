@@ -598,7 +598,9 @@ class Notification(Base):
     channel_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("channel.id", ondelete="CASCADE")
     )
-    flip_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("flip.id"))
+    flip_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("flip.id", ondelete="CASCADE")
+    )
     event: Mapped[str] = mapped_column(String(16))
     digest_day: Mapped[date | None]
     status: Mapped[str] = mapped_column(

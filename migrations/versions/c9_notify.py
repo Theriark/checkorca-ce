@@ -5,7 +5,9 @@ earlier ones, so the previous release keeps running on this schema (one
 release back). notification references flip and channel_rule names clients
 and jobs by scope_id: both are in the client delete map
 (app/repos/client_delete.py). channel holds no client data. Deleting a channel
-deletes its rules and notifications. The kinds slack, teams and webhook are
+deletes its rules and notifications, and deleting a flip its notifications,
+so the previous release, whose delete map does not know the notification
+table, can still delete a client. The kinds slack, teams and webhook are
 allowed already, so phase C9-I adds them without a schema change.
 
 Revision ID: c9_notify
@@ -153,7 +155,10 @@ def upgrade() -> None:
             ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
-            ["flip_id"], ["flip.id"], name=op.f("fk_notification_flip_id_flip")
+            ["flip_id"],
+            ["flip.id"],
+            name=op.f("fk_notification_flip_id_flip"),
+            ondelete="CASCADE",
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_notification")),
         sa.UniqueConstraint(

@@ -77,6 +77,11 @@ def test_the_settings_get_their_defaults_and_normal_form() -> None:
         ({**BASE, "to": []}, "to"),
         ({**BASE, "to": "ops@example.com"}, "to"),
         ({**BASE, "to": ["not an address"]}, "to"),
+        # One entry is one recipient: no list separator, name or control.
+        ({**BASE, "to": ["a,b@example.com"]}, "to"),
+        ({**BASE, "to": ["<ops@example.com>"]}, "to"),
+        ({**BASE, "to": ["ops\x00@example.com"]}, "to"),
+        ({**BASE, "from_address": '"x"@example.com'}, "from_address"),
         ({**BASE, "to": [f"user{n}@example.com" for n in range(21)]}, "to"),
         (NO_SENDER, "from_address"),
         ({**BASE, "from_address": "nobody"}, "from_address"),

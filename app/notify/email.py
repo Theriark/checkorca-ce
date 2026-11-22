@@ -7,11 +7,13 @@ with a user name needs one. Changing the host, port, STARTTLS or user name
 needs the password again, so a stored password never goes to a new server.
 
 smtplib blocks, so a delivery runs in a thread with SMTP_TIMEOUT seconds for
-every network step. With starttls the relay must offer STARTTLS and present a
-certificate the system trusts; the login happens only after it. The relay is
-not checked by the SSRF guard: MSPs often send through an internal relay and
-only an admin can set it (docs/security.md). Errors become one sentence for
-the notification history, never the password or the relay's own words.
+every network step and SESSION_LIMIT for all of them. Once the relay accepted
+the message, the delivery counts as done whatever QUIT answers. With starttls
+the relay must offer STARTTLS and present a certificate the system trusts;
+the login happens only after it. The relay is not checked by the SSRF guard:
+MSPs often send through an internal relay and only an admin can set it
+(docs/security.md). Errors become one sentence for the notification history,
+never the password or the relay's own words.
 """
 
 import asyncio
@@ -20,6 +22,7 @@ import re
 import smtplib
 import socket
 import ssl
+import time
 from collections.abc import Collection, Mapping
 from email.message import EmailMessage
 from email.utils import formatdate, make_msgid
@@ -39,10 +42,16 @@ MAX_RECIPIENTS: Final = 20
 MAX_HOST_LENGTH: Final = 253
 MAX_USERNAME_LENGTH: Final = 320
 MAX_SUBJECT_LENGTH: Final = 200
-# Seconds for the connection and for every SMTP command.
+# Seconds for the connection and for every SMTP command, and for the whole
+# session: less than SEND_TIMEOUT (app/notify/delivery.py), so the thread
+# has ended when the dispatcher records the attempt.
 SMTP_TIMEOUT: Final = 20.0
+SESSION_LIMIT: Final = 75.0
 _HOST = re.compile(MAIL_DOMAIN_PATTERN)
 KEYS: Final = frozenset({"host", "port", "starttls", "username", "from_address", "to"})
+# Characters a plain address does not need and an address header reads as
+# structure (RFC 5322 specials, without @ and the dot).
+ADDRESS_SPECIALS: Final = frozenset('<>,;:"()[]\\')
 
 
 def one_line(value: str) -> str:
@@ -81,12 +90,19 @@ def _flag(name: str, value: Any, default: bool) -> bool:
 
 
 def _address(name: str, value: Any) -> str:
+    """One plain address: no display name, list separator, quote or control
+    character, so one entry is one recipient."""
     if not isinstance(value, str):
         raise ChannelConfigError(name, "Use an e-mail address.")
     try:
-        return normalise_email(value)
+        address = normalise_email(value)
     except ValueError:
         raise ChannelConfigError(name, "Use an e-mail address.") from None
+    if any(c in ADDRESS_SPECIALS or ord(c) < 32 or ord(c) == 127 for c in address):
+        raise ChannelConfigError(
+            name, "Use one plain address such as ops@example.com."
+        )
+    return address
 
 
 def _recipients(value: Any) -> list[str]:
@@ -184,27 +200,59 @@ def login(session: smtplib.SMTP, username: str, password: str) -> None:
         raise DeliveryError("The relay refused the user name or password.") from None
 
 
+def bound(session: smtplib.SMTP, deadline: float) -> None:
+    """Give the next SMTP step the time left of the session, SMTP_TIMEOUT
+    at most; DeliveryError when none is left."""
+    left = deadline - time.monotonic()
+    if left <= 0:
+        raise DeliveryError(
+            f"The relay took longer than {SESSION_LIMIT:.0f} seconds in all."
+        )
+    if session.sock is not None:
+        session.sock.settimeout(min(SMTP_TIMEOUT, left))
+
+
+def close(session: smtplib.SMTP, *, sent: bool) -> None:
+    """End the session. After the relay accepted the message, a bad answer
+    to QUIT or a dropped connection changes nothing (it is not sent again);
+    after a failure the connection is only closed."""
+    if sent:
+        try:
+            session.quit()
+            return
+        except (smtplib.SMTPException, OSError):
+            pass
+    session.close()
+
+
 def deliver(config: Mapping[str, Any], secret: str | None, email: EmailMessage) -> None:
     """Send one e-mail through the relay (blocking); DeliveryError on failure."""
     host = str(config["host"])
     port = int(config["port"])
     helo = str(config["from_address"]).rsplit("@", 1)[1]
+    deadline = time.monotonic() + SESSION_LIMIT
+    session: smtplib.SMTP | None = None
+    sent = False
     try:
-        with smtplib.SMTP(
-            host, port, local_hostname=helo, timeout=SMTP_TIMEOUT
-        ) as session:
+        session = smtplib.SMTP(host, port, local_hostname=helo, timeout=SMTP_TIMEOUT)
+        bound(session, deadline)
+        session.ehlo()
+        if config["starttls"]:
+            if not session.has_extn("starttls"):
+                raise DeliveryError(
+                    "The relay does not offer STARTTLS. Turn STARTTLS off "
+                    "only for a relay on a trusted network."
+                )
+            bound(session, deadline)
+            session.starttls(context=ssl.create_default_context())
+            bound(session, deadline)
             session.ehlo()
-            if config["starttls"]:
-                if not session.has_extn("starttls"):
-                    raise DeliveryError(
-                        "The relay does not offer STARTTLS. Turn STARTTLS off "
-                        "only for a relay on a trusted network."
-                    )
-                session.starttls(context=ssl.create_default_context())
-                session.ehlo()
-            if config.get("username"):
-                login(session, str(config["username"]), secret or "")
-            session.send_message(email)
+        if config.get("username"):
+            bound(session, deadline)
+            login(session, str(config["username"]), secret or "")
+        bound(session, deadline)
+        session.send_message(email)
+        sent = True
     except DeliveryError:
         raise
     except smtplib.SMTPAuthenticationError:
@@ -243,3 +291,6 @@ def deliver(config: Mapping[str, Any], secret: str | None, email: EmailMessage) 
         raise DeliveryError(
             f"The relay cannot be reached ({type(error).__name__})."
         ) from None
+    finally:
+        if session is not None:
+            close(session, sent=sent)
