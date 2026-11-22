@@ -141,20 +141,22 @@ describe('/clients/:id', () => {
       'GET /api/v1/jobs': { status: 200, body: { items: jobs, next_cursor: null } },
     });
     renderApp(`/clients/${client.id}`, [
-      { name: 'fake', clientTabs: [{ id: 'history', label: 'History', component: ({ clientId }) => <p>History of {clientId}</p> }] },
+      // The plugin id equals the built-in History tab id on purpose: the page keeps them apart.
+      { name: 'fake', clientTabs: [{ id: 'history', label: 'Contracts', component: ({ clientId }) => <p>Contracts of {clientId}</p> }] },
     ]);
     expect(await screen.findByRole('heading', { level: 1, name: client.name })).toBeTruthy();
     expect(screen.getByText('Contract renews in March.')).toBeTruthy();
     expect(screen.getByText('HD Clinic')).toBeTruthy();
     const tabs = screen.getByRole('tablist', { name: strings.clients.detail.pluginTabs });
-    expect(within(tabs).getAllByRole('tab')).toHaveLength(2);
+    // Jobs, Night Ribbon, History, then the plugin tab.
+    expect(within(tabs).getAllByRole('tab')).toHaveLength(4);
     const table = await screen.findByRole('table', { name: strings.jobs.tableCaption });
     await within(table).findByText('SQL dump script');
     expect(calls.find((call) => call.url.includes('/jobs?'))?.url).toContain(`client_id=${client.id}`);
     // The client column is not repeated on the client's own page.
     expect(within(table).queryByRole('columnheader', { name: strings.jobs.columns.client })).toBeNull();
-    await user.click(within(tabs).getByRole('tab', { name: 'History' }));
-    expect(screen.getByText(`History of ${client.id}`)).toBeTruthy();
+    await user.click(within(tabs).getByRole('tab', { name: 'Contracts' }));
+    expect(screen.getByText(`Contracts of ${client.id}`)).toBeTruthy();
   });
 
   it('shows a skeleton while the client loads, then a server error with the request id, and retries', async () => {

@@ -15,6 +15,7 @@ export const SECTIONS = [
 ] as const satisfies readonly { readonly path: string; readonly key: SectionKey }[];
 
 export const CLIENT_DETAIL_PATH = '/clients/$clientId';
+export const JOB_DETAIL_PATH = '/jobs/$jobId';
 export const MESSAGES_PATH = '/messages';
 export const MESSAGE_DETAIL_PATH = '/messages/$messageId';
 /** A pack lives under /parsers/packs/<id>, so the bench at /parsers/bench
@@ -25,6 +26,11 @@ export const BENCH_PATH = '/parsers/bench';
 /** /clients/<id>: one path segment after /clients, nothing else. */
 export function isClientDetailPath(pathname: string): boolean {
   return /^\/clients\/[^/]+$/.test(pathname);
+}
+
+/** /jobs/<id>: one path segment after /jobs, nothing else. */
+export function isJobDetailPath(pathname: string): boolean {
+  return /^\/jobs\/[^/]+$/.test(pathname);
 }
 
 /** /messages/<id>: one path segment after /messages, nothing else. */
@@ -41,6 +47,7 @@ export function isSectionPath(pathname: string): boolean {
   return (
     SECTIONS.some((section) => section.path === pathname) ||
     isClientDetailPath(pathname) ||
+    isJobDetailPath(pathname) ||
     pathname === MESSAGES_PATH ||
     isMessageDetailPath(pathname) ||
     isPackDetailPath(pathname) ||

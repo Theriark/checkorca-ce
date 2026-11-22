@@ -4,6 +4,7 @@
  *   /login, /first-run   public
  *   /                    the shell: morning check and the sections
  *   /clients/:id         a client under the shell
+ *   /jobs/:id            a job under the shell (30-day strip, history, raw message)
  *   /messages, /messages/:id   the messages of the inboxes, under the shell
  *   /parsers/packs/:id   a parser pack with its YAML editor and bench
  *   /parsers/bench       the test bench on its own
@@ -17,13 +18,16 @@ import { Outlet, createRootRoute, createRoute, createRouter, type RouterHistory 
 
 import { ClientDetailPage } from './features/clients/ClientDetailPage';
 import { ClientsPage } from './features/clients/ClientsPage';
+import { MorningCheckPage } from './features/dashboard/MorningCheckPage';
 import { InboxesPage } from './features/inboxes/InboxesPage';
+import { JobDetailPage } from './features/jobs/JobDetailPage';
 import { JobsPage } from './features/jobs/JobsPage';
 import { MessageDetailPage } from './features/messages/MessageDetailPage';
 import { MessagesPage } from './features/messages/MessagesPage';
 import { BenchPage } from './features/parsers/BenchPage';
 import { PackDetailPage } from './features/parsers/PackDetailPage';
 import { ParsersPage } from './features/parsers/ParsersPage';
+import { SystemPage } from './features/system/SystemPage';
 import { UnmatchedPage } from './features/unmatched/UnmatchedPage';
 import { FirstRunPage } from './routes/FirstRunPage';
 import { GALLERY_ENABLED, GalleryRoute } from './routes/GalleryRoute';
@@ -33,7 +37,7 @@ import { PluginRouteOutlet } from './routes/PluginRouteOutlet';
 import { SectionPage } from './routes/SectionPage';
 import { ShellGate } from './routes/ShellGate';
 import { sanitiseRedirect } from './routes/redirect';
-import { BENCH_PATH, CLIENT_DETAIL_PATH, MESSAGE_DETAIL_PATH, MESSAGES_PATH, PACK_DETAIL_PATH, SECTIONS } from './routes/sections';
+import { BENCH_PATH, CLIENT_DETAIL_PATH, JOB_DETAIL_PATH, MESSAGE_DETAIL_PATH, MESSAGES_PATH, PACK_DETAIL_PATH, SECTIONS } from './routes/sections';
 import type { SectionKey } from './shell/navigation';
 
 export const GALLERY_PATH = '/_gallery';
@@ -67,11 +71,13 @@ const shellRoute = createRoute({
 
 // The sections built so far; the others show their designed placeholder.
 const BUILT: Partial<Record<SectionKey, () => React.JSX.Element>> = {
+  morningCheck: MorningCheckPage,
   clients: ClientsPage,
   jobs: JobsPage,
   unmatched: UnmatchedPage,
   inboxes: InboxesPage,
   parsers: ParsersPage,
+  system: SystemPage,
 };
 
 const sectionRoutes = SECTIONS.map(({ path, key }) =>
@@ -86,6 +92,12 @@ const clientDetailRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: CLIENT_DETAIL_PATH,
   component: ClientDetailPage,
+});
+
+const jobDetailRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: JOB_DETAIL_PATH,
+  component: JobDetailPage,
 });
 
 const messagesRoute = createRoute({
@@ -130,7 +142,7 @@ const galleryRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   loginRoute,
   firstRunRoute,
-  shellRoute.addChildren([...sectionRoutes, clientDetailRoute, messagesRoute, messageDetailRoute, packDetailRoute, benchRoute, pluginRoute]),
+  shellRoute.addChildren([...sectionRoutes, clientDetailRoute, jobDetailRoute, messagesRoute, messageDetailRoute, packDetailRoute, benchRoute, pluginRoute]),
   ...(GALLERY_ENABLED ? [galleryRoute] : []),
 ]);
 

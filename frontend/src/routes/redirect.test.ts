@@ -20,7 +20,7 @@ describe('sanitiseRedirect (the router gate)', () => {
       '/jobs#frag',
       '/jo bs',
       '/jobs\n',
-      '/jobs\u0000',
+      `/jobs${String.fromCharCode(0)}`,
       42,
       null,
       undefined,
@@ -38,7 +38,8 @@ describe('resolveRedirect (the login page gate)', () => {
     expect(resolveRedirect('/reports', ['/reports'])).toBe('/reports');
     expect(resolveRedirect('/reports')).toBe('/');
     expect(resolveRedirect('/not-a-section')).toBe('/');
-    expect(resolveRedirect('/jobs/123')).toBe('/');
+    expect(resolveRedirect('/jobs/123')).toBe('/jobs/123');
+    expect(resolveRedirect('/jobs/123/edit')).toBe('/');
     expect(resolveRedirect(undefined)).toBe('/');
   });
 });

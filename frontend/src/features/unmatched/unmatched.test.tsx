@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -58,6 +58,13 @@ const JOBS = {
     return { status: 200, body: { items: [KEYED, OTHER].filter((item) => item.name.toLowerCase().includes(q)), next_cursor: null } };
   },
 };
+
+/** Lets settled fetches land in the queries and render. */
+async function settle() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+}
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -278,6 +285,12 @@ describe('/unmatched', () => {
     await user.clear(within(drawer).getByLabelText('Time 1'));
     await user.type(within(drawer).getByLabelText('Time 1'), '03:30');
     expect((within(drawer).getByLabelText('Time 1') as HTMLInputElement).value).toBe('03:30');
+    // The 422 has been asked for once; the queue count taken now tells the
+    // binding refresh apart from the first load of the queue.
+    const queueGets = () => calls.filter((call) => call.method === 'GET' && call.url.includes('/api/v1/unmatched?')).length;
+    const suggestGets = () => calls.filter((call) => call.url.includes('/suggest-schedule')).length;
+    expect(suggestGets()).toBe(1);
+    const queueBeforeCreate = queueGets();
     await user.click(within(drawer).getByRole('button', { name: strings.jobForm.create }));
     const post = await waitFor(() => {
       const found = calls.find((call) => call.method === 'POST' && call.url.endsWith('/create-job'));
@@ -303,6 +316,31 @@ describe('/unmatched', () => {
     expect(summary.textContent).toContain(fill(strings.unmatched.aliasAdded, { hint: 'Harbourside Dental (fictional)' }));
     expect(await screen.findByText(strings.unmatched.created)).toBeTruthy();
     expect(await screen.findByText(strings.unmatched.clientCreated)).toBeTruthy();
+    // The binding refresh fetches the queue, not the suggestion again: the
+    // 422 was asked for exactly once (C5-F hygiene). Wait for the refresh to
+    // have really run (a new queue GET after Create), then let any request
+    // issued with it land before counting.
+    await waitFor(() => expect(queueGets()).toBeGreaterThan(queueBeforeCreate));
+    await settle();
+    // Guards the queries.ts fix (useAfterBinding invalidates only
+    // [...UNMATCHED_KEY, 'list'], not all of UNMATCHED_KEY): the refresh runs
+    // in the mutation's onSuccess, before the drawer sets its summary, so the
+    // suggestion is still enabled then and a wider invalidation would fetch
+    // the 422 again here.
+    expect(suggestGets()).toBe(1);
+    // Guards the CreateJobDrawer fix (the suggestion is enabled only while
+    // done === null): a 422 holds no data, so the query is always stale and
+    // any later refetch trigger (here a visibility change, as the test client
+    // keeps refetchOnWindowFocus on) would ask for it again while the summary
+    // is on screen. The queue refetching proves the trigger fired.
+    const queueAfterCreate = queueGets();
+    act(() => {
+      window.dispatchEvent(new Event('visibilitychange'));
+    });
+    await waitFor(() => expect(queueGets()).toBeGreaterThan(queueAfterCreate));
+    await settle();
+    expect(suggestGets()).toBe(1);
+    expect(within(drawer).getByRole('status').textContent).toContain(fill(strings.unmatched.keySet, { key: 'Nightly server backup' }));
   });
 
   it('fills the schedule editor from a suggestion, and lands a 409 (name taken) as a form error', async () => {

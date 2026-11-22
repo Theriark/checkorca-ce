@@ -91,7 +91,7 @@ export function ImportPackDialog({ open, onOpenChange, onImported }: ImportPackD
       <div className="co-form">
         {error && (
           <Alert tone="danger" title={copy.importFailed}>
-            {error.status === 409 ? (error.title.toLowerCase().includes('built') ? copy.detail.builtinConflict : copy.detail.changedMeanwhile) : errorSentence(error)}
+            {error.status === 409 ? (error.title.toLowerCase().includes('built') ? copy.detail.builtinConflict : copy.importChangedMeanwhile) : errorSentence(error)}
             {error.issues.length > 0 && (
               <ul className="co-issues co-issues--plain" aria-label={copy.importIssues}>
                 {error.issues.map((issue, index) => (

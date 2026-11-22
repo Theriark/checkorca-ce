@@ -4,7 +4,8 @@
  * when there is one) and a row action menu. A click or Enter on a row opens
  * the editor.
  */
-import { Archive, ArchiveRestore, Copy, Pause, Pencil, Play } from 'lucide-react';
+import { Link, useNavigate } from '@tanstack/react-router';
+import { Archive, ArchiveRestore, Copy, ExternalLink, Pause, Pencil, Play } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import type { JobOut } from '../../api/jobs';
@@ -12,7 +13,7 @@ import { ActionMenu, type ActionItem } from '../../components/ui/ActionMenu';
 import { DataTable } from '../../components/ui/DataTable';
 import { SeverityBadge } from '../../components/ui/SeverityBadge';
 import type { DataTableColumn } from '../../components/ui/dataTableUtils';
-import { fill, formatDateTime } from '../../lib/format';
+import { fill, formatAgo, formatDateTime } from '../../lib/format';
 import { strings } from '../../strings';
 import { STATE_SEVERITY, kindLabel, scheduleKindLabel } from './jobState';
 import { isPaused } from './queries';
@@ -64,9 +65,12 @@ export function JobsTable({
   onEdit,
   actions,
 }: JobsTableProps) {
+  const navigate = useNavigate();
+  const onOpen = (job: JobOut) => void navigate({ to: '/jobs/$jobId', params: { jobId: job.id } });
   const menuFor = (job: JobOut): readonly ActionItem[] => {
     const paused = isPaused(job);
     return [
+      { id: 'open', label: strings.jobs.open, icon: <ExternalLink size={16} />, onSelect: () => onOpen(job) },
       { id: 'edit', label: strings.jobs.edit, icon: <Pencil size={16} />, onSelect: () => onEdit(job) },
       paused
         ? { id: 'resume', label: strings.jobs.resume, icon: <Play size={16} />, onSelect: () => actions.resume(job) }
@@ -85,7 +89,9 @@ export function JobsTable({
       sortValue: (job) => job.name,
       cell: (job) => (
         <span className="co-cell-title">
-          <span className="co-cell-title__name">{job.name}</span>
+          <Link to="/jobs/$jobId" params={{ jobId: job.id }} className="co-cell-title__name" onClick={(event) => event.stopPropagation()}>
+            {job.name}
+          </Link>
           {showClient && <span className="co-cell-title__sub">{job.client_name}</span>}
         </span>
       ),
@@ -109,7 +115,18 @@ export function JobsTable({
       id: 'last',
       header: strings.jobs.columns.lastSuccess,
       numeric: true,
-      cell: (job) => (job.last_success_at ? formatDateTime(job.last_success_at) : <span className="co-cell-muted">{strings.jobs.notYet}</span>),
+      // Sortable since the evaluator (C7) fills it; the exact time with how
+      // long ago under it, so "3 days ago" reads at a glance.
+      sortValue: (job) => job.last_success_at ?? null,
+      cell: (job) =>
+        job.last_success_at ? (
+          <span className="co-cell-schedule">
+            <span className="co-cell-schedule__expr">{formatDateTime(job.last_success_at)}</span>
+            <span className="co-cell-schedule__zone">{formatAgo(job.last_success_at)}</span>
+          </span>
+        ) : (
+          <span className="co-cell-muted">{strings.jobs.notYet}</span>
+        ),
     },
     {
       id: 'actions',

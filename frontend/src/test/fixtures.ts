@@ -165,6 +165,215 @@ export const STALE_STATUS = makeStatus({
   worker: { heartbeat_at: '2026-11-19T11:40:00Z', age_seconds: 1260, stale: true, holder: 'worker-1:42', started_at: '2026-11-19T08:00:00Z' },
 });
 
+// The Morning check (C8): today, the ribbon, the trend, the breakdown, the
+// activity timeline, the digest preview, occurrences and flips. The window
+// is the night of 19 to 20 Nov 2026 in UTC; the hostile names carry a script
+// tag and an img onerror so every page proves it escapes them.
+import type { ActivityItem, DashboardToday, DigestPreview, Ribbon, Stat, TrendDay } from '../api/dashboard';
+import type { FlipOut, OccurrenceOut } from '../api/jobs';
+
+export const NOW_FIXTURE = new Date('2026-11-20T08:00:00Z');
+export const HOSTILE_NAME = 'Harbourside <script>window.__pwned = 1</script> Dental';
+export const HOSTILE_JOB = 'Veeam <img src=x onerror="window.__pwned = 2"> nightly';
+
+export function makeStat(value: number, overrides: Partial<Stat> = {}): Stat {
+  return { value, delta_vs_yesterday: 0, spark14: [3, 4, 4, 5, 3, 4, 6, 5, 4, 4, 5, 6, 5, value], ...overrides };
+}
+
+export function makeToday(overrides: Partial<DashboardToday> = {}): DashboardToday {
+  return {
+    generated_at: '2026-11-20T08:00:00Z',
+    stats: {
+      verified: makeStat(12, { delta_vs_yesterday: 2 }),
+      failed: makeStat(2, { delta_vs_yesterday: -1 }),
+      silent: makeStat(3, { delta_vs_yesterday: 1 }),
+      unmatched: makeStat(1),
+      paused: makeStat(2, { spark14: Array<number>(14).fill(2) }),
+    },
+    coverage: { verified: 12, expected: 17, ratio: 0.7059 },
+    attention: [
+      {
+        client_id: 'c1000000-0000-4000-8000-000000000001',
+        client_name: HOSTILE_NAME,
+        job_id: 'j1000000-0000-4000-8000-000000000001',
+        job_name: HOSTILE_JOB,
+        state: 'missed',
+        expected_by: '2026-11-20T04:30:00Z',
+        last_success_at: '2026-11-17T23:40:00Z',
+        raw_message_id: null,
+        acknowledged_at: null,
+      },
+      {
+        client_id: 'c1000000-0000-4000-8000-000000000002',
+        client_name: 'Northwind Legal (fictional)',
+        job_id: 'j1000000-0000-4000-8000-000000000003',
+        job_name: 'Synology ABB',
+        state: 'failed',
+        expected_by: '2026-11-20T03:00:00Z',
+        last_success_at: '2026-11-18T23:10:00Z',
+        raw_message_id: 'm1000000-0000-4000-8000-000000000001',
+        acknowledged_at: '2026-11-20T07:15:00Z',
+      },
+      {
+        client_id: 'c1000000-0000-4000-8000-000000000002',
+        client_name: 'Northwind Legal (fictional)',
+        job_id: 'j1000000-0000-4000-8000-000000000004',
+        job_name: 'Cove server',
+        state: 'warning',
+        expected_by: '2026-11-20T02:00:00Z',
+        last_success_at: null,
+        raw_message_id: 'm1000000-0000-4000-8000-000000000002',
+        acknowledged_at: null,
+      },
+    ],
+    heartbeat: { at: '2026-11-20T07:59:40Z', age_seconds: 20, stale: false },
+    demo_seeded: true,
+    ...overrides,
+  };
+}
+
+export const EMPTY_TODAY: DashboardToday = makeToday({
+  stats: { verified: makeStat(0, { spark14: [] }), failed: makeStat(0, { spark14: [] }), silent: makeStat(0, { spark14: [] }), unmatched: makeStat(0, { spark14: [] }), paused: makeStat(0, { spark14: [] }) },
+  coverage: { verified: 0, expected: 0, ratio: null },
+  attention: [],
+  demo_seeded: false,
+});
+
+export function makeRibbon(overrides: Partial<Ribbon> = {}): Ribbon {
+  return {
+    window: { from: '2026-11-19T18:00:00Z', to: '2026-11-20T12:00:00Z' },
+    morning_line_at: '2026-11-20T07:30:00Z',
+    clients: [
+      {
+        id: 'c1000000-0000-4000-8000-000000000001',
+        name: HOSTILE_NAME,
+        jobs: [
+          {
+            id: 'j1000000-0000-4000-8000-000000000001',
+            name: HOSTILE_JOB,
+            occurrences: [{ scheduled_for: '2026-11-19T23:00:00Z', deadline: '2026-11-20T04:30:00Z', state: 'missed', result_at: null }],
+          },
+          {
+            id: 'j1000000-0000-4000-8000-000000000002',
+            name: 'SQL dump script',
+            occurrences: [
+              { scheduled_for: '2026-11-19T21:00:00Z', deadline: '2026-11-19T22:30:00Z', state: 'verified', result_at: '2026-11-19T21:12:00Z' },
+              { scheduled_for: '2026-11-20T01:30:00Z', deadline: '2026-11-20T03:00:00Z', state: 'overdue', result_at: null },
+              { scheduled_for: '2026-11-20T09:30:00Z', deadline: '2026-11-20T11:00:00Z', state: 'pending', result_at: null },
+            ],
+          },
+        ],
+      },
+      {
+        id: 'c1000000-0000-4000-8000-000000000002',
+        name: 'Northwind Legal (fictional)',
+        jobs: [
+          { id: 'j1000000-0000-4000-8000-000000000003', name: 'Synology ABB', occurrences: [{ scheduled_for: '2026-11-20T00:00:00Z', deadline: '2026-11-20T03:00:00Z', state: 'failed', result_at: '2026-11-20T00:40:00Z' }] },
+          { id: 'j1000000-0000-4000-8000-000000000004', name: 'Cove server', occurrences: [{ scheduled_for: '2026-11-20T00:00:00Z', deadline: '2026-11-20T02:00:00Z', state: 'warning', result_at: '2026-11-20T00:20:00Z' }] },
+        ],
+      },
+    ],
+    ...overrides,
+  };
+}
+
+export const EMPTY_RIBBON: Ribbon = makeRibbon({ clients: [] });
+
+export function makeTrend(days = 30): TrendDay[] {
+  const items: TrendDay[] = [];
+  for (let index = 0; index < days; index += 1) {
+    const date = new Date(Date.UTC(2026, 9, 22 + index));
+    items.push({ date: date.toISOString().slice(0, 10), verified: 10 + (index % 4), failed: index % 3, silent: index % 5 === 0 ? 2 : 0 });
+  }
+  return items;
+}
+
+export const BREAKDOWN_VENDOR = {
+  by: 'vendor' as const,
+  items: [
+    { key: 'veeam-br', label: 'Veeam', verified: 120, failed: 6, silent: 3 },
+    { key: 'synology-abb', label: 'Synology', verified: 60, failed: 2, silent: 8 },
+    { key: 'none', label: '', verified: 40, failed: 0, silent: 1 },
+  ],
+};
+
+export const BREAKDOWN_CLIENT = {
+  by: 'client' as const,
+  items: [
+    { key: 'c1000000-0000-4000-8000-000000000001', label: HOSTILE_NAME, verified: 80, failed: 4, silent: 6 },
+    { key: 'c1000000-0000-4000-8000-000000000002', label: 'Northwind Legal (fictional)', verified: 140, failed: 4, silent: 6 },
+  ],
+};
+
+export function makeActivity(overrides: Partial<ActivityItem> = {}): ActivityItem {
+  return {
+    id: 'a1000000-0000-4000-8000-000000000001',
+    at: '2026-11-20T07:45:00Z',
+    kind: 'flip',
+    summary: `${HOSTILE_JOB} (${HOSTILE_NAME}): ok to missed`,
+    ref_kind: 'job',
+    ref_id: 'j1000000-0000-4000-8000-000000000001',
+    ...overrides,
+  };
+}
+
+export const ACTIVITY_ITEMS: ActivityItem[] = [
+  makeActivity(),
+  makeActivity({ id: 'a1000000-0000-4000-8000-000000000002', at: '2026-11-20T00:41:00Z', kind: 'ingest', summary: 'Message received in Veeam reports: parsed', ref_kind: 'message', ref_id: 'm1000000-0000-4000-8000-000000000001' }),
+  makeActivity({ id: 'a1000000-0000-4000-8000-000000000003', at: '2026-11-19T17:02:00Z', kind: 'config', summary: 'Job pause', ref_kind: 'job', ref_id: 'j1000000-0000-4000-8000-000000000004' }),
+];
+
+/** A link with a script URL: rendered as markup it would run on a click. */
+export const HOSTILE_LINK = '<a href="javascript:alert(1)">x</a>';
+
+export const HOSTILE_ACTIVITY: ActivityItem = makeActivity({
+  id: 'a1000000-0000-4000-8000-000000000004',
+  at: '2026-11-20T07:50:00Z',
+  kind: 'config',
+  summary: `Client renamed to ${HOSTILE_LINK} ${HOSTILE_NAME}`,
+  ref_kind: 'client',
+  ref_id: 'c1000000-0000-4000-8000-000000000001',
+});
+
+export const DIGEST: DigestPreview = {
+  date: '2026-11-20',
+  subject: 'Morning check 2026-11-20: 2 failed <script>window.__pwned = 5</script> 3 silent <img src=x onerror="window.__pwned = 6"> 12 verified',
+  html: '<!doctype html><html><body style="margin:0;padding:24px;font-family:sans-serif"><h1 style="font-size:22px">Morning check, 20 Nov 2026</h1><p>12 verified, 2 failed, 3 silent.</p><script>window.parent.__pwned = 3; document.body.innerHTML = "pwned"</script><img src="x" onerror="window.__pwned = 4"></body></html>',
+  text: 'Morning check, 20 Nov 2026\n12 verified, 2 failed, 3 silent.\n<script>alert(1)</script>',
+};
+
+export function makeOccurrence(overrides: Partial<OccurrenceOut> = {}): OccurrenceOut {
+  return {
+    job_id: 'j1000000-0000-4000-8000-000000000001',
+    scheduled_for: '2026-11-19T23:00:00Z',
+    deadline: '2026-11-20T04:30:00Z',
+    state: 'missed',
+    result_id: null,
+    note: null,
+    ...overrides,
+  };
+}
+
+export const OCCURRENCES: OccurrenceOut[] = [
+  makeOccurrence(),
+  makeOccurrence({ scheduled_for: '2026-11-18T23:00:00Z', deadline: '2026-11-19T04:30:00Z', state: 'verified', result_id: 'r1000000-0000-4000-8000-000000000001' }),
+  makeOccurrence({ scheduled_for: '2026-11-17T23:00:00Z', deadline: '2026-11-18T04:30:00Z', state: 'failed', result_id: 'r1000000-0000-4000-8000-000000000002', note: 'disk full' }),
+  makeOccurrence({ scheduled_for: '2026-11-10T23:00:00Z', deadline: '2026-11-11T04:30:00Z', state: 'warning', result_id: 'r1000000-0000-4000-8000-000000000003' }),
+];
+
+export function makeFlip(overrides: Partial<FlipOut> = {}): FlipOut {
+  return {
+    id: 'f1000000-0000-4000-8000-000000000001',
+    job_id: 'j1000000-0000-4000-8000-000000000001',
+    client_id: 'c1000000-0000-4000-8000-000000000001',
+    from_state: 'ok',
+    to_state: 'missed',
+    reason: 'No result by the deadline',
+    at: '2026-11-20T04:30:00Z',
+    ...overrides,
+  };
+}
+
 // Unmatched results, bindings, parser packs and bench answers (C5).
 import type { PackDetail, PackOut, PackTestAnswer } from '../api/packs';
 import type { Binding, UnmatchedOut } from '../api/unmatched';

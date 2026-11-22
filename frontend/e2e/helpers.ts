@@ -64,9 +64,9 @@ const EXPECTED_CONSOLE = [/Failed to load resource: the server responded with a 
  *  read them. Use on every flow: the product must stay silent. A flow that
  *  provokes an error answer on purpose (a 409 for a taken name) lists the
  *  statuses it expects; the browser logs those as failed resources. */
-export function watchConsole(page: Page, expectedStatuses: readonly number[] = []): () => readonly string[] {
+export function watchConsole(page: Page, expectedStatuses: readonly number[] = [], expectedPatterns: readonly RegExp[] = []): () => readonly string[] {
   const errors: string[] = [];
-  const expected = [...EXPECTED_CONSOLE, ...expectedStatuses.map((status) => new RegExp(`Failed to load resource: the server responded with a status of ${status}`))];
+  const expected = [...EXPECTED_CONSOLE, ...expectedStatuses.map((status) => new RegExp(`Failed to load resource: the server responded with a status of ${status}`)), ...expectedPatterns];
   page.on('console', (message) => {
     if (message.type() === 'error' && !expected.some((pattern) => pattern.test(message.text()))) {
       errors.push(message.text());
@@ -110,10 +110,30 @@ export async function setView(page: Page, width: number, scheme: Scheme) {
   await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
 }
 
-/** Axe (WCAG 2.1 A and AA) must report nothing. */
-export async function expectAccessible(page: Page) {
-  const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
+/**
+ * Axe (WCAG 2.1 A and AA) must report nothing. frames false checks the iframe
+ * elements but not their documents: a frame sandboxed without allow-scripts
+ * cannot take axe, and the frame-by-frame run then hangs until the test times
+ * out. It uses axe.run with iframes off (legacy mode) instead.
+ */
+export async function expectAccessible(page: Page, { frames = true }: { frames?: boolean } = {}) {
+  const builder = new AxeBuilder({ page });
+  if (!frames) {
+    builder.options({ iframes: false }).setLegacyMode();
+  }
+  const results = await builder.withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
   expect(results.violations, JSON.stringify(results.violations, null, 2)).toEqual([]);
+}
+
+/** The hostile fixtures (script tags, img onerror, javascript: links) are
+ *  on screen as text only: no inline script, no element with an onerror
+ *  attribute, no javascript: link in the page, and none of them ran (each
+ *  would set window.__pwned). Call it once the hostile text has rendered. */
+export async function expectNothingRan(page: Page) {
+  expect(await page.locator('script:not([src])').count(), 'inline script elements').toBe(0);
+  expect(await page.locator('[onerror]').count(), 'elements with an onerror attribute').toBe(0);
+  expect(await page.locator('a[href^="javascript:"]').count(), 'javascript: links').toBe(0);
+  expect(await page.evaluate(() => (window as unknown as { __pwned?: number }).__pwned)).toBeUndefined();
 }
 
 /** Nothing overflows the viewport horizontally. */

@@ -94,3 +94,296 @@
     animation: none;
   }
 }
+
+/* ---------- The live Night Ribbon (NightRibbon.tsx) ---------- */
+
+.co-nr {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  min-width: 0;
+}
+
+/* Labels column and the lane column; the lanes are drawn at the measured
+   width of the column, so a 640 px fallback never stretches. */
+.co-nr__grid {
+  display: grid;
+  grid-template-columns: minmax(120px, 200px) minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--space-3);
+  row-gap: 2px;
+  min-width: 0;
+}
+
+.co-nr--single .co-nr__grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.co-nr--single .co-nr__corner,
+.co-nr--single .co-nr__label {
+  display: none;
+}
+
+.co-nr__axis,
+.co-nr__lane {
+  min-width: 0;
+  border-radius: var(--radius-sm);
+}
+
+.co-nr__lane {
+  background: var(--ribbon-night);
+}
+
+.co-nr__axis-svg,
+.co-nr__row-svg {
+  display: block;
+  overflow: visible;
+}
+
+.co-nr__label {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  padding-right: var(--space-2);
+}
+
+.co-nr__client {
+  font-size: var(--text-14);
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+a.co-nr__client:hover {
+  text-decoration: underline;
+}
+
+.co-nr__sub {
+  font-size: var(--text-12);
+  color: var(--text-secondary);
+}
+
+.co-nr__line {
+  stroke: var(--gridline);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  opacity: 0.8;
+}
+
+.co-nr__tick {
+  stroke: var(--gridline);
+  stroke-width: 1;
+}
+
+.co-nr__tick-label {
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  fill: var(--text-secondary);
+}
+
+/* The one red line of the page. */
+.co-nr__morning {
+  stroke: var(--ribbon-morning);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.co-nr__morning-label {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--ribbon-morning);
+}
+
+.co-nr__now {
+  stroke: var(--text-secondary);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.co-nr__ring {
+  stroke-width: 2.5;
+  fill: var(--surface);
+}
+
+.co-nr__ring--verified {
+  stroke: var(--status-success);
+  fill: var(--status-success);
+}
+
+.co-nr__ring--warning {
+  stroke: var(--status-warning);
+  fill: var(--status-warning);
+}
+
+.co-nr__ring--failed {
+  stroke: var(--status-danger);
+  fill: var(--status-danger);
+}
+
+.co-nr__ring--maintenance {
+  stroke: var(--status-muted);
+  fill: var(--status-muted);
+}
+
+/* Still expected: a dashed outline, quieter than silence. */
+.co-nr__ring--pending,
+.co-nr__ring--running {
+  stroke: var(--text-secondary);
+  stroke-dasharray: 3 2.5;
+  fill: transparent;
+}
+
+.co-nr__ring-core {
+  fill: var(--text-secondary);
+}
+
+/* Silence: hollow, breathing (opacity and scale only, 2.4 s), joined to the
+   deadline by the dotted gap line. */
+.co-nr__ring--hollow {
+  stroke: var(--ribbon-ring);
+  fill: transparent;
+  animation: co-ribbon-pulse 2.4s ease-in-out infinite;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+.co-nr__gap {
+  stroke: var(--ribbon-gap);
+  stroke-width: 1.5;
+  stroke-dasharray: 2 4;
+  stroke-linecap: round;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .co-nr__ring--hollow {
+    animation: none;
+  }
+}
+
+.co-nr__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  font-size: var(--text-12);
+  color: var(--text-secondary);
+}
+
+.co-nr__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.co-nr__swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--text-secondary);
+  box-sizing: border-box;
+}
+
+.co-nr__swatch--verified {
+  border-color: var(--status-success);
+  background: var(--status-success);
+}
+
+.co-nr__swatch--warning {
+  border-color: var(--status-warning);
+  background: var(--status-warning);
+}
+
+.co-nr__swatch--failed {
+  border-color: var(--status-danger);
+  background: var(--status-danger);
+}
+
+.co-nr__swatch--hollow {
+  border-color: var(--ribbon-ring);
+  background: transparent;
+}
+
+.co-nr__swatch--pending {
+  border-style: dashed;
+  background: transparent;
+}
+
+.co-nr__swatch--morning {
+  width: 3px;
+  height: 14px;
+  border: 0;
+  border-radius: 2px;
+  background: var(--ribbon-morning);
+}
+
+@media (max-width: 1023px) {
+  .co-nr__grid {
+    grid-template-columns: minmax(96px, 140px) minmax(0, 1fr);
+  }
+}
+
+/* ---------- The ribbon as chips (RibbonChips.tsx, phone width) ---------- */
+
+/* minmax(0, 1fr) and min-width 0: a chip's nowrap job name would otherwise
+   set the min-content width and push the card past a 390 px screen. */
+.co-nrc {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.co-nrc__client {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.co-nrc__name {
+  font-size: var(--text-14);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.co-nrc__name a {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.co-nrc__name a:hover {
+  text-decoration: underline;
+}
+
+.co-nrc__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.co-nrc__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 100%;
+  min-height: 32px;
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  font-size: var(--text-12);
+}
+
+.co-nrc__job {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

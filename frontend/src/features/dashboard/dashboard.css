@@ -1,0 +1,550 @@
+/* Layouts of the Morning check, the client ribbon and history, the job
+   detail and the System page (phase C8-F). Controls are styled in
+   components/ui/ui.css, the ribbon in ribbon/ribbon.css, the charts in
+   charts/charts.css; this file only arranges them. */
+
+/* ---------- Morning check ---------- */
+
+.co-dash__lead {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.co-dash__refreshing {
+  font-size: var(--text-12);
+  color: var(--text-secondary);
+}
+
+.co-dash__seed-note {
+  margin: calc(-1 * var(--space-3)) 0 0;
+}
+
+/* Numbers first: the five stat cards and the coverage ring on one row at
+   1440 px; the ring moves under the cards from 1023 px down. */
+.co-dash__top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: var(--space-4);
+  align-items: stretch;
+}
+
+.co-dash__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.co-dash__coverage {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.co-dash__card {
+  display: grid;
+  gap: var(--space-4);
+  align-content: start;
+  min-width: 0;
+}
+
+.co-dash__card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.co-dash__card-head .co-card__head {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.co-dash__card-aside {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.co-dash__ribbon-aside {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.co-dash__count {
+  font-size: var(--text-12);
+  color: var(--text-secondary);
+}
+
+.co-dash__ribbon-skeleton,
+.co-dash__list-skeleton {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.co-dash__row {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.co-dash__row--even {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.co-dash__more {
+  font-size: var(--text-14);
+}
+
+.co-dash__kind {
+  min-width: 160px;
+}
+
+.co-dash__firstrun .co-empty {
+  max-width: 640px;
+}
+
+.co-dash__firstrun .co-empty__action {
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+@media (max-width: 1279px) {
+  .co-dash__top {
+    grid-template-columns: minmax(0, 1fr) 260px;
+  }
+}
+
+@media (max-width: 1023px) {
+  .co-dash__top,
+  .co-dash__row,
+  .co-dash__row--even {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---------- Needs attention ---------- */
+
+.co-attn {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.co-attn__row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+}
+
+.co-attn__row[data-state='missed'],
+.co-attn__row[data-state='overdue'] {
+  border-left: 4px solid var(--ribbon-ring);
+}
+
+.co-attn__row[data-state='failed'] {
+  border-left: 4px solid var(--status-danger);
+}
+
+.co-attn__row[data-state='warning'] {
+  border-left: 4px solid var(--status-warning);
+}
+
+.co-attn__badge {
+  display: flex;
+  align-items: center;
+  min-width: 84px;
+}
+
+.co-attn__body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.co-attn__names {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.co-attn__job {
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.co-attn__job:hover {
+  text-decoration: underline;
+}
+
+.co-attn__client {
+  font-size: var(--text-14);
+  color: var(--text-secondary);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.co-attn__client:hover {
+  text-decoration: underline;
+}
+
+.co-attn__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  font-size: var(--text-12);
+  color: var(--text-secondary);
+}
+
+.co-attn__ack {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--status-success);
+  font-weight: 600;
+}
+
+.co-attn__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
+
+.co-attn__nomessage {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  color: var(--text-secondary);
+  opacity: 0.6;
+}
+
+@media (max-width: 639px) {
+  .co-attn__row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .co-attn__badge {
+    min-width: 0;
+  }
+
+  .co-attn__actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+}
+
+/* ---------- Activity timeline ---------- */
+
+.co-act {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.co-act__row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.co-act__row:last-child {
+  border-bottom: 0;
+}
+
+.co-act__icon {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-top: 2px;
+  border-radius: 50%;
+  background: var(--bg-sunken);
+  color: var(--text-secondary);
+}
+
+.co-act__row--flip .co-act__icon {
+  background: var(--status-info-bg);
+  color: var(--status-info);
+}
+
+.co-act__row--ingest .co-act__icon {
+  background: var(--status-success-bg);
+  color: var(--status-success);
+}
+
+.co-act__body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.co-act__summary {
+  font-size: var(--text-14);
+  overflow-wrap: anywhere;
+}
+
+.co-act__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  font-size: var(--text-12);
+  color: var(--text-secondary);
+}
+
+.co-act__kind {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  font-size: 11px;
+}
+
+.co-act__link {
+  font-weight: 600;
+}
+
+/* ---------- Digest preview ---------- */
+
+.co-digest__controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.co-digest__date {
+  max-width: 220px;
+}
+
+.co-digest {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.co-digest__skeleton {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.co-digest__subject {
+  font-size: var(--text-14);
+  overflow-wrap: anywhere;
+}
+
+.co-digest__subject-label {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.co-digest__frame {
+  display: block;
+  width: 100%;
+  height: min(60vh, 640px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: #f4f6f9;
+}
+
+/* ---------- Job detail ---------- */
+
+.co-job__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.co-job__state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.co-job__ack {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-14);
+  color: var(--status-success);
+  font-weight: 600;
+}
+
+.co-job__ack-note {
+  font-size: var(--text-12);
+  color: var(--text-secondary);
+}
+
+@media (max-width: 1023px) {
+  .co-job__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* The 30-day strip: one cell per day, worst run of the day, today on the
+   right. Each cell carries an icon or a gap, never colour alone. */
+.co-strip {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.co-strip__cells {
+  display: grid;
+  grid-template-columns: repeat(30, minmax(0, 1fr));
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.co-strip__cell {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  min-width: 0;
+  border-radius: 4px;
+  background: var(--bg-sunken);
+  color: var(--text-secondary);
+}
+
+.co-strip__cell svg {
+  width: 60%;
+  height: 60%;
+}
+
+.co-strip__cell--verified {
+  background: var(--status-success);
+  color: #fff;
+}
+
+.co-strip__cell--warning {
+  background: var(--status-warning);
+  color: #fff;
+}
+
+.co-strip__cell--failed {
+  background: var(--status-danger);
+  color: #fff;
+}
+
+.co-strip__cell--overdue,
+.co-strip__cell--missed {
+  background: transparent;
+  border: 2px solid var(--ribbon-ring);
+  color: var(--ribbon-ring);
+}
+
+.co-strip__cell--pending,
+.co-strip__cell--running {
+  border: 2px dashed var(--border-strong);
+  background: transparent;
+}
+
+.co-strip__cell--maintenance {
+  background: var(--status-muted-bg);
+  color: var(--status-muted);
+}
+
+.co-strip__cell--today {
+  outline: 2px solid var(--text);
+  outline-offset: 1px;
+}
+
+.co-strip__axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--text-12);
+  color: var(--text-secondary);
+}
+
+@media (max-width: 639px) {
+  .co-strip__cells {
+    grid-template-columns: repeat(15, minmax(0, 1fr));
+  }
+}
+
+/* ---------- System ---------- */
+
+.co-sys__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.co-sys__big {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.co-sys__value {
+  font-size: var(--text-24);
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.co-sys__inboxes {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.co-sys__inbox {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-14);
+}
+
+.co-sys__inbox:last-child {
+  border-bottom: 0;
+}
+
+.co-sys__inbox-name {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-weight: 500;
+}
+
+.co-sys__inbox-time {
+  color: var(--text-secondary);
+}
+
+/* ---------- Client history ---------- */
+
+.co-hist {
+  display: grid;
+  gap: var(--space-4);
+}

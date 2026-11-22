@@ -1,17 +1,22 @@
 import { expect, test } from '@playwright/test';
 
 import { installFakeApi, installIngestApi, installParserApi } from './fakeApi';
+import { installDashboardApi } from './fakeDashboard';
 import { ADMIN, SCHEMES, TECHNICIAN, WIDTHS, expectAccessible, expectLogo, expectNoHorizontalOverflow, setView, shot, stubApi, watchConsole } from './helpers';
 
 const SECTIONS = ['Morning check', 'Clients', 'Jobs', 'Unmatched', 'Inboxes', 'Parsers', 'Notifications', 'System', 'Settings'];
-// Sections with a built page (C3, C4, C5); the others still show their placeholder.
+// Sections with a built table page (C3, C4, C5); Morning check and System
+// (C8) are built without a table; the others still show their placeholder.
 const BUILT = ['Clients', 'Jobs', 'Unmatched', 'Inboxes', 'Parsers'];
+const BUILT_TEST_IDS: Readonly<Record<string, string>> = { 'Morning check': 'stat-cards', System: 'worker-state' };
 
 for (const scheme of SCHEMES) {
   for (const width of WIDTHS) {
     test(`shell as admin at ${width} px, ${scheme}`, async ({ page }) => {
       const errors = watchConsole(page);
       await stubApi(page, { me: ADMIN });
+      const fake = await installFakeApi(page);
+      await installDashboardApi(page, { fake });
       await setView(page, width, scheme);
       await page.goto('/');
       await expect(page.getByRole('heading', { level: 1, name: 'Morning check' })).toBeVisible();
@@ -71,13 +76,17 @@ test('shell: every section link opens its page or a designed placeholder, never 
   const fake = await installFakeApi(page);
   const ingest = await installIngestApi(page);
   await installParserApi(page, { fake, ingest });
+  await installDashboardApi(page, { fake });
   await setView(page, 1440, 'light');
   await page.goto('/');
   const sidebar = page.getByRole('navigation', { name: 'Main navigation' });
   for (const section of SECTIONS) {
     await sidebar.getByRole('link', { name: section }).click();
     await expect(page.getByRole('heading', { level: 1, name: section })).toBeVisible();
-    if (section === 'Unmatched') {
+    const testId = BUILT_TEST_IDS[section];
+    if (testId) {
+      await expect(page.getByTestId(testId)).toBeVisible();
+    } else if (section === 'Unmatched') {
       // A queue and a split view, not a table.
       await expect(page.getByRole('list', { name: 'Unmatched results' })).toBeVisible();
     } else if (BUILT.includes(section)) {
@@ -139,7 +148,8 @@ test('shell: Ctrl K opens the command search and goes to Clients', async ({ page
 test('shell: no console errors while signed in and moving between sections', async ({ page }) => {
   const errors = watchConsole(page);
   await stubApi(page, { me: ADMIN });
-  await installFakeApi(page);
+  const fake = await installFakeApi(page);
+  await installDashboardApi(page, { fake });
   await setView(page, 1440, 'light');
   await page.goto('/');
   await expect(page.getByRole('heading', { level: 1, name: 'Morning check' })).toBeVisible();

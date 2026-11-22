@@ -275,7 +275,7 @@ describe('404', () => {
 
   it('is also what the shell gives for an unknown path when signed in', async () => {
     stubFetch({ 'GET /api/v1/auth/me': { status: 200, body: ADMIN } });
-    renderApp('/jobs/does-not-exist');
+    renderApp('/inboxes/does-not-exist');
     expect(await screen.findByRole('heading', { level: 1, name: strings.notFound.title })).toBeTruthy();
     expect(screen.getByRole('link', { name: strings.notFound.toHome })).toBeTruthy();
   });
