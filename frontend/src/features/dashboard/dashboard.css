@@ -138,6 +138,7 @@
   margin: 0;
   padding: 0;
   list-style: none;
+  container: attn / inline-size;
 }
 
 .co-attn__row {
@@ -236,6 +237,21 @@
   height: 32px;
   color: var(--text-secondary);
   opacity: 0.6;
+}
+
+/* Three buttons (Acknowledge, Pause, Open message) take about 380 px; on
+   one line in a list narrower than 760 px they squeezed the job column to
+   66 px at 768 and 95 px at 1440, breaking names mid-word. Below that the
+   actions sit under the job, aligned with it. */
+@container attn (max-width: 759px) {
+  .co-attn__row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .co-attn__actions {
+    grid-column: 2 / -1;
+    justify-content: flex-start;
+  }
 }
 
 @media (max-width: 639px) {
