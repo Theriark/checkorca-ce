@@ -108,7 +108,8 @@ describe('/jobs/:id', () => {
     const ack = await screen.findByTestId('acknowledged-at');
     expect(ack.textContent).toMatch(/2026/);
     expect(screen.getByText(strings.jobDetail.acknowledgedBy)).toBeTruthy();
-    expect(screen.queryByText(ADMIN.email)).toBeNull();
+    // The shell's account menu shows the signed-in e-mail; the page itself never names anyone.
+    expect(within(screen.getByRole('main')).queryByText(ADMIN.email)).toBeNull();
     expect(screen.queryByRole('button', { name: strings.dashboard.acknowledge })).toBeNull();
   });
 

@@ -280,7 +280,8 @@ export function ClientDetailPage() {
     { id: HISTORY_TAB, label: strings.clientHistory.historyTab, content: tab === HISTORY_TAB ? <ClientHistoryTab client={data} /> : null },
     ...pluginTabs.map((item) => {
       const Component = item.component;
-      return { id: item.id, label: item.label, content: <Component clientId={data.id} /> };
+      // Prefixed so a plugin tab id can never collide with a built-in tab.
+      return { id: `plugin-${item.id}`, label: item.label, content: <Component clientId={data.id} /> };
     }),
   ];
 

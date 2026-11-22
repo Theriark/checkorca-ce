@@ -25,7 +25,7 @@ describe('/system', () => {
     stubFetch({ ...ME, 'GET /api/v1/system/status': { status: 200, body: status } });
     renderApp('/system');
     expect(await screen.findByRole('heading', { level: 1, name: strings.system.title })).toBeTruthy();
-    const worker = screen.getByTestId('worker-state');
+    const worker = await screen.findByTestId('worker-state');
     expect(worker.textContent).toContain(strings.system.heartbeatOk);
     expect(worker.querySelector('svg')).toBeTruthy();
     expect(screen.getByText('20 s ago')).toBeTruthy();
