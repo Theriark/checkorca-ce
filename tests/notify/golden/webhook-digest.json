@@ -1,0 +1,26 @@
+{
+  "event": "digest",
+  "at": "2027-01-05T07:31:00Z",
+  "url": "https://ce-dev-checkorca.theriark.dev/",
+  "product": "Checkorca-CE",
+  "schema_version": 1,
+  "date": "2027-01-05",
+  "counts": {
+    "verified": 41,
+    "failed": 1,
+    "silent": 1,
+    "warning": 2
+  },
+  "items": [
+    {
+      "client": "Fictional Freight Ltd",
+      "job": "Hyper Backup nightly",
+      "state": "missed"
+    },
+    {
+      "client": "Fictional Dental Clinic",
+      "job": "Veeam BR",
+      "state": "failed"
+    }
+  ]
+}

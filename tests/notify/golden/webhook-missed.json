@@ -1,0 +1,23 @@
+{
+  "event": "missed",
+  "at": "2027-01-05T07:30:00Z",
+  "url": "https://ce-dev-checkorca.theriark.dev/jobs/22222222-2222-4222-8222-222222222222",
+  "product": "Checkorca-CE",
+  "schema_version": 1,
+  "job": {
+    "id": "22222222-2222-4222-8222-222222222222",
+    "name": "Nightly server backup",
+    "kind": "backup"
+  },
+  "client": {
+    "id": "33333333-3333-4333-8333-333333333333",
+    "name": "Fictional Dental Clinic"
+  },
+  "state": "missed",
+  "previous_state": "ok",
+  "reason": "The run was due at 23:00 and nothing reported by 01:00.",
+  "occurrence": {
+    "scheduled_for": "2027-01-04T23:00:00Z",
+    "deadline": "2027-01-05T01:00:00Z"
+  }
+}

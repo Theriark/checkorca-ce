@@ -1,0 +1,7 @@
+{
+  "event": "test",
+  "at": "2027-01-05T08:00:00Z",
+  "url": "https://ce-dev-checkorca.theriark.dev/",
+  "product": "Checkorca-CE",
+  "schema_version": 1
+}
