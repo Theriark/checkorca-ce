@@ -13,7 +13,15 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
-from app.db.models import Client, Flip, Job, JobStateRecord, Occurrence, name_key
+from app.db.models import (
+    AppUser,
+    Client,
+    Flip,
+    Job,
+    JobStateRecord,
+    Occurrence,
+    name_key,
+)
 from app.evaluator.tick import Evaluator, evaluate_jobs
 from app.security.tokens import new_ping_token
 from app.settings import load_settings
@@ -74,12 +82,18 @@ async def stored(engine: AsyncEngine, job: Job) -> Job:
 
 
 async def test_a_flip_clears_the_acknowledgement(
-    context: WorkerContext, db_engine: AsyncEngine, clock: FakeClock
+    context: WorkerContext, db_engine: AsyncEngine, clock: FakeClock, admin: AppUser
 ) -> None:
-    job = await add_job(db_engine, "Nightly server backup", acknowledged_at=CREATED)
+    job = await add_job(
+        db_engine,
+        "Nightly server backup",
+        acknowledged_at=CREATED,
+        acknowledged_by=admin.id,
+    )
     at(clock, OVERDUE_AT)
     await evaluate_jobs(context, clock.now())
-    assert (await stored(db_engine, job)).acknowledged_at == CREATED
+    before = await stored(db_engine, job)
+    assert (before.acknowledged_at, before.acknowledged_by) == (CREATED, admin.id)
     at(clock, MISSED_AT)
     await evaluate_jobs(context, clock.now())
     async with async_sessionmaker(db_engine)() as db:

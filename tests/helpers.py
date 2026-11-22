@@ -240,3 +240,57 @@ async def build_scenario(
     await move_to(client, clock, SCENARIO_END)
     await tick()
     return jobs
+
+
+# A synthetic alert mail of the scenario's nightly backup (written for the
+# tests, generic-keywords style). Its relay header and its last body line
+# carry a secret-looking value that no export, digest or activity may show.
+MAIL_SECRET = "Canary-mail-" + "k" * 16
+MAIL_MESSAGE_ID = "<c8-nightly-1@backup.example.com>"
+MAIL_INBOX = "Alert mailbox"
+NIGHTLY_MAIL = (
+    "From: Backup Server <backup@example.com>\r\n"
+    "To: alerts@example.com\r\n"
+    "Subject: [Success] Nightly server backup\r\n"
+    "Date: Wed, 6 Jan 2027 08:55:00 +0000\r\n"
+    f"Message-ID: {MAIL_MESSAGE_ID}\r\n"
+    f"X-Relay-Credential: {MAIL_SECRET}\r\n"
+    "Content-Type: text/plain; charset=utf-8\r\n"
+    "\r\n"
+    f"Client: {CLIENT_NAMES[0]}\r\n"
+    "Status: Success\r\n"
+    "Host: fs01.example.com\r\n"
+    f"Api key: {MAIL_SECRET}\r\n"
+).encode()
+
+
+async def deliver_mail(
+    client: httpx.AsyncClient, csrf: str, parse: Callable[[], Awaitable[None]]
+) -> str:
+    """NIGHTLY_MAIL through an SMTP inbox's HTTP receiver, then the worker's
+    parse hook (parse): the result is bound to the nightly backup of the
+    dental clinic. Returns the stored message's id."""
+    headers = {CSRF_HEADER: csrf}
+    inbox = await client.post(
+        "/api/v1/inboxes", json={"kind": "smtp", "label": MAIL_INBOX}, headers=headers
+    )
+    assert inbox.status_code == 201, inbox.text
+    token = await client.post(
+        "/api/v1/tokens",
+        json={"label": "Mail relay", "scope": "ingest"},
+        headers=headers,
+    )
+    assert token.status_code == 201, token.text
+    code = str(inbox.json()["ingest_url"]).rsplit("/", 1)[1]
+    sent = await client.post(
+        f"/api/v1/ingest/email/{code}",
+        content=NIGHTLY_MAIL,
+        headers={
+            "Authorization": f"Bearer {token.json()['token']}",
+            "Content-Type": "message/rfc822",
+        },
+    )
+    assert sent.status_code == 202, sent.text
+    await parse()
+    message_id: str = sent.json()["message_id"]
+    return message_id

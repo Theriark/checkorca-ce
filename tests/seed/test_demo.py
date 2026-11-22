@@ -5,6 +5,7 @@ pipeline on PostgreSQL, and that a second run adds nothing.
 Every client, job and address is synthetic (legal R-11).
 """
 
+import dataclasses
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -29,6 +30,7 @@ from app.db.models import (
     RawMessage,
     name_key,
 )
+from app.ext.events import Event
 from app.main import create_app
 from app.matcher import tokens
 from app.parsers.engine import Parsed, mail_from_raw, parse
@@ -57,6 +59,18 @@ from helpers import (
 )
 
 COUNTED = (Client, Job, RawMessage, JobResult, Occurrence, Flip, AuditEvent)
+
+
+class Recorder:
+    """An event subscriber that keeps what it receives."""
+
+    name = "recorder"
+
+    def __init__(self) -> None:
+        self.events: list[Event] = []
+
+    async def handle(self, event: Event) -> None:
+        self.events.append(event)
 
 
 @pytest.fixture
@@ -178,8 +192,9 @@ async def test_demo_clients_left_by_an_interrupted_seed_are_not_doubled(
     report = await seed_demo(demo, clock.now())
     assert (report.seeded, report.reason) == (False, "demo clients exist already")
     assert (await counts(db_engine))["job"] == 0
+    # The history of that seed is incomplete: it is not marked as seeded.
     async with async_sessionmaker(db_engine)() as db:
-        assert (await db.scalars(select(AppSettings.demo_seeded))).one() is True
+        assert (await db.scalars(select(AppSettings.demo_seeded))).one() is False
 
 
 async def test_the_demo_seed_goes_through_the_pipeline_once(
@@ -189,11 +204,14 @@ async def test_the_demo_seed_goes_through_the_pipeline_once(
     admin: AppUser,
 ) -> None:
     hook = DemoSeedHook()
-    await hook(demo, clock.now())
+    recorder = Recorder()
+    await hook(dataclasses.replace(demo, subscribers=(recorder,)), clock.now())
     assert hook.done
     seeded = await counts(db_engine)
     assert seeded["client"] == 20 and seeded["job"] == 60
     assert seeded["raw_message"] > 300 and seeded["flip"] > 0
+    # Made-up flips never reach a subscriber (phase C9 notifies through them).
+    assert recorder.events == []
     async with async_sessionmaker(db_engine)() as db:
         notes = set((await db.scalars(select(Client.notes))).all())
         assert notes == {SEED_NOTE}

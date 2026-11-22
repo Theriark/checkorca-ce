@@ -100,7 +100,8 @@ async def db_engine(migrated: None) -> AsyncIterator[AsyncEngine]:
         await connection.execute(
             text(
                 "UPDATE settings SET external_heartbeat_url_enc = NULL, "
-                "demo_seeded = false"
+                "demo_seeded = false, digest_timezone = 'Europe/Lisbon', "
+                "digest_time_local = '07:30'"
             )
         )
     yield engine

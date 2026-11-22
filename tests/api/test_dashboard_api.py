@@ -5,6 +5,7 @@ fake clock, with the worker's evaluator hook.
 Clients and jobs are synthetic (legal R-11: fictional companies).
 """
 
+import uuid
 from collections.abc import AsyncIterator, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
@@ -13,22 +14,30 @@ from typing import Any
 import httpx
 import pytest
 from fastapi import FastAPI
-from sqlalchemy import event
+from sqlalchemy import event, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.api.deps import Services
-from app.db.models import AppUser
+from app.api.v1.dashboard import NO_PACK_LABEL
+from app.db.models import AppSettings, AppUser, Job
 from app.evaluator.tick import evaluate_jobs
 from app.settings import load_settings
 from app.worker.loop import WorkerContext, build_context
+from app.worker.parse import ParseHook
 from helpers import (
     ADMIN_EMAIL,
     ADMIN_PASSWORD,
     CLIENT_NAMES,
     CSRF_HEADER,
+    MAIL_INBOX,
+    MAIL_SECRET,
     SCENARIO_END,
+    TECHNICIAN_EMAIL,
+    TECHNICIAN_PASSWORD,
     FakeClock,
+    another_browser,
     build_scenario,
+    deliver_mail,
     make_client,
     make_job,
     move_to,
@@ -38,6 +47,8 @@ from helpers import (
 
 DENTAL, FREIGHT, LAW = CLIENT_NAMES
 SPARK_ZEROS = [0] * 12
+# Built-in packs for the jobs added in the query count test.
+PACKS = ("veeam-br", "synology-abb", "msp360")
 
 
 @pytest.fixture
@@ -274,6 +285,19 @@ async def test_the_ribbon_shows_the_night_by_client_and_job(
         params={"from": stamp(1, 0), "to": stamp(6, 0)},
     )
     assert too_long.status_code == 422
+    longest = await client.get(
+        "/api/v1/dashboard/ribbon",
+        params={"from": stamp(3, 12), "to": stamp(6, 12)},
+    )
+    assert longest.status_code == 200
+    # A bound outside 2000 to 2099 is refused (a window there would overflow).
+    for params in (
+        {"from": "0001-01-01T00:00:00Z"},
+        {"to": "9999-12-31T23:00:00Z"},
+        {"from": "2100-01-01T00:00:00Z", "to": "2100-01-01T06:00:00Z"},
+    ):
+        far = await client.get("/api/v1/dashboard/ribbon", params=params)
+        assert far.status_code == 422, params
 
 
 async def test_trend_and_breakdown_count_calendar_days(
@@ -307,8 +331,11 @@ async def test_trend_and_breakdown_count_calendar_days(
             "silent": 2,
         }
     ]
-    wrong = await client.get("/api/v1/dashboard/trend", params={"days": 0})
-    assert wrong.status_code == 422
+    longest = await client.get("/api/v1/dashboard/trend", params={"days": 90})
+    assert len(longest.json()["items"]) == 90
+    for days in (0, 91):
+        wrong = await client.get("/api/v1/dashboard/trend", params={"days": days})
+        assert wrong.status_code == 422, days
 
 
 async def test_activity_lists_flips_and_changes_newest_first(
@@ -351,6 +378,8 @@ async def test_activity_lists_flips_and_changes_newest_first(
     assert ingest["items"] == []
     broken = await client.get("/api/v1/activity", params={"cursor": "nope"})
     assert broken.status_code == 400
+    too_many = await client.get("/api/v1/activity", params={"limit": 201})
+    assert too_many.status_code == 422
 
 
 async def test_the_digest_preview_renders_the_night(
@@ -375,8 +404,11 @@ async def test_the_digest_preview_renders_the_night(
     assert earlier.json()["subject"].endswith(": 1 silent, 3 verified")
     empty = await client.get("/api/v1/digest/preview", params={"date": "2026-12-01"})
     assert empty.json()["subject"].endswith(": no runs were due")
-    wrong = await client.get("/api/v1/digest/preview", params={"date": "1999-12-31"})
-    assert wrong.status_code == 422
+    last = await client.get("/api/v1/digest/preview", params={"date": "2099-12-31"})
+    assert last.json()["subject"].endswith(": no runs were due")
+    for day in ("1999-12-31", "2100-01-01"):
+        wrong = await client.get("/api/v1/digest/preview", params={"date": day})
+        assert wrong.status_code == 422, day
 
 
 async def test_dashboard_routes_run_a_fixed_number_of_queries(
@@ -409,21 +441,53 @@ async def test_dashboard_routes_run_a_fixed_number_of_queries(
         return found
 
     before = await measure()
-    # Ten more clients with three jobs each; a day later each has a missed run
-    # to count, list and show.
+    # Ten more clients with three jobs each, one per parser pack (three more
+    # vendor groups); a day later each has a missed run to count, list and
+    # show.
     for number in range(10):
         made = await make_client(client, csrf, f"Example Client {number:02d}")
-        for job in range(3):
+        for job, pack in enumerate(PACKS):
             await make_job(
-                client, csrf, made["id"], f"Job {job}", schedule_expr="20:00"
+                client,
+                csrf,
+                made["id"],
+                f"Job {job}",
+                schedule_expr="20:00",
+                parser_pack_id=pack,
             )
     await move_to(client, clock, SCENARIO_END + timedelta(days=1))
     await evaluate_jobs(worker, clock.now())
     today = (await client.get("/api/v1/dashboard/today")).json()
     assert len(today["attention"]) > 30
+    vendors = (await client.get("/api/v1/dashboard/breakdown")).json()["items"]
+    assert {item["key"] for item in vendors} == {"none", *PACKS}
     after = await measure()
     assert after == before
     assert max(before.values()) <= 12
+
+    # Within a group the same deadline is ordered by client and job name; an
+    # acknowledged job goes after the ones nobody acknowledged.
+    def missed(items: list[dict[str, Any]]) -> list[tuple[str, str]]:
+        return [
+            (item["client_name"], item["job_name"])
+            for item in items
+            if item["state"] == "missed"
+        ]
+
+    order = missed(today["attention"])
+    assert order[:4] == [
+        ("Example Client 00", "Job 0"),
+        ("Example Client 00", "Job 1"),
+        ("Example Client 00", "Job 2"),
+        ("Example Client 01", "Job 0"),
+    ]
+    first = today["attention"][0]
+    acknowledged = await client.post(
+        f"/api/v1/jobs/{first['job_id']}/acknowledge", headers={CSRF_HEADER: csrf}
+    )
+    assert acknowledged.status_code == 200
+    again = (await client.get("/api/v1/dashboard/today")).json()["attention"]
+    assert missed(again) == order[1:] + order[:1]
 
 
 async def test_dashboard_routes_need_a_reader(app: FastAPI) -> None:
@@ -454,3 +518,224 @@ async def test_a_read_token_reads_the_dashboard(
     assert today.status_code == 200
     assert today.json()["coverage"] == {"verified": 0, "expected": 0, "ratio": None}
     assert today.json()["attention"] == []
+
+
+def csv_lines(response: httpx.Response) -> list[str]:
+    assert response.status_code == 200, response.text
+    return response.content.decode("utf-8-sig").splitlines()
+
+
+async def test_archived_jobs_and_clients_leave_the_dashboard(
+    client: httpx.AsyncClient, csrf: str, jobs: dict[str, dict[str, Any]]
+) -> None:
+    # The law office (mail archive and paused job) and the offsite copy go.
+    law = jobs["archive"]["client_id"]
+    for path in (
+        f"/api/v1/clients/{law}/archive",
+        f"/api/v1/jobs/{jobs['offsite']['id']}/archive",
+    ):
+        archived = await client.post(path, headers={CSRF_HEADER: csrf})
+        assert archived.status_code == 200, archived.text
+    today = (await client.get("/api/v1/dashboard/today")).json()
+    stats = today["stats"]
+    assert stats["verified"] == {
+        "value": 1,
+        "delta_vs_yesterday": -1,
+        "spark14": SPARK_ZEROS + [2, 1],
+    }
+    assert stats["failed"]["value"] == 1
+    assert stats["silent"] == {
+        "value": 0,
+        "delta_vs_yesterday": 0,
+        "spark14": [0] * 14,
+    }
+    assert stats["paused"]["value"] == 0
+    assert today["coverage"] == {"verified": 1, "expected": 2, "ratio": 0.5}
+    assert [(item["job_name"], item["state"]) for item in today["attention"]] == [
+        ("Database dump", "failed")
+    ]
+    ribbon = (await client.get("/api/v1/dashboard/ribbon")).json()
+    assert [
+        (lane["name"], [job["name"] for job in lane["jobs"]])
+        for lane in ribbon["clients"]
+    ] == [(DENTAL, ["Database dump", "Nightly server backup"])]
+    trend = (await client.get("/api/v1/dashboard/trend", params={"days": 3})).json()
+    assert trend["items"] == [
+        {"date": "2027-01-04", "verified": 2, "failed": 0, "silent": 0},
+        {"date": "2027-01-05", "verified": 1, "failed": 1, "silent": 0},
+        {"date": "2027-01-06", "verified": 0, "failed": 0, "silent": 0},
+    ]
+    by_client = await client.get(
+        "/api/v1/dashboard/breakdown", params={"by": "client", "days": 3}
+    )
+    assert [
+        (item["label"], item["verified"], item["failed"], item["silent"])
+        for item in by_client.json()["items"]
+    ] == [(DENTAL, 3, 1, 0)]
+    by_vendor = await client.get("/api/v1/dashboard/breakdown", params={"days": 3})
+    assert [
+        (item["key"], item["verified"], item["failed"], item["silent"])
+        for item in by_vendor.json()["items"]
+    ] == [("none", 3, 1, 0)]
+    preview = (await client.get("/api/v1/digest/preview")).json()
+    assert preview["subject"].endswith(": 1 failed, 1 verified")
+    assert "Offsite copy" not in preview["text"]
+
+    # The exports keep them: history is history.
+    history = await client.get(
+        "/api/v1/exports/history.csv",
+        params={"from": "2027-01-04", "to": "2027-01-05"},
+    )
+    lines = csv_lines(history)
+    assert len(lines) == 9
+    assert sum(",Mail archive," in line for line in lines) == 2
+    assert sum(",Offsite copy," in line for line in lines) == 2
+    day = await client.get("/api/v1/exports/day.csv", params={"date": "2027-01-05"})
+    assert len(csv_lines(day)) == 5
+    export = csv_lines(await client.get(f"/api/v1/clients/{law}/export.csv"))
+    assert export[1].startswith(f"client,{LAW},,2027-01-04T09:00:00Z,archived,")
+    assert any(line.startswith(f"job,{LAW},Mail archive,") for line in export)
+
+
+async def test_calendar_days_and_the_night_follow_the_digest_zone(
+    client: httpx.AsyncClient,
+    jobs: dict[str, dict[str, Any]],
+    db_engine: AsyncEngine,
+) -> None:
+    # Tokyo is UTC+9 all year: the runs of the evening of 4 January (UTC)
+    # fall on 5 January there, those of 5 January on the 6th, and the
+    # scenario ends at 18:00 on 6 January.
+    async with db_engine.begin() as connection:
+        await connection.execute(
+            update(AppSettings).values(digest_timezone="Asia/Tokyo")
+        )
+    trend = (await client.get("/api/v1/dashboard/trend", params={"days": 3})).json()
+    assert trend["items"] == [
+        {"date": "2027-01-04", "verified": 0, "failed": 0, "silent": 0},
+        {"date": "2027-01-05", "verified": 3, "failed": 0, "silent": 1},
+        {"date": "2027-01-06", "verified": 1, "failed": 1, "silent": 1},
+    ]
+    day = await client.get("/api/v1/exports/day.csv", params={"date": "2027-01-05"})
+    rows = [line.split(",") for line in csv_lines(day)[1:]]
+    assert [(row[0], row[2], row[5]) for row in rows] == [
+        ("2027-01-05", "Mail archive", "2027-01-04T20:00:00Z"),
+        ("2027-01-05", "Offsite copy", "2027-01-04T21:00:00Z"),
+        ("2027-01-05", "Database dump", "2027-01-04T22:00:00Z"),
+        ("2027-01-05", "Nightly server backup", "2027-01-04T23:00:00Z"),
+    ]
+    # The digest of 6 January: due from 07:30 on the 5th to 07:30 on the 6th
+    # in Tokyo (22:30 UTC to 22:30 UTC).
+    preview = (await client.get("/api/v1/digest/preview")).json()
+    assert preview["date"] == "2027-01-06"
+    assert preview["subject"].endswith(": 1 failed, 1 silent, 1 warning, 1 verified")
+    text = preview["text"]
+    assert "Runs due from 2027-01-05 07:30 to 2027-01-06 07:30 (Asia/Tokyo)" in text
+    assert f"- Missed: {FREIGHT} / Offsite copy, due 2027-01-06 06:00" in text
+    earlier = await client.get("/api/v1/digest/preview", params={"date": "2027-01-05"})
+    assert earlier.json()["subject"].endswith(": 1 silent, 2 verified")
+    # 18:00 in Tokyo: tonight's night, to 12:00 tomorrow there.
+    ribbon = (await client.get("/api/v1/dashboard/ribbon")).json()
+    assert ribbon["window"] == {"from": stamp(6, 9), "to": "2027-01-07T03:00:00Z"}
+    assert ribbon["morning_line_at"] == stamp(6, 22, 30)
+
+
+async def test_the_vendor_is_the_pack_set_on_the_job(
+    client: httpx.AsyncClient,
+    csrf: str,
+    jobs: dict[str, dict[str, Any]],
+    worker: WorkerContext,
+    clock: FakeClock,
+) -> None:
+    # The parse hook writes the built-in packs (no mail waits).
+    await ParseHook()(worker, clock.now())
+    for key, pack in (
+        ("nightly", "veeam-br"),
+        ("offsite", "veeam-br"),
+        ("dump", "synology-abb"),
+    ):
+        changed = await client.patch(
+            f"/api/v1/jobs/{jobs[key]['id']}",
+            json={"parser_pack_id": pack},
+            headers={CSRF_HEADER: csrf},
+        )
+        assert changed.status_code == 200, changed.text
+    # Every result came by ping or the results API, none through a pack: the
+    # vendor is the pack set on the job.
+    by_vendor = await client.get("/api/v1/dashboard/breakdown", params={"days": 3})
+    assert by_vendor.json()["items"] == [
+        {
+            "key": "none",
+            "label": NO_PACK_LABEL,
+            "verified": 1,
+            "failed": 0,
+            "silent": 0,
+        },
+        {
+            "key": "synology-abb",
+            "label": "Synology Active Backup for Business",
+            "verified": 1,
+            "failed": 1,
+            "silent": 0,
+        },
+        {
+            "key": "veeam-br",
+            "label": "Veeam Backup & Replication",
+            "verified": 2,
+            "failed": 0,
+            "silent": 2,
+        },
+    ]
+
+
+async def test_a_received_mail_is_ingest_activity(
+    client: httpx.AsyncClient,
+    csrf: str,
+    jobs: dict[str, dict[str, Any]],
+    worker: WorkerContext,
+    clock: FakeClock,
+) -> None:
+    async def parse() -> None:
+        await ParseHook()(worker, clock.now())
+
+    message_id = await deliver_mail(client, csrf, parse)
+    ingest = (await client.get("/api/v1/activity", params={"kind": "ingest"})).json()
+    assert ingest["items"] == [
+        {
+            "id": message_id,
+            "at": "2027-01-06T09:00:00Z",
+            "kind": "ingest",
+            "summary": f"Message received in {MAIL_INBOX}: parsed",
+            "ref_kind": "message",
+            "ref_id": message_id,
+        }
+    ]
+    every = await client.get("/api/v1/activity", params={"limit": 200})
+    assert MAIL_SECRET not in every.text
+
+
+async def test_a_technician_acknowledges_and_a_read_token_cannot(
+    app: FastAPI,
+    client: httpx.AsyncClient,
+    csrf: str,
+    jobs: dict[str, dict[str, Any]],
+    technician: AppUser,
+    db_engine: AsyncEngine,
+) -> None:
+    url = f"/api/v1/jobs/{jobs['dump']['id']}/acknowledge"
+    created = await client.post(
+        "/api/v1/tokens",
+        json={"label": "Wallboard", "scope": "read"},
+        headers={CSRF_HEADER: csrf},
+    )
+    bearer = {"Authorization": f"Bearer {created.json()['token']}"}
+    async with another_browser(app) as other:
+        assert (await other.post(url, headers=bearer)).status_code == 401
+        token = await sign_in(other, TECHNICIAN_EMAIL, TECHNICIAN_PASSWORD)
+        done = await other.post(url, headers={CSRF_HEADER: token})
+        assert done.status_code == 200, done.text
+        assert done.json()["acknowledged_at"] == "2027-01-06T09:00:00Z"
+    async with db_engine.connect() as connection:
+        query = select(Job.acknowledged_by).where(
+            Job.id == uuid.UUID(jobs["dump"]["id"])
+        )
+        assert (await connection.execute(query)).scalar_one() == technician.id

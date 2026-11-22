@@ -178,3 +178,68 @@ def test_days_and_nights_follow_the_digest_zone() -> None:
         datetime(2027, 7, 1, 6, 30, tzinfo=UTC),
         datetime(2027, 7, 2, 6, 30, tzinfo=UTC),
     )
+
+
+def test_the_autumn_change_day_has_25_hours() -> None:
+    # Summer time ends on 31 October 2027 in Lisbon: 02:00 goes back to 01:00.
+    start, end = day_bounds(date(2027, 10, 31), LISBON)
+    assert (start, end - start) == (
+        datetime(2027, 10, 30, 23, tzinfo=UTC),
+        timedelta(hours=25),
+    )
+
+
+def test_the_skipped_hour_is_read_with_the_offset_before_the_change() -> None:
+    # 01:30 does not exist on 28 March 2027 in Lisbon (01:00 jumps to 02:00):
+    # it is read as 01:30 UTC+0, so the digest window that ends the next day
+    # (01:30 UTC+1) has 23 hours and every bound exists.
+    skipped = time(1, 30)
+    assert digest_window(date(2027, 3, 28), LISBON, skipped) == (
+        datetime(2027, 3, 27, 1, 30, tzinfo=UTC),
+        datetime(2027, 3, 28, 1, 30, tzinfo=UTC),
+    )
+    assert digest_window(date(2027, 3, 29), LISBON, skipped) == (
+        datetime(2027, 3, 28, 1, 30, tzinfo=UTC),
+        datetime(2027, 3, 29, 0, 30, tzinfo=UTC),
+    )
+    # 01:30 twice on 31 October: the first one (still UTC+1) counts.
+    assert digest_window(date(2027, 11, 1), LISBON, skipped) == (
+        datetime(2027, 10, 31, 0, 30, tzinfo=UTC),
+        datetime(2027, 11, 1, 1, 30, tzinfo=UTC),
+    )
+
+
+def test_digest_night_and_morning_line_on_the_change_days() -> None:
+    digest_time = time(7, 30)
+    # Spring: the digest window and the night lose an hour.
+    assert digest_window(date(2027, 3, 28), LISBON, digest_time) == (
+        datetime(2027, 3, 27, 7, 30, tzinfo=UTC),
+        datetime(2027, 3, 28, 6, 30, tzinfo=UTC),
+    )
+    spring = night_window(datetime(2027, 3, 28, 8, tzinfo=UTC), LISBON)
+    assert spring == (
+        datetime(2027, 3, 27, 18, tzinfo=UTC),
+        datetime(2027, 3, 28, 11, tzinfo=UTC),
+    )
+    assert morning_line(*spring, LISBON, digest_time) == datetime(
+        2027, 3, 28, 6, 30, tzinfo=UTC
+    )
+    assert night_window(datetime(2027, 3, 28, 17, tzinfo=UTC), LISBON)[0] == (
+        datetime(2027, 3, 28, 17, tzinfo=UTC)
+    )
+    # Autumn: they gain one.
+    assert digest_window(date(2027, 10, 31), LISBON, digest_time) == (
+        datetime(2027, 10, 30, 6, 30, tzinfo=UTC),
+        datetime(2027, 10, 31, 7, 30, tzinfo=UTC),
+    )
+    autumn = night_window(datetime(2027, 10, 31, 8, tzinfo=UTC), LISBON)
+    assert autumn == (
+        datetime(2027, 10, 30, 17, tzinfo=UTC),
+        datetime(2027, 10, 31, 12, tzinfo=UTC),
+    )
+    assert morning_line(*autumn, LISBON, digest_time) == datetime(
+        2027, 10, 31, 7, 30, tzinfo=UTC
+    )
+    assert night_window(datetime(2027, 10, 31, 17, 59, tzinfo=UTC), LISBON)[0] == (
+        datetime(2027, 10, 30, 17, tzinfo=UTC)
+    )

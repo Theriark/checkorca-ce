@@ -16,21 +16,25 @@ from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from app.access import SYSTEM, AllowAllPolicy
+from app.api.v1 import exports
 from app.db.models import AppUser
 from app.evaluator.tick import evaluate_jobs
 from app.repos.settings import SettingsRepository
 from app.security.crypto import SecretBox
 from app.settings import load_settings
 from app.worker.loop import WorkerContext, build_context
+from app.worker.parse import ParseHook
 from helpers import (
     ADMIN_EMAIL,
     ADMIN_PASSWORD,
     CLIENT_NAMES,
     CSRF_HEADER,
+    MAIL_SECRET,
     TEST_FERNET_KEY,
     FakeClock,
     another_browser,
     build_scenario,
+    deliver_mail,
     sign_in,
 )
 
@@ -39,6 +43,8 @@ DENTAL = CLIENT_NAMES[0]
 # Secrets nobody would type: if one shows up in an export, a secret leaked.
 IMAP_CANARY = "Canary-imap-" + "q" * 16
 HEARTBEAT_CANARY = "https://hb.example.test/Canary-heartbeat-" + "z" * 16
+# Stands for the stored message's id (a new UUID each run) in the golden file.
+MESSAGE_ID = "RAW-MESSAGE-ID"
 
 
 @pytest.fixture
@@ -47,18 +53,29 @@ async def csrf(client: httpx.AsyncClient, admin: AppUser) -> str:
 
 
 @pytest.fixture
-async def jobs(
-    client: httpx.AsyncClient, csrf: str, db_engine: AsyncEngine, clock: FakeClock
-) -> AsyncIterator[dict[str, dict[str, Any]]]:
-    worker: WorkerContext = build_context(load_settings(), clock)
+async def worker(
+    db_engine: AsyncEngine, clock: FakeClock
+) -> AsyncIterator[WorkerContext]:
+    built = build_context(load_settings(), clock)
+    yield built
+    await built.engine.dispose()
 
+
+@pytest.fixture
+async def jobs(
+    client: httpx.AsyncClient, csrf: str, worker: WorkerContext, clock: FakeClock
+) -> dict[str, dict[str, Any]]:
     async def tick() -> None:
         await evaluate_jobs(worker, clock.now())
 
-    try:
-        yield await build_scenario(client, csrf, clock, tick)
-    finally:
-        await worker.engine.dispose()
+    return await build_scenario(client, csrf, clock, tick)
+
+
+async def mail_in(
+    client: httpx.AsyncClient, csrf: str, worker: WorkerContext, clock: FakeClock
+) -> str:
+    """The nightly backup's alert mail (helpers.py), received and parsed."""
+    return await deliver_mail(client, csrf, lambda: ParseHook()(worker, clock.now()))
 
 
 def golden(name: str) -> str:
@@ -105,8 +122,13 @@ async def test_the_history_export_matches_its_golden_file(
         "/api/v1/exports/history.csv", params={"from": "2027-01-05", "to": "2027-01-04"}
     )
     assert backwards.status_code == 422
+    # At most 366 days, both included.
+    longest = await client.get(
+        "/api/v1/exports/history.csv", params={"from": "2026-01-06", "to": "2027-01-06"}
+    )
+    assert len(csv_text(longest).splitlines()) == 9
     too_long = await client.get(
-        "/api/v1/exports/history.csv", params={"from": "2026-01-01", "to": "2027-01-05"}
+        "/api/v1/exports/history.csv", params={"from": "2026-01-05", "to": "2027-01-06"}
     )
     assert too_long.status_code == 422
     unknown = await client.get(
@@ -117,11 +139,29 @@ async def test_the_history_export_matches_its_golden_file(
 
 
 async def test_the_client_export_holds_the_full_history(
-    client: httpx.AsyncClient, jobs: dict[str, dict[str, Any]]
+    client: httpx.AsyncClient,
+    csrf: str,
+    jobs: dict[str, dict[str, Any]],
+    worker: WorkerContext,
+    clock: FakeClock,
 ) -> None:
     dental = jobs["dump"]["client_id"]
+    headers = {CSRF_HEADER: csrf}
+    changed = await client.patch(
+        f"/api/v1/clients/{dental}",
+        json={"notes": "Front desk opens at 08:00.", "aliases": ["FDC Main Office"]},
+        headers=headers,
+    )
+    assert changed.status_code == 200, changed.text
+    archived = await client.post(
+        f"/api/v1/jobs/{jobs['dump']['id']}/archive", headers=headers
+    )
+    assert archived.status_code == 200, archived.text
+    message_id = await mail_in(client, csrf, worker, clock)
     response = await client.get(f"/api/v1/clients/{dental}/export.csv")
-    assert csv_text(response) == golden("client-dental.csv")
+    text = csv_text(response).replace(message_id, MESSAGE_ID)
+    assert text == golden("client-dental.csv")
+    assert MAIL_SECRET not in text
     disposition = response.headers["content-disposition"]
     assert disposition == f'attachment; filename="checkorca-client-{dental}.csv"'
     missing = await client.get(
@@ -149,8 +189,12 @@ async def test_no_secret_appears_in_an_export_or_the_digest(
     csrf: str,
     jobs: dict[str, dict[str, Any]],
     db_engine: AsyncEngine,
+    worker: WorkerContext,
+    clock: FakeClock,
 ) -> None:
     headers = {CSRF_HEADER: csrf}
+    # A received mail whose relay header and body carry a secret.
+    await mail_in(client, csrf, worker, clock)
     imap = await client.post(
         "/api/v1/inboxes",
         json={
@@ -184,6 +228,7 @@ async def test_no_secret_appears_in_an_export_or_the_digest(
     ping_tokens = [str(job["ping_url"]).rsplit("/", 1)[1] for job in jobs.values()]
     secrets = [IMAP_CANARY, HEARTBEAT_CANARY, webhook_token, *tokens, *ping_tokens]
     secrets += [hashlib.sha256(value.encode()).hexdigest() for value in secrets]
+    secrets.append(MAIL_SECRET)
 
     texts = []
     for path in (
@@ -199,8 +244,32 @@ async def test_no_secret_appears_in_an_export_or_the_digest(
     for text in texts:
         for secret in secrets:
             assert secret not in text
-    # The canaries are real: the IMAP password is stored (encrypted).
+    # The canaries are real: the IMAP password is stored (encrypted), and the
+    # mail reached the client export (its subject is there, its secret not).
     assert imap.json()["imap"]["secret_set"] is True
+    assert any("[Success] Nightly server backup" in text for text in texts)
+
+
+async def test_an_export_over_the_row_limit_is_refused_not_cut(
+    client: httpx.AsyncClient,
+    jobs: dict[str, dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Three rows at most: 5 January has four runs, the dental clinic four
+    # occurrences and four results; the freight company two of each kind.
+    monkeypatch.setattr(exports, "MAX_ROWS", 3)
+    dental = jobs["dump"]["client_id"]
+    freight = jobs["offsite"]["client_id"]
+    for path in (
+        "/api/v1/exports/day.csv?date=2027-01-05",
+        "/api/v1/exports/history.csv?from=2027-01-04&to=2027-01-05",
+        f"/api/v1/clients/{dental}/export.csv",
+    ):
+        refused = await client.get(path)
+        assert refused.status_code == 422, path
+        assert refused.json()["title"] == "Export too large"
+    allowed = await client.get(f"/api/v1/clients/{freight}/export.csv")
+    assert allowed.status_code == 200
 
 
 async def test_exports_need_a_reader(
