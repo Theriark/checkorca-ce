@@ -26,6 +26,8 @@ type Problem = components['schemas']['Problem'];
 
 const PROBLEM_HEADERS = { 'content-type': 'application/problem+json', 'x-request-id': 'req-e2e' };
 const CSV_HEADERS = { 'content-type': 'text/csv; charset=utf-8' };
+/** The exports start with a byte-order mark so Excel reads UTF-8. */
+const BOM = String.fromCharCode(0xfeff);
 
 export const HOSTILE_CLIENT_ID = 'c1000000-0000-4000-8000-00000000c0de';
 export const HOSTILE_CLIENT_NAME = 'Blue Fern <script>window.__pwned = 1</script> Studio';
@@ -302,16 +304,16 @@ export async function installDashboardApi(page: Page, options: DashboardOptions 
   await page.route('**/api/v1/exports/day.csv**', (route) => {
     const url = record(route);
     const date = url.searchParams.get('date') ?? dateKey(new Date());
-    return route.fulfill({ status: 200, headers: { ...CSV_HEADERS, 'content-disposition': `attachment; filename="day-${date}.csv"` }, body: `﻿date,client,job,kind,parser_pack_id,scheduled_for,deadline,state,note,result_status,started_at,finished_at,received_at\r\n${date},${HARBOURSIDE.name},Veeam nightly,backup,veeam-br,${at(start, 5)},${at(start, 10.5)},verified,,success,,,\r\n` });
+    return route.fulfill({ status: 200, headers: { ...CSV_HEADERS, 'content-disposition': `attachment; filename="day-${date}.csv"` }, body: `${BOM}date,client,job,kind,parser_pack_id,scheduled_for,deadline,state,note,result_status,started_at,finished_at,received_at\r\n${date},${HARBOURSIDE.name},Veeam nightly,backup,veeam-br,${at(start, 5)},${at(start, 10.5)},verified,,success,,,\r\n` });
   });
   await page.route('**/api/v1/exports/history.csv**', (route) => {
     record(route);
-    return route.fulfill({ status: 200, headers: { ...CSV_HEADERS, 'content-disposition': 'attachment; filename="history.csv"' }, body: '﻿date,client,job,kind,parser_pack_id,scheduled_for,deadline,state,note,result_status,started_at,finished_at,received_at\r\n' });
+    return route.fulfill({ status: 200, headers: { ...CSV_HEADERS, 'content-disposition': 'attachment; filename="history.csv"' }, body: `${BOM}date,client,job,kind,parser_pack_id,scheduled_for,deadline,state,note,result_status,started_at,finished_at,received_at\r\n` });
   });
   await page.route(/\/api\/v1\/clients\/[^/]+\/export\.csv/, (route) => {
     const url = record(route);
     const id = url.pathname.split('/')[4] ?? '';
-    return route.fulfill({ status: 200, headers: { ...CSV_HEADERS, 'content-disposition': `attachment; filename="client-${id}.csv"` }, body: `﻿record,client,job,at,state,status\r\nclient,${HARBOURSIDE.name},,2026-11-01T09:00:00Z,active,\r\n` });
+    return route.fulfill({ status: 200, headers: { ...CSV_HEADERS, 'content-disposition': `attachment; filename="client-${id}.csv"` }, body: `${BOM}record,client,job,at,state,status\r\nclient,${HARBOURSIDE.name},,2026-11-01T09:00:00Z,active,\r\n` });
   });
   await page.route(/\/api\/v1\/jobs\/[^/]+\/acknowledge/, (route) => {
     const url = record(route);
