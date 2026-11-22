@@ -64,9 +64,9 @@ const EXPECTED_CONSOLE = [/Failed to load resource: the server responded with a 
  *  read them. Use on every flow: the product must stay silent. A flow that
  *  provokes an error answer on purpose (a 409 for a taken name) lists the
  *  statuses it expects; the browser logs those as failed resources. */
-export function watchConsole(page: Page, expectedStatuses: readonly number[] = []): () => readonly string[] {
+export function watchConsole(page: Page, expectedStatuses: readonly number[] = [], expectedPatterns: readonly RegExp[] = []): () => readonly string[] {
   const errors: string[] = [];
-  const expected = [...EXPECTED_CONSOLE, ...expectedStatuses.map((status) => new RegExp(`Failed to load resource: the server responded with a status of ${status}`))];
+  const expected = [...EXPECTED_CONSOLE, ...expectedStatuses.map((status) => new RegExp(`Failed to load resource: the server responded with a status of ${status}`)), ...expectedPatterns];
   page.on('console', (message) => {
     if (message.type() === 'error' && !expected.some((pattern) => pattern.test(message.text()))) {
       errors.push(message.text());
