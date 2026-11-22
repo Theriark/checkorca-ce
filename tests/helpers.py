@@ -1,5 +1,6 @@
 """Helpers shared by the tests. Every value here is synthetic."""
 
+import asyncio
 import base64
 import os
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -8,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
+from aiosmtpd.smtp import SMTP, AuthResult, Envelope, LoginPassword, Session
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
@@ -294,3 +296,51 @@ async def deliver_mail(
     await parse()
     message_id: str = sent.json()["message_id"]
     return message_id
+
+
+class RelayCapture:
+    """The handler of a test SMTP relay: keeps every message it accepts as
+    (sender, recipients, raw bytes)."""
+
+    def __init__(self) -> None:
+        self.messages: list[tuple[str, list[str], bytes]] = []
+
+    async def handle_DATA(
+        self, server: SMTP, session: Session, envelope: Envelope
+    ) -> str:
+        content = envelope.original_content or b""
+        sender = str(envelope.mail_from)
+        self.messages.append((sender, list(envelope.rcpt_tos), content))
+        return "250 OK"
+
+
+@asynccontextmanager
+async def smtp_relay(
+    capture: RelayCapture, *, login: tuple[str, str] | None = None
+) -> AsyncIterator[int]:
+    """A capturing SMTP relay on 127.0.0.1 and a free port (yielded). With
+    login it offers AUTH PLAIN and LOGIN without TLS and accepts only that
+    user name and password."""
+
+    def authenticator(
+        server: SMTP, session: Session, envelope: Envelope, mechanism: str, data: Any
+    ) -> AuthResult:
+        accepted = (
+            login is not None
+            and isinstance(data, LoginPassword)
+            and (data.login, data.password) == tuple(map(str.encode, login))
+        )
+        return AuthResult(success=accepted)
+
+    options: dict[str, Any] = {}
+    if login is not None:
+        options = {"authenticator": authenticator, "auth_require_tls": False}
+    loop = asyncio.get_running_loop()
+    server = await loop.create_server(
+        lambda: SMTP(capture, hostname="relay.test", **options), "127.0.0.1", 0
+    )
+    try:
+        yield int(server.sockets[0].getsockname()[1])
+    finally:
+        server.close()
+        await server.wait_closed()

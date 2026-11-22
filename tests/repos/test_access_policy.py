@@ -14,6 +14,7 @@ import app.repos.heartbeat
 import app.repos.inboxes
 import app.repos.jobs
 import app.repos.messages
+import app.repos.notifications
 import app.repos.packs
 import app.repos.results
 import app.repos.sessions
@@ -44,6 +45,7 @@ MODULES = (
     app.repos.inboxes,
     app.repos.jobs,
     app.repos.messages,
+    app.repos.notifications,
     app.repos.packs,
     app.repos.results,
     app.repos.sessions,
@@ -97,7 +99,7 @@ def build(cls: type[Repository], policy: Any) -> Repository:
     return cls(NoDatabase(), policy)
 
 
-def test_the_c1_to_c7_repositories_are_covered() -> None:
+def test_the_c1_to_c9_repositories_are_covered() -> None:
     names = {cls.__name__ for cls in repositories()}
     assert names >= {
         "UserRepository",
@@ -115,8 +117,11 @@ def test_the_c1_to_c7_repositories_are_covered() -> None:
         "OccurrenceRepository",
         "FlipRepository",
         "JobStateRepository",
+        "ChannelRepository",
+        "ChannelRuleRepository",
+        "NotificationRepository",
     }
-    assert len(REPOSITORY_METHODS) >= 74
+    assert len(REPOSITORY_METHODS) >= 95
 
 
 @pytest.mark.parametrize(

@@ -42,7 +42,7 @@ def test_unknown_command_is_refused() -> None:
 def test_migrate_upgrades_the_database_to_head() -> None:
     scripts = ScriptDirectory.from_config(cli.alembic_config(load_settings()))
     assert cli.main(["migrate"]) == 0
-    assert asyncio.run(current_revision()) == scripts.get_current_head() == "c7_eval"
+    assert asyncio.run(current_revision()) == scripts.get_current_head() == "c9_notify"
     # A second run finds nothing to do.
     assert cli.main(["migrate"]) == 0
 
