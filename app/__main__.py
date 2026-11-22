@@ -20,6 +20,7 @@ from alembic.config import Config
 from app.logging import configure_logging
 from app.main import create_app
 from app.seed.accounts import SeedError, ensure_seed_accounts
+from app.seed.demo import check_demo_host
 from app.settings import Settings, SettingsError, known_secrets, load_settings
 from app.worker.loop import run_worker
 
@@ -48,10 +49,13 @@ def migrate(settings: Settings) -> None:
 def seed(settings: Settings) -> None:
     """Development seed: with DEV_SEED=1 the accounts of DEV_SEED_ACCOUNTS.
 
-    Raises SeedError (the process exits with 2) when the seed is switched on for
-    a host that is not ce-dev-*, ce-stg-* or localhost, or is incomplete.
-    Demo data arrives in phase C8.
+    Raises SeedError (the process exits with 2) when the seed or the demo data
+    is switched on for a host that is not ce-dev-*, ce-stg-* or localhost, or
+    the seed is incomplete. The worker seeds the demo data (DEV_DEMO_DATA=1,
+    app/seed/demo.py) on its first tick, while it holds the worker lock.
     """
+    if settings.dev_demo_data:
+        check_demo_host(settings.base_url)
     if not settings.dev_seed:
         logger.info("seed: DEV_SEED is not 1, nothing to seed")
         return

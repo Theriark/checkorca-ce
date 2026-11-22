@@ -1,0 +1,5 @@
+date,client,job,kind,parser_pack_id,scheduled_for,deadline,state,note,result_status,started_at,finished_at,received_at
+2027-01-05,Sample Law Office,Mail archive,backup,,2027-01-05T20:00:00Z,2027-01-06T04:00:00Z,warning,,warning,2027-01-05T20:00:30Z,2027-01-05T20:30:00Z,2027-01-05T20:31:00Z
+2027-01-05,Example Freight Ltd,Offsite copy,backup,,2027-01-05T21:00:00Z,2027-01-06T05:00:00Z,missed,,,,,
+2027-01-05,Fictional Dental Clinic,Database dump,backup,,2027-01-05T22:00:00Z,2027-01-06T06:00:00Z,failed,,failed,,,2027-01-05T22:10:00Z
+2027-01-05,Fictional Dental Clinic,Nightly server backup,backup,,2027-01-05T23:00:00Z,2027-01-06T07:00:00Z,verified,,success,,,2027-01-05T23:20:00Z

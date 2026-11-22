@@ -46,6 +46,7 @@ OPTIONAL_VARIABLES = (
     "DEV_SEED_ACCOUNTS",
     "DEV_SEED_PASSWORD_ADMIN",
     "DEV_SEED_PASSWORD_TECHNICIAN",
+    "DEV_DEMO_DATA",
 )
 # Emptied before each database test; settings keeps its single row.
 TABLES = (
@@ -97,7 +98,11 @@ async def db_engine(migrated: None) -> AsyncIterator[AsyncEngine]:
     async with engine.begin() as connection:
         await connection.execute(text(f"TRUNCATE {', '.join(TABLES)} CASCADE"))
         await connection.execute(
-            text("UPDATE settings SET external_heartbeat_url_enc = NULL")
+            text(
+                "UPDATE settings SET external_heartbeat_url_enc = NULL, "
+                "demo_seeded = false, digest_timezone = 'Europe/Lisbon', "
+                "digest_time_local = '07:30'"
+            )
         )
     yield engine
     await engine.dispose()

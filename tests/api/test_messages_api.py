@@ -225,8 +225,14 @@ async def test_system_status_shows_the_worker_inboxes_and_queue(
         "started_at": None,
     }
     assert before["inboxes"] == []
-    assert before["queue"] == {"pending_messages": 0}
+    assert before["queue"] == {
+        "pending_messages": 0,
+        "pending_notifications": 0,
+        "failed_notifications": 0,
+    }
     assert before["version"] == "27.0.0"
+    assert before["extension_api_level"] == 1
+    assert before["evaluator_lag_seconds"] == 0
 
     inbox = await add_inbox(sessions, "Vendor mail")
     await add_messages(sessions, inbox, clock)
@@ -254,7 +260,7 @@ async def test_system_status_shows_the_worker_inboxes_and_queue(
             "last_message_at": last,
         }
     ]
-    assert status["queue"] == {"pending_messages": 3}
+    assert status["queue"]["pending_messages"] == 3
     clock.advance(minutes=3)
     late = (await client.get("/api/v1/system/status")).json()
     assert late["worker"]["stale"] is True

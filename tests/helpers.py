@@ -2,7 +2,7 @@
 
 import base64
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -140,3 +140,157 @@ async def make_job(
     assert response.status_code == 201, response.text
     created: dict[str, Any] = response.json()
     return created
+
+
+async def move_to(
+    client: httpx.AsyncClient, clock: FakeClock, moment: datetime
+) -> None:
+    """Move the clock to moment in steps of at most 11 hours, using the session
+    after each step so the 12-hour idle limit never signs the test out (pings
+    and API tokens do not keep the session alive, and short moves add up)."""
+    step = timedelta(hours=11)
+    while moment - clock.now() > step:
+        clock.advance(seconds=step.total_seconds())
+        assert (await client.get("/api/v1/auth/me")).status_code == 200
+    clock.advance(seconds=(moment - clock.now()).total_seconds())
+    assert (await client.get("/api/v1/auth/me")).status_code == 200
+
+
+def ping_path(job: dict[str, Any]) -> str:
+    return "/api/v1/ping/" + str(job["ping_url"]).rsplit("/", 1)[1]
+
+
+# The dashboard scenario (phase C8-B), on the fake clock from 2027-01-04
+# 09:00Z: three clients, five daily Europe/Lisbon jobs (UTC+0 in January) and
+# two nights of runs. Night 1 (4 January): the archive at 20:00, the dump at
+# 22:00 and the nightly backup at 23:00 report success; the offsite copy at
+# 21:00 never reports. Night 2: the archive warns, the dump fails, the nightly
+# backup succeeds, the offsite copy stays silent. The paused job never runs.
+# One result for an unknown job waits in Unmatched. The evaluator runs at
+# 09:00 on 5 and 6 January; the scenario ends on 6 January at 09:00.
+SCENARIO_END = datetime(2027, 1, 6, 9, tzinfo=UTC)
+SCENARIO_JOBS = (
+    ("nightly", 0, "Nightly server backup", "23:00"),
+    ("dump", 0, "Database dump", "22:00"),
+    ("offsite", 1, "Offsite copy", "21:00"),
+    ("archive", 2, "Mail archive", "20:00"),
+    ("paused", 2, "Paused job", "23:30"),
+)
+
+
+async def build_scenario(
+    client: httpx.AsyncClient,
+    csrf: str,
+    clock: FakeClock,
+    tick: Callable[[], Awaitable[None]],
+) -> dict[str, dict[str, Any]]:
+    """The scenario through the API; returns the jobs by key."""
+    headers = {CSRF_HEADER: csrf}
+    clients = [await make_client(client, csrf, name) for name in CLIENT_NAMES]
+    jobs = {
+        key: await make_job(
+            client, csrf, clients[index]["id"], name, schedule_expr=expr
+        )
+        for key, index, name, expr in SCENARIO_JOBS
+    }
+    paused = await client.post(
+        f"/api/v1/jobs/{jobs['paused']['id']}/pause", headers=headers
+    )
+    assert paused.status_code == 200
+    created = await client.post(
+        "/api/v1/tokens",
+        json={"label": "Scripts", "scope": "ingest"},
+        headers=headers,
+    )
+    assert created.status_code == 201
+    bearer = {"Authorization": f"Bearer {created.json()['token']}"}
+
+    async def post_result(body: dict[str, Any]) -> None:
+        response = await client.post("/api/v1/results", json=body, headers=bearer)
+        assert response.status_code == 202, response.text
+
+    nights = ((4, "success", 15, ""), (5, "warning", 10, "/fail"))
+    for day, archive, dump_minute, dump_signal in nights:
+        evening = datetime(2027, 1, day, 20, tzinfo=UTC)
+        await move_to(client, clock, evening.replace(minute=31))
+        await post_result(
+            {
+                "job_id": jobs["archive"]["id"],
+                "status": archive,
+                "started_at": evening.replace(second=30).isoformat(),
+                "finished_at": evening.replace(minute=30).isoformat(),
+            }
+        )
+        await move_to(client, clock, evening.replace(hour=22, minute=dump_minute))
+        dumped = await client.get(ping_path(jobs["dump"]) + dump_signal)
+        assert dumped.status_code == 200
+        await move_to(client, clock, evening.replace(hour=23, minute=20))
+        assert (await client.get(ping_path(jobs["nightly"]))).status_code == 200
+        if day == 4:
+            await move_to(client, clock, datetime(2027, 1, 5, 9, tzinfo=UTC))
+            await tick()
+            await move_to(client, clock, datetime(2027, 1, 5, 12, tzinfo=UTC))
+            await post_result(
+                {
+                    "job_name": "Unknown export job",
+                    "client_hint": "Nobody Example Ltd",
+                    "status": "failed",
+                }
+            )
+    await move_to(client, clock, SCENARIO_END)
+    await tick()
+    return jobs
+
+
+# A synthetic alert mail of the scenario's nightly backup (written for the
+# tests, generic-keywords style). Its relay header and its last body line
+# carry a secret-looking value that no export, digest or activity may show.
+MAIL_SECRET = "Canary-mail-" + "k" * 16
+MAIL_MESSAGE_ID = "<c8-nightly-1@backup.example.com>"
+MAIL_INBOX = "Alert mailbox"
+NIGHTLY_MAIL = (
+    "From: Backup Server <backup@example.com>\r\n"
+    "To: alerts@example.com\r\n"
+    "Subject: [Success] Nightly server backup\r\n"
+    "Date: Wed, 6 Jan 2027 08:55:00 +0000\r\n"
+    f"Message-ID: {MAIL_MESSAGE_ID}\r\n"
+    f"X-Relay-Credential: {MAIL_SECRET}\r\n"
+    "Content-Type: text/plain; charset=utf-8\r\n"
+    "\r\n"
+    f"Client: {CLIENT_NAMES[0]}\r\n"
+    "Status: Success\r\n"
+    "Host: fs01.example.com\r\n"
+    f"Api key: {MAIL_SECRET}\r\n"
+).encode()
+
+
+async def deliver_mail(
+    client: httpx.AsyncClient, csrf: str, parse: Callable[[], Awaitable[None]]
+) -> str:
+    """NIGHTLY_MAIL through an SMTP inbox's HTTP receiver, then the worker's
+    parse hook (parse): the result is bound to the nightly backup of the
+    dental clinic. Returns the stored message's id."""
+    headers = {CSRF_HEADER: csrf}
+    inbox = await client.post(
+        "/api/v1/inboxes", json={"kind": "smtp", "label": MAIL_INBOX}, headers=headers
+    )
+    assert inbox.status_code == 201, inbox.text
+    token = await client.post(
+        "/api/v1/tokens",
+        json={"label": "Mail relay", "scope": "ingest"},
+        headers=headers,
+    )
+    assert token.status_code == 201, token.text
+    code = str(inbox.json()["ingest_url"]).rsplit("/", 1)[1]
+    sent = await client.post(
+        f"/api/v1/ingest/email/{code}",
+        content=NIGHTLY_MAIL,
+        headers={
+            "Authorization": f"Bearer {token.json()['token']}",
+            "Content-Type": "message/rfc822",
+        },
+    )
+    assert sent.status_code == 202, sent.text
+    await parse()
+    message_id: str = sent.json()["message_id"]
+    return message_id

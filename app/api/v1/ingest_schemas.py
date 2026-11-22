@@ -316,11 +316,18 @@ class InboxActivity(BaseModel):
 
 class QueueStatus(BaseModel):
     pending_messages: int
+    # Notifications waiting or given up; 0 until phase C9 sends them.
+    pending_notifications: int
+    failed_notifications: int
 
 
 class SystemStatus(BaseModel):
     worker: WorkerStatus
     inboxes: list[InboxActivity]
     queue: QueueStatus
+    # How long the oldest evaluation the evaluator owes has waited; 0 when it
+    # is up to date.
+    evaluator_lag_seconds: float
     version: str
     revision: str | None
+    extension_api_level: int

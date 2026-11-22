@@ -293,7 +293,8 @@ class EvaluationRepository(Repository):
 
     @guarded("update")
     async def save(self, principal: Principal, changes: Changes) -> None:
-        """Write the changes; the caller commits."""
+        """Write the changes and clear the acknowledgement of every job that
+        flipped; the caller commits."""
         if changes.deletes:
             key = tuple_(Occurrence.job_id, Occurrence.scheduled_for)
             await self.db.execute(
@@ -312,6 +313,15 @@ class EvaluationRepository(Repository):
             await self.db.execute(upsert, list(changes.records))
         if changes.flips:
             await self.db.execute(insert(Flip), list(changes.flips))
+            # A flip ends an acknowledgement (phase C8-B): the job's new state
+            # needs a look again. updated_at stays: the settings did not change.
+            flipped = sorted({flip["job_id"] for flip in changes.flips})
+            await self.db.execute(
+                update(Job)
+                .where(Job.id.in_(flipped), Job.acknowledged_at.is_not(None))
+                .values(acknowledged_by=None, acknowledged_at=None)
+                .execution_options(synchronize_session=False)
+            )
 
 
 class OccurrenceRepository(Repository):

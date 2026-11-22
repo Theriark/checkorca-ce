@@ -298,11 +298,15 @@ class Evaluator:
         max_jobs: int = MAX_JOBS_PER_TICK,
         batch_size: int = BATCH_SIZE,
         budget_seconds: float = BUDGET_SECONDS,
+        only: frozenset[uuid.UUID] | None = None,
     ) -> None:
+        """only limits the evaluation to these jobs (the demo seed replays
+        its own history and leaves every other job to the worker)."""
         self.context = context
         self.max_jobs = max_jobs
         self.batch_size = batch_size
         self.budget_seconds = budget_seconds
+        self.only = only
 
     async def run(self, now: datetime) -> TickReport:
         report = TickReport()
@@ -310,6 +314,8 @@ class Evaluator:
             candidates = await EvaluationRepository(db, self.context.policy).candidates(
                 SYSTEM, results_since=now - RESULT_SPAN
             )
+        if self.only is not None:
+            candidates = [item for item in candidates if item.job.id in self.only]
         report.candidates = len(candidates)
         due = sorted(
             (item for item in candidates if needs_evaluation(item, now)), key=priority

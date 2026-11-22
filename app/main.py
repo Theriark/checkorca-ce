@@ -27,6 +27,8 @@ from app.clock import Clock, SystemClock
 from app.db.engine import check_database, make_engine
 from app.ext.audit import AuditSink, DatabaseAuditSink
 from app.ext.parsers import ParserPackSource, TablePackSource
+from app.ext.reports import ReportRenderer
+from app.notify.digest import DigestRenderer
 from app.security.crypto import SecretBox
 from app.security.passwords import PasswordService
 from app.security.ratelimit import RateLimiter
@@ -56,12 +58,13 @@ def create_app(
     audit: AuditSink | None = None,
     pack_source: ParserPackSource | None = None,
     bench: BenchRunner | None = None,
+    report_renderer: ReportRenderer | None = None,
 ) -> FastAPI:
     """Build the application. The engine connects on first use only.
 
-    clock, policy, audit and pack_source replace the CE defaults (tests, and
-    EE through the extension seams); bench replaces the test bench runner
-    (tests).
+    clock, policy, audit, pack_source and report_renderer replace the CE
+    defaults (tests, and EE through the extension seams); bench replaces the
+    test bench runner (tests).
     """
     config = settings or get_settings()
     engine = make_engine(config.database_url.get_secret_value())
@@ -80,6 +83,7 @@ def create_app(
         bench=bench or BenchRunner(),
         bench_limiter=RateLimiter(*BENCH_RATE, clock=clock),
         pack_source=pack_source or TablePackSource(),
+        report_renderer=report_renderer or DigestRenderer(),
     )
 
     @asynccontextmanager
