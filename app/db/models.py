@@ -1,16 +1,17 @@
 """Tables of phases C1 (users, sessions, API tokens, audit events, settings),
 C3 (clients and jobs), C4 (inboxes, raw messages, results, the worker
-heartbeat), C5 (parser packs) and C7 (occurrences, job states, flips).
+heartbeat), C5 (parser packs), C7 (occurrences, job states, flips) and C9
+(notification channels, their rules, notifications).
 
-Revisions c1_auth, c3_jobs, c4_ingest, c5_packs and c7_eval create them;
-later phases add their tables here. Primary keys are UUIDs, timestamps UTC.
+Revisions c1_auth, c3_jobs, c4_ingest, c5_packs, c7_eval and c9_notify create
+them; later phases add their tables here. Primary keys are UUIDs, timestamps UTC.
 No table stores a secret in clear text: sessions, API tokens and webhook
 inbox tokens keep a SHA-256 hash, passwords an Argon2id hash, and stored
 credentials (columns ending in _enc) Fernet ciphertext.
 """
 
 import uuid
-from datetime import datetime, time
+from datetime import date, datetime, time
 from typing import Any
 
 from sqlalchemy import (
@@ -50,6 +51,23 @@ PACK_PATH_LENGTH = 300
 # The evaluator's notes and flip reasons (app/evaluator/machine.py).
 NOTE_LENGTH = 200
 REASON_LENGTH = 300
+# Phase C9: notification channels, their rules and the notifications. The
+# kinds slack, teams and webhook arrive in C9-I without a schema change.
+CHANNEL_KINDS = ("email", "slack", "teams", "webhook")
+CHANNEL_STATUSES = ("sent", "failed")
+RULE_SCOPES = ("all", "client", "job")
+RULE_EVENTS = ("failing", "missed", "warning", "recovered", "digest")
+NOTIFICATION_EVENTS = (
+    "failing",
+    "missed",
+    "warning",
+    "recovered",
+    "reminder",
+    "digest",
+)
+NOTIFICATION_STATUSES = ("queued", "sent", "retrying", "failed")
+# A delivery error as stored: one readable sentence, never a credential.
+ERROR_LENGTH = 300
 
 
 def name_key(name: str) -> str:
@@ -59,6 +77,13 @@ def name_key(name: str) -> str:
 
 def _one_of(column: str, values: tuple[str, ...]) -> str:
     return f"{column} IN ({', '.join(repr(value) for value in values)})"
+
+
+def _all_of(column: str, values: tuple[str, ...]) -> str:
+    """An array column that is not empty and holds only these values."""
+    listed = ", ".join(repr(value) for value in values)
+    array = f"ARRAY[{listed}]::character varying[]"
+    return f"cardinality({column}) > 0 AND {column} <@ {array}"
 
 
 class AppUser(Base):
@@ -484,3 +509,104 @@ class Flip(Base):
     reason: Mapped[str] = mapped_column(String(REASON_LENGTH))
     at: Mapped[datetime] = mapped_column(index=True)
     scheduled_for: Mapped[datetime | None]
+
+
+class Channel(Base):
+    """Where notifications go (phase C9): an e-mail relay, later Slack, Teams
+    or a webhook (app/notify/registry.py).
+
+    config holds the kind's settings without secrets. secret_enc is the one
+    credential of the channel (the relay password, a webhook URL) as Fernet
+    ciphertext; the API never returns it (D-6). last_status, last_status_at
+    and last_error describe the newest real delivery, not a test.
+    """
+
+    __tablename__ = "channel"
+    __table_args__ = (
+        CheckConstraint(_one_of("kind", CHANNEL_KINDS), name="kind"),
+        CheckConstraint(_one_of("last_status", CHANNEL_STATUSES), name="last_status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    kind: Mapped[str] = mapped_column(String(16))
+    label: Mapped[str] = mapped_column(String(100))
+    enabled: Mapped[bool] = mapped_column(default=True, server_default=text("true"))
+    config: Mapped[dict[str, Any]] = mapped_column(
+        default=dict, server_default=text("'{}'::jsonb")
+    )
+    secret_enc: Mapped[str | None] = mapped_column(Text)
+    last_status: Mapped[str | None] = mapped_column(String(16))
+    last_status_at: Mapped[datetime | None]
+    last_error: Mapped[str | None] = mapped_column(String(ERROR_LENGTH))
+    created_at: Mapped[datetime]
+    updated_at: Mapped[datetime]
+
+
+class ChannelRule(Base):
+    """Which flips a channel hears about (phase C9): every job (scope all),
+    the jobs of one client or one job, and for which events.
+
+    scope_id is the client's or the job's id; it has no foreign key because it
+    points at either table, so the client delete map removes the rules of a
+    client and of its jobs (app/repos/client_delete.py).
+    """
+
+    __tablename__ = "channel_rule"
+    __table_args__ = (
+        CheckConstraint(_one_of("scope", RULE_SCOPES), name="scope"),
+        CheckConstraint("(scope = 'all') = (scope_id IS NULL)", name="scope_id"),
+        CheckConstraint(_all_of("events", RULE_EVENTS), name="events"),
+        Index("ix_channel_rule_scope_scope_id", "scope", "scope_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    channel_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("channel.id", ondelete="CASCADE"), index=True
+    )
+    scope: Mapped[str] = mapped_column(String(16))
+    scope_id: Mapped[uuid.UUID | None]
+    events: Mapped[list[str]] = mapped_column(ARRAY(String(16)))
+    created_at: Mapped[datetime]
+
+
+class Notification(Base):
+    """One message to one channel (phase C9): about a flip (its event is
+    failing, missed, warning, recovered or reminder) or the daily digest of
+    digest_day.
+
+    The unique keys make queueing idempotent: one row per flip, channel and
+    event, and one digest per channel and local day. status moves from queued
+    to sent, or through retrying to failed (docs/notifications.md);
+    next_attempt_at is when the dispatcher tries again.
+    """
+
+    __tablename__ = "notification"
+    __table_args__ = (
+        CheckConstraint(_one_of("event", NOTIFICATION_EVENTS), name="event"),
+        CheckConstraint(_one_of("status", NOTIFICATION_STATUSES), name="status"),
+        CheckConstraint(
+            "(event = 'digest') = (flip_id IS NULL) "
+            "AND (event = 'digest') = (digest_day IS NOT NULL)",
+            name="subject",
+        ),
+        UniqueConstraint("flip_id", "channel_id", "event"),
+        UniqueConstraint("channel_id", "digest_day"),
+        Index("ix_notification_status_next_attempt_at", "status", "next_attempt_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    channel_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("channel.id", ondelete="CASCADE")
+    )
+    flip_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("flip.id"))
+    event: Mapped[str] = mapped_column(String(16))
+    digest_day: Mapped[date | None]
+    status: Mapped[str] = mapped_column(
+        String(16), default="queued", server_default=text("'queued'")
+    )
+    attempts: Mapped[int] = mapped_column(default=0, server_default=text("0"))
+    error: Mapped[str | None] = mapped_column(String(ERROR_LENGTH))
+    created_at: Mapped[datetime] = mapped_column(index=True)
+    next_attempt_at: Mapped[datetime | None]
+    last_attempt_at: Mapped[datetime | None]
+    sent_at: Mapped[datetime | None]
