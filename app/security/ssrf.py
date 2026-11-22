@@ -8,13 +8,15 @@ check_target first:
 2. The host is resolved: every IPv4 and IPv6 address of it.
 3. Every address must be public. Loopback, private (RFC 1918, fc00::/7),
    link-local (169.254.0.0/16 and fe80::/10, where cloud metadata services
-   answer), shared (100.64.0.0/10), multicast, reserved and unspecified
-   addresses are refused, and so is an IPv6 address that carries one of them
-   (IPv4-mapped, 6to4, NAT64).
+   answer), shared (100.64.0.0/10), multicast, reserved (site-local
+   fec0::/10 too) and unspecified addresses are refused, and so is an IPv6
+   address that carries one of them (IPv4-mapped, SIIT, IPv4-compatible,
+   6to4, NAT64).
 
 Two settings relax the rule: ALLOW_PRIVATE_TARGETS=true allows every address,
 and a host that is exactly one of OUTBOUND_ALLOWED_HOSTS (no wildcard, no
-subdomain) is allowed whatever it resolves to.
+subdomain) is allowed whatever it resolves to. Neither allows a cloud
+metadata address (METADATA_ADDRESSES).
 
 The caller connects to one of Target.addresses, not to the name again, so the
 DNS answer cannot change between the check and the connection (DNS
@@ -39,8 +41,8 @@ DEFAULT_PORTS: Final = {"http": 80, "https": 443}
 MAX_URL_LENGTH: Final = 2000
 # Seconds one DNS lookup may take.
 RESOLVE_TIMEOUT: Final = 5.0
-# Metadata services of the big clouds; all but the Alibaba one are link-local
-# or private anyway, the name only makes the refusal clearer.
+# Metadata services of the big clouds: refused even where ALLOW_PRIVATE_TARGETS
+# or OUTBOUND_ALLOWED_HOSTS allow private addresses.
 _METADATA = (
     "169.254.169.254",
     "169.254.170.2",
@@ -48,11 +50,19 @@ _METADATA = (
     "100.100.100.200",
 )
 METADATA_ADDRESSES: Final = frozenset(map(ipaddress.ip_address, _METADATA))
-NAT64_PREFIX: Final = ipaddress.ip_network("64:ff9b::/96")
+# IPv6 prefixes whose last 32 bits are an IPv4 address: NAT64 and SIIT.
+CARRIER_PREFIXES: Final = (
+    ipaddress.IPv6Network("64:ff9b::/96"),
+    ipaddress.IPv6Network("::ffff:0:0:0/96"),
+)
 ADVICE: Final = (
     "Outbound requests go to public addresses only. An admin can allow this "
     "host with OUTBOUND_ALLOWED_HOSTS, or private targets with "
     "ALLOW_PRIVATE_TARGETS."
+)
+NEVER: Final = (
+    "Metadata addresses are never called, whatever OUTBOUND_ALLOWED_HOSTS and "
+    "ALLOW_PRIVATE_TARGETS say."
 )
 
 type IpAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
@@ -86,14 +96,27 @@ async def system_resolver(host: str, port: int) -> list[str]:
 
 
 def embedded_ipv4(address: ipaddress.IPv6Address) -> ipaddress.IPv4Address | None:
-    """The IPv4 address an IPv6 address carries (mapped, 6to4 or NAT64)."""
+    """The IPv4 address an IPv6 address carries (mapped, SIIT, 6to4, NAT64 or
+    the deprecated IPv4-compatible ::a.b.c.d)."""
     if address.ipv4_mapped is not None:
         return address.ipv4_mapped
     if address.sixtofour is not None:
         return address.sixtofour
-    if address in NAT64_PREFIX:
-        return ipaddress.IPv4Address(int(address) & 0xFFFFFFFF)
+    low = ipaddress.IPv4Address(int(address) & 0xFFFFFFFF)
+    if any(address in prefix for prefix in CARRIER_PREFIXES):
+        return low
+    if int(address) >> 32 == 0 and int(address) > 1:
+        return low
     return None
+
+
+def is_metadata(address: IpAddress) -> bool:
+    """A cloud metadata address, also inside an IPv6 address."""
+    if isinstance(address, ipaddress.IPv6Address):
+        inner = embedded_ipv4(address)
+        if inner is not None and inner in METADATA_ADDRESSES:
+            return True
+    return address in METADATA_ADDRESSES
 
 
 def refusal(address: IpAddress) -> str | None:
@@ -117,9 +140,22 @@ def refusal(address: IpAddress) -> str | None:
         return "a multicast address"
     if address.is_private:
         return "a private address"
+    if address.is_reserved:
+        return "a reserved address"
+    if isinstance(address, ipaddress.IPv6Address) and address.is_site_local:
+        return "a site-local address"
     if not address.is_global:
         return "an address that is not public"
     return None
+
+
+def refused_text(
+    host: str, literal: IpAddress | None, address: IpAddress, reason: str, advice: str
+) -> str:
+    """The sentence of a refusal: the host, the address and why."""
+    if literal is not None:
+        return f"{address} is {reason}. {advice}"
+    return f"{host} resolves to {address}, {reason}. {advice}"
 
 
 def parse_address(value: str) -> IpAddress | None:
@@ -163,6 +199,11 @@ async def check_target(
         for address in addresses
         if (reason := refusal(address)) is not None
     ]
+    # A metadata address is never allowed, whatever the settings say.
+    metadata = [item for item in refused if is_metadata(item[0])]
+    if metadata:
+        address, reason = metadata[0]
+        raise TargetRefused(refused_text(host, literal, address, reason, NEVER))
     if not refused:
         allowed_by = "public"
     elif host in allowed_hosts:
@@ -171,9 +212,7 @@ async def check_target(
         allowed_by = "allow_private"
     else:
         address, reason = refused[0]
-        if literal is not None:
-            raise TargetRefused(f"{address} is {reason}. {ADVICE}")
-        raise TargetRefused(f"{host} resolves to {address}, {reason}. {ADVICE}")
+        raise TargetRefused(refused_text(host, literal, address, reason, ADVICE))
     return Target(
         scheme=scheme,
         host=host,

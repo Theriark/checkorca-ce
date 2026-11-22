@@ -98,7 +98,8 @@ async def test_channels_keep_the_secret_write_only(
     assert created["available"] is True
     assert created["secret_label"] == "Relay password"
     assert created["secret_set"] is True
-    assert created["secret_hint"] == MASK + CANARY[-4:]
+    # The mask only, not the last characters of a chosen password.
+    assert created["secret_hint"] == MASK
     assert created["config"]["host"] == "smtp.example.com"
     assert created["config"]["username"] == RELAY_USER
     assert created["last_status"] is None
@@ -146,7 +147,7 @@ async def test_channels_keep_the_secret_write_only(
         headers=headers(csrf),
     )
     assert resent.status_code == 200
-    assert resent.json()["secret_hint"] == MASK + (CANARY + "x")[-4:]
+    assert resent.json()["secret_hint"] == MASK
     # Without a user name the password can go: an empty secret removes it.
     cleared = await client.patch(
         path,

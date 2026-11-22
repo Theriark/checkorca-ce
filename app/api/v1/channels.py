@@ -24,7 +24,6 @@ from app.api.pagination import (
     encode_time_cursor,
 )
 from app.api.problems import FieldProblem, ProblemError
-from app.api.v1.inboxes import secret_hint
 from app.api.v1.notify_schemas import (
     ChannelKindName,
     ChannelOut,
@@ -42,7 +41,7 @@ from app.ext.notifications import ChannelConfigError, ChannelKind
 from app.notify.delivery import outbound_of, send_message
 from app.notify.messages import channel_test_message
 from app.repos.notifications import ChannelRepository
-from app.security.crypto import SecretBoxError
+from app.security.crypto import MASK, SecretBoxError
 from app.security.ssrf import TargetRefused, check_target
 
 router = APIRouter(prefix="/channels", tags=["notifications"])
@@ -98,7 +97,9 @@ def channel_out(services: Services, channel: Channel) -> ChannelOut:
         available=kind is not None,
         secret_label=None if kind is None else kind.secret_label,
         secret_set=channel.secret_enc is not None,
-        secret_hint=secret_hint(services.secret_box, channel.secret_enc),
+        # The mask only: a relay password is chosen by a person, so even its
+        # last characters tell technicians and read tokens too much.
+        secret_hint=None if channel.secret_enc is None else MASK,
         last_status=cast(ChannelStatus | None, channel.last_status),
         last_status_at=channel.last_status_at,
         last_error=channel.last_error,

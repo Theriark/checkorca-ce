@@ -25,6 +25,7 @@ DNS: Mapping[str, Sequence[str]] = {
     "v6.example.com": ("2606:4700::6810:84e5",),
     "mapped.example.com": ("::ffff:127.0.0.1",),
     "mock-platform": ("172.18.0.5",),
+    "metadata.example.com": ("169.254.169.254",),
 }
 
 
@@ -79,6 +80,12 @@ async def check(
             "https://mapped.example.com/",
             "a loopback address inside an IPv6 address",
         ),
+        # IPv4-compatible and SIIT forms carry an IPv4 address too.
+        ("http://[::7f00:1]/", "::7f00:1 is a loopback address inside an IPv6"),
+        ("http://[::a9fe:a9fe]/", "a cloud metadata address inside an IPv6"),
+        ("http://[::ffff:0:7f00:1]/", "a loopback address inside an IPv6"),
+        ("http://[fec0::1]/", "fec0::1 is a site-local address"),
+        ("http://[4000::1]/", "4000::1 is a reserved address"),
         ("ftp://hooks.example.com/file", "Only http:// and https:// URLs"),
         ("file:///etc/passwd", "Only http:// and https:// URLs"),
         ("gopher://hooks.example.com/", "Only http:// and https:// URLs"),
@@ -140,6 +147,21 @@ async def test_allow_private_targets_allows_every_address() -> None:
     # The scheme rule stays.
     with pytest.raises(TargetRefused):
         await check("ftp://10.0.0.5/", allow_private=True)
+
+
+async def test_metadata_addresses_are_never_allowed() -> None:
+    """Neither setting opens a cloud metadata service to a webhook URL."""
+    allowed = frozenset({"169.254.169.254", "metadata.example.com"})
+    for url in (
+        "http://169.254.169.254/latest/meta-data/",
+        "http://100.100.100.200/",
+        "http://[::ffff:169.254.169.254]/",
+    ):
+        with pytest.raises(TargetRefused, match="never called") as refused:
+            await check(url, allow_private=True, allowed=allowed)
+        assert "meta-data" not in str(refused.value)
+    with pytest.raises(TargetRefused, match="resolves to 169.254.169.254"):
+        await check("http://metadata.example.com/", allow_private=True, allowed=allowed)
 
 
 async def test_a_slow_or_empty_resolver_is_a_refusal() -> None:
