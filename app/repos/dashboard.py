@@ -23,7 +23,7 @@ from sqlalchemy import (
     ColumnElement,
     DateTime,
     Integer,
-    Row,
+    SQLColumnExpression,
     and_,
     case,
     cast,
@@ -90,7 +90,9 @@ def _moment(value: datetime) -> ColumnElement[datetime]:
     return literal(value, DateTime(timezone=True))
 
 
-def _age_days(now: datetime, column: ColumnElement[datetime]) -> ColumnElement[int]:
+def _age_days(
+    now: datetime, column: SQLColumnExpression[datetime]
+) -> ColumnElement[int]:
     """Whole days from column to now: 0 for the 24 hours up to now (a time
     after now counts as 0 too)."""
     seconds = func.extract("epoch", _moment(now) - column)
@@ -468,6 +470,8 @@ class DashboardRepository(Repository):
             )
         query = self.policy.scope(principal, self.resource, query)
         found: list[BreakdownRow] = []
+        # add_columns is not in the row type: read the row as a sequence.
+        row: Sequence[Any]
         for row in await self.db.execute(query):
             key = None if row[3] is None else str(row[3])
             label = None if row[4] is None else str(row[4])
@@ -542,16 +546,16 @@ class DashboardRepository(Repository):
                     tuple_(RawMessage.received_at, RawMessage.id) < after
                 )
             messages = self.policy.scope(principal, self.resource, messages)
-            for row in await self.db.execute(messages):
-                where = "a deleted inbox" if row[3] is None else row[3]
+            for message in await self.db.execute(messages):
+                where = "a deleted inbox" if message[3] is None else message[3]
                 found.append(
                     ActivityRow(
-                        id=row[0],
-                        at=row[1],
+                        id=message[0],
+                        at=message[1],
                         kind="ingest",
-                        summary=f"Message received in {where}: {row[2]}",
+                        summary=f"Message received in {where}: {message[2]}",
                         ref_kind="message",
-                        ref_id=str(row[0]),
+                        ref_id=str(message[0]),
                     )
                 )
         if "config" in kinds:
@@ -577,15 +581,15 @@ class DashboardRepository(Repository):
             if after is not None:
                 events = events.where(tuple_(AuditEvent.at, AuditEvent.id) < after)
             events = self.policy.scope(principal, self.resource, events)
-            for row in await self.db.execute(events):
+            for event in await self.db.execute(events):
                 found.append(
                     ActivityRow(
-                        id=row[0],
-                        at=row[1],
+                        id=event[0],
+                        at=event[1],
                         kind="config",
-                        summary=_summary_of_action(row[2]),
-                        ref_kind=row[3],
-                        ref_id=row[4],
+                        summary=_summary_of_action(event[2]),
+                        ref_kind=event[3],
+                        ref_id=event[4],
                     )
                 )
         found.sort(key=lambda item: (item.at, item.id), reverse=True)
@@ -773,7 +777,7 @@ class DashboardRepository(Repository):
         )
 
 
-def _history_row(row: Row[Any]) -> HistoryRow:
+def _history_row(row: Sequence[Any]) -> HistoryRow:
     return HistoryRow(
         client_id=row[0],
         client_name=row[1],

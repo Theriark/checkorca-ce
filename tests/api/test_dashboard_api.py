@@ -240,9 +240,7 @@ async def test_the_ribbon_shows_the_night_by_client_and_job(
     problems = await client.get(
         "/api/v1/dashboard/ribbon", params={"problems_only": "true"}
     )
-    names = [
-        job["name"] for lane in problems.json()["clients"] for job in lane["jobs"]
-    ]
+    names = [job["name"] for lane in problems.json()["clients"] for job in lane["jobs"]]
     assert names == ["Offsite copy", "Database dump", "Mail archive"]
 
     # Later in the day the window reaches the evening: tonight's runs are
@@ -369,8 +367,9 @@ async def test_the_digest_preview_renders_the_night(
     assert html.index("Offsite copy") < html.index("Database dump")
     assert html.index("Database dump") < html.index("Mail archive")
     assert "1 of 4 runs verified (25%)" in preview["text"]
-    assert "- Missed: Example Freight Ltd / Offsite copy, due 2027-01-05 21:00" in (
-        preview["text"]
+    assert (
+        "- Missed: Example Freight Ltd / Offsite copy, due 2027-01-05 21:00"
+        in (preview["text"])
     )
     earlier = await client.get("/api/v1/digest/preview", params={"date": "2027-01-05"})
     assert earlier.json()["subject"].endswith(": 1 silent, 3 verified")

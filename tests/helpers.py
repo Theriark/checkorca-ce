@@ -145,13 +145,15 @@ async def make_job(
 async def move_to(
     client: httpx.AsyncClient, clock: FakeClock, moment: datetime
 ) -> None:
-    """Move the clock to moment, using the session at least every 11 hours so
-    the 12-hour idle limit never signs the test out."""
+    """Move the clock to moment in steps of at most 11 hours, using the session
+    after each step so the 12-hour idle limit never signs the test out (pings
+    and API tokens do not keep the session alive, and short moves add up)."""
     step = timedelta(hours=11)
     while moment - clock.now() > step:
         clock.advance(seconds=step.total_seconds())
         assert (await client.get("/api/v1/auth/me")).status_code == 200
     clock.advance(seconds=(moment - clock.now()).total_seconds())
+    assert (await client.get("/api/v1/auth/me")).status_code == 200
 
 
 def ping_path(job: dict[str, Any]) -> str:

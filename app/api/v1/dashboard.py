@@ -109,8 +109,7 @@ FromQuery = Annotated[
     AwareDatetime | None,
     Query(
         alias="from",
-        description="Start (inclusive); default 18:00 of the night in the digest "
-        "zone.",
+        description="Start (inclusive); default 18:00 of the night in the digest zone.",
     ),
 ]
 ToQuery = Annotated[
@@ -402,8 +401,7 @@ async def dashboard_trend(
                 date=day,
                 verified=counts.get((day, "verified"), 0),
                 failed=counts.get((day, "failed"), 0),
-                silent=counts.get((day, "overdue"), 0)
-                + counts.get((day, "missed"), 0),
+                silent=counts.get((day, "overdue"), 0) + counts.get((day, "missed"), 0),
             )
             for day in dates
         ]

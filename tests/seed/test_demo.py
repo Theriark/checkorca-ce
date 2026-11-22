@@ -87,9 +87,7 @@ def test_the_plan_has_20_clients_and_60_jobs_of_every_source() -> None:
     per_client = {(name_key(job.client), name_key(job.name)) for job in plan}
     assert len(per_client) == 60
     # A vendor whose mail does not name the client needs a unique job name.
-    unnamed = [
-        job.name for job in plan if job.source not in NAMES_CLIENT | {"ping"}
-    ]
+    unnamed = [job.name for job in plan if job.source not in NAMES_CLIENT | {"ping"}]
     assert len(set(unnamed)) == len(unnamed)
     created = datetime(2027, 1, 1, tzinfo=UTC)
     for job in plan:
