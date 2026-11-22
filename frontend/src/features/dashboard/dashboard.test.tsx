@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { DashboardToday } from '../../api/dashboard';
-import { fill } from '../../lib/format';
+import { fill, formatShortDateTime } from '../../lib/format';
 import { strings } from '../../strings';
 import { ACTIVITY_ITEMS, BREAKDOWN_CLIENT, BREAKDOWN_VENDOR, DIGEST, EMPTY_RIBBON, EMPTY_TODAY, HOSTILE_JOB, HOSTILE_NAME, makeJob, makeRibbon, makeStatus, makeToday, makeTrend } from '../../test/fixtures';
 import { ADMIN, TECHNICIAN, holdFetch, renderApp, stubFetch } from '../../test/render';
@@ -11,6 +11,16 @@ import { ADMIN, TECHNICIAN, holdFetch, renderApp, stubFetch } from '../../test/r
 const ME = { 'GET /api/v1/auth/me': { status: 200, body: ADMIN } };
 const STATUS = { 'GET /api/v1/system/status': { status: 200, body: makeStatus() } };
 const ZERO_TREND = { items: makeTrend(30).map((day) => ({ ...day, verified: 0, failed: 0, silent: 0 })) };
+/** The minus sign StatCard puts before a fall (U+2212, not a hyphen). */
+const MINUS = String.fromCharCode(0x2212);
+/** The acknowledge time the API answers after the POST. */
+const ACK_AT = '2026-11-20T08:05:00Z';
+
+/** "Acknowledged <time>" as AttentionList writes it, with the app's own
+ *  formatter; whitespace folded the way getByText folds the page text. */
+function acknowledgedText(iso: string): string {
+  return fill(strings.dashboard.acknowledged, { time: formatShortDateTime(iso) }).replace(/\s+/g, ' ').trim();
+}
 
 function routes(today: DashboardToday = makeToday()) {
   return {
@@ -43,7 +53,8 @@ describe('/ (morning check)', () => {
     expect(within(cards).getByText(strings.dashboard.stats.silent)).toBeTruthy();
     expect(within(cards).getByText(`+2 ${strings.stat.vsYesterday}`)).toBeTruthy();
     // Failed went down by one (a minus sign), silent up by one.
-    expect(within(cards).getAllByText(new RegExp(`1 ${strings.stat.vsYesterday}$`))).toHaveLength(2);
+    expect(within(cards.querySelector('.co-dash__stat--failed') as HTMLElement).getByText(`${MINUS}1 ${strings.stat.vsYesterday}`)).toBeTruthy();
+    expect(within(cards.querySelector('.co-dash__stat--silent') as HTMLElement).getByText(`+1 ${strings.stat.vsYesterday}`)).toBeTruthy();
     expect(within(cards).getAllByRole('img', { name: /last 14 days: 14 points/ }).length).toBe(4);
     expect(within(cards).getByText(strings.dashboard.pausedNoHistory)).toBeTruthy();
     expect(screen.getByRole('img', { name: /Coverage: 71 percent, 12 of 17 verified/ })).toBeTruthy();
@@ -54,15 +65,18 @@ describe('/ (morning check)', () => {
   it('lists the attention items silent first with acknowledge, pause and open message; a hostile name stays text; acknowledge posts and shows the time', async () => {
     const user = userEvent.setup();
     let today = makeToday();
+    const firstJobId = today.attention[0]?.job_id ?? '';
+    const alreadyAcknowledgedAt = today.attention[1]?.acknowledged_at ?? '';
+    expect(alreadyAcknowledgedAt).not.toBe('');
     const { calls } = stubFetch({
       ...routes(),
       'GET /api/v1/dashboard/today': () => ({ status: 200, body: today }),
-      [`POST /api/v1/jobs/${today.attention[0]?.job_id}/acknowledge`]: () => {
+      [`POST /api/v1/jobs/${firstJobId}/acknowledge`]: () => {
         const first = today.attention[0];
         if (first) {
-          today = { ...today, attention: [{ ...first, acknowledged_at: '2026-11-20T08:05:00Z' }, ...today.attention.slice(1)] };
+          today = { ...today, attention: [{ ...first, acknowledged_at: ACK_AT }, ...today.attention.slice(1)] };
         }
-        return { status: 200, body: makeJob({ acknowledged_at: '2026-11-20T08:05:00Z' }) };
+        return { status: 200, body: makeJob({ acknowledged_at: ACK_AT }) };
       },
     });
     renderApp('/');
@@ -81,8 +95,10 @@ describe('/ (morning check)', () => {
     expect(document.querySelector('script')).toBeNull();
     expect(document.querySelector('img[onerror]')).toBeNull();
     expect((window as unknown as { __pwned?: number }).__pwned).toBeUndefined();
-    // The acknowledged row shows the time only (the API returns no name).
-    expect(within(rows[1] as HTMLElement).getByText(/Acknowledged .*07:15|Acknowledged/)).toBeTruthy();
+    // The acknowledged row shows the time only (the API returns no name),
+    // formatted from the acknowledged_at the API answered.
+    expect(within(rows[1] as HTMLElement).getByText(acknowledgedText(alreadyAcknowledgedAt))).toBeTruthy();
+    expect(within(rows[0] as HTMLElement).queryByText(/^Acknowledged /)).toBeNull();
     expect(within(rows[1] as HTMLElement).queryByRole('button', { name: strings.dashboard.acknowledge })).toBeNull();
     expect(within(rows[1] as HTMLElement).getByRole('link', { name: strings.dashboard.openMessage })).toBeTruthy();
     expect(within(rows[0] as HTMLElement).queryByRole('link', { name: strings.dashboard.openMessage })).toBeNull();
@@ -95,7 +111,14 @@ describe('/ (morning check)', () => {
     });
     expect((post?.init?.headers as Headers).get('X-CSRF-Token')).toBe(ADMIN.csrf_token);
     expect(await screen.findByText(strings.dashboard.acknowledgedToast)).toBeTruthy();
-    await waitFor(() => expect(within(screen.getByRole('list', { name: strings.dashboard.attentionTitle })).getAllByText(/Acknowledged/).length).toBe(2));
+    // The refreshed row shows the time of the acknowledgement just saved.
+    await waitFor(() => {
+      const current = screen.getByRole('list', { name: strings.dashboard.attentionTitle });
+      const first = current.querySelector(`[data-job="${firstJobId}"]`) as HTMLElement;
+      expect(within(first).getByText(acknowledgedText(ACK_AT))).toBeTruthy();
+      expect(within(first).queryByRole('button', { name: strings.dashboard.acknowledge })).toBeNull();
+    });
+    expect(within(screen.getByRole('list', { name: strings.dashboard.attentionTitle })).getByText(acknowledgedText(alreadyAcknowledgedAt))).toBeTruthy();
     // Pause opens the shared pause dialog with the job's name.
     await user.click(within(rows[2] as HTMLElement).getByRole('button', { name: strings.dashboard.pause }));
     expect(await screen.findByRole('dialog', { name: fill(strings.jobs.pauseTitle, { name: 'Cove server' }) })).toBeTruthy();
@@ -161,9 +184,12 @@ describe('/ (morning check)', () => {
   });
 
   it('shows the error state with a retry when today cannot be read, and the empty states of the sections', async () => {
+    const user = userEvent.setup();
+    let todayFails = true;
     stubFetch({
       ...routes(),
-      'GET /api/v1/dashboard/today': { status: 503, body: { title: 'Service Unavailable', status: 503, detail: 'Try later.', request_id: 'req-9' } },
+      'GET /api/v1/dashboard/today': () =>
+        todayFails ? { status: 503, body: { title: 'Service Unavailable', status: 503, detail: 'Try later.', request_id: 'req-9' } } : { status: 200, body: makeToday() },
       'GET /api/v1/dashboard/ribbon': { status: 200, body: EMPTY_RIBBON },
       'GET /api/v1/dashboard/trend': { status: 200, body: ZERO_TREND },
       'GET /api/v1/dashboard/breakdown': { status: 200, body: { by: 'vendor', items: [] } },
@@ -177,6 +203,21 @@ describe('/ (morning check)', () => {
     expect(screen.getByRole('heading', { level: 3, name: strings.dashboard.trendEmptyTitle })).toBeTruthy();
     expect(screen.getByRole('heading', { level: 3, name: strings.dashboard.breakdownEmptyTitle })).toBeTruthy();
     expect(screen.getByRole('heading', { level: 3, name: strings.dashboard.activityEmptyTitle })).toBeTruthy();
+    // One error card for today: the attention card says it loads with the
+    // numbers instead of showing a second one.
+    expect(screen.getAllByRole('alert').filter((alert) => alert.textContent?.includes('Try later.'))).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: strings.states.retry })).toHaveLength(1);
+    expect(screen.queryByTestId('stat-cards')).toBeNull();
+    const attention = screen.getByRole('heading', { level: 2, name: strings.dashboard.attentionTitle }).closest('section') as HTMLElement;
+    expect(within(attention).getByText(strings.dashboard.attentionUnavailable)).toBeTruthy();
+    expect(within(attention).queryByRole('alert')).toBeNull();
+    expect(within(attention).queryByRole('button', { name: strings.states.retry })).toBeNull();
+    // Retry reads today again and the numbers come in.
+    todayFails = false;
+    await user.click(screen.getByRole('button', { name: strings.states.retry }));
+    expect(await within(await screen.findByTestId('stat-cards')).findByText('12')).toBeTruthy();
+    expect(screen.queryByText('Try later.')).toBeNull();
+    expect(await screen.findByRole('list', { name: strings.dashboard.attentionTitle })).toBeTruthy();
   });
 
   it('previews the digest in a sandboxed frame without script permission, with the subject and the text version', async () => {
@@ -214,9 +255,13 @@ describe('/ (morning check)', () => {
     await user.click(screen.getByRole('button', { name: strings.exports.day }));
     await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
     expect(await screen.findByText(strings.exports.downloaded)).toBeTruthy();
+    // No date: the server picks today in the digest zone. The fake file has
+    // a header and no row, so the name carries no date.
     const day = calls.find((call) => call.url.includes('/exports/day.csv'));
-    expect(day?.url).toMatch(/date=\d{4}-\d{2}-\d{2}/);
+    expect(day?.url.split('?')[0]).toBe('/api/v1/exports/day.csv');
+    expect(day?.url).not.toMatch(/[?&]date=/);
     expect((day?.init?.headers as Record<string, string>).Accept).toContain('text/csv');
+    expect(await screen.findByText('day.csv')).toBeTruthy();
     await user.click(screen.getByRole('button', { name: strings.exports.history }));
     await waitFor(() => expect(click).toHaveBeenCalledTimes(2));
     expect(calls.some((call) => call.url.includes('/exports/history.csv'))).toBe(true);

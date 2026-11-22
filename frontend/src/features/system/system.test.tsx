@@ -44,6 +44,31 @@ describe('/system', () => {
     expect(screen.queryByTestId('stale-worker-banner')).toBeNull();
   });
 
+  it('renders hostile inbox labels and the worker holder as text, never as markup', async () => {
+    const img = '<img src=x onerror="window.__pwned=1">';
+    const link = '<a href="javascript:window.__pwned=2">x</a>';
+    const holder = `worker-1 ${link}`;
+    const base = makeStatus();
+    const status = makeStatus({
+      worker: { ...base.worker, holder },
+      inboxes: [
+        { id: 'i1', kind: 'smtp', label: img, last_message_at: null },
+        { id: 'i2', kind: 'webhook', label: link, last_message_at: null },
+      ],
+    });
+    stubFetch({ ...ME, 'GET /api/v1/system/status': { status: 200, body: status } });
+    const { container } = renderApp('/system');
+    const inboxesTitle = await screen.findByRole('heading', { level: 2, name: strings.system.inboxesTitle });
+    const inboxes = inboxesTitle.closest('section') as HTMLElement;
+    expect(within(inboxes).getByText(img)).toBeTruthy();
+    expect(within(inboxes).getByText(link)).toBeTruthy();
+    const worker = screen.getByRole('heading', { level: 2, name: strings.system.workerTitle }).closest('section') as HTMLElement;
+    expect(within(worker).getByText(holder)).toBeTruthy();
+    expect(container.querySelector('script, img[onerror], a[href^="javascript:"]')).toBeNull();
+    expect(document.querySelector('script, img[onerror], a[href^="javascript:"]')).toBeNull();
+    expect((window as unknown as { __pwned?: number }).__pwned).toBeUndefined();
+  });
+
   it('says the worker is stale, with the banner above, and shows the error state with a retry', async () => {
     stubFetch({ ...ME, 'GET /api/v1/system/status': { status: 200, body: STALE_STATUS } });
     const first = renderApp('/system');

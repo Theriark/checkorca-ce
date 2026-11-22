@@ -1,10 +1,11 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { formatDateTime } from '../../lib/format';
 import { strings } from '../../strings';
 import { HOSTILE_JOB, HOSTILE_NAME, OCCURRENCES, makeClient, makeFlip, makeJob, makeMessageDetail, makeOccurrence, makeStatus } from '../../test/fixtures';
-import { ADMIN, TECHNICIAN, renderApp, stubFetch } from '../../test/render';
+import { ADMIN, TECHNICIAN, holdFetch, renderApp, stubFetch } from '../../test/render';
 
 const ME = { 'GET /api/v1/auth/me': { status: 200, body: ADMIN } };
 const STATUS = { 'GET /api/v1/system/status': { status: 200, body: makeStatus() } };
@@ -40,6 +41,28 @@ function routes() {
     'GET /api/v1/flips': { status: 200, body: { items: [makeFlip(), makeFlip({ id: 'f1000000-0000-4000-8000-000000000002', from_state: 'unknown', to_state: 'ok', reason: 'First verified run', at: '2026-11-10T23:30:00Z' })], next_cursor: null } },
     [`GET /api/v1/messages/${RESULT.raw_message_id}`]: { status: 200, body: MESSAGE },
   };
+}
+
+const DB_DOWN = 'The database did not answer in time.';
+function serverError(requestId: string) {
+  return { status: 500, body: { title: 'Internal Server Error', status: 500, detail: DB_DOWN, request_id: requestId } };
+}
+
+/** The card (section) under a level-2 heading of the page. */
+function card(name: string): HTMLElement {
+  return screen.getByRole('heading', { level: 2, name }).closest('section') as HTMLElement;
+}
+
+/** GETs of the job itself (not its occurrences, results or flips). */
+function jobGets(calls: readonly { readonly method: string; readonly url: string }[]): number {
+  return calls.filter((call) => call.method === 'GET' && new URL(call.url, 'http://localhost').pathname === `/api/v1/jobs/${JOB.id}`).length;
+}
+
+/** Lets settled fetches land in the queries and render. */
+async function settle(ms = 50) {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+  });
 }
 
 afterEach(() => {
@@ -106,7 +129,8 @@ describe('/jobs/:id', () => {
     await user.click(await screen.findByRole('button', { name: strings.dashboard.acknowledge }));
     await waitFor(() => expect(calls.some((call) => call.method === 'POST' && call.url.endsWith('/acknowledge'))).toBe(true));
     const ack = await screen.findByTestId('acknowledged-at');
-    expect(ack.textContent).toMatch(/2026/);
+    // The state card formats acknowledged_at with formatDateTime (the icon has no text).
+    expect(ack.textContent).toBe(formatDateTime('2026-11-20T08:05:00Z'));
     expect(screen.getByText(strings.jobDetail.acknowledgedBy)).toBeTruthy();
     // The shell's account menu shows the signed-in e-mail; the page itself never names anyone.
     expect(within(screen.getByRole('main')).queryByText(ADMIN.email)).toBeNull();
@@ -135,6 +159,138 @@ describe('/jobs/:id', () => {
     expect(await screen.findByRole('heading', { level: 3, name: strings.jobDetail.stripEmptyTitle })).toBeTruthy();
     expect(await screen.findByText(strings.jobDetail.rawNone)).toBeTruthy();
     expect(screen.queryByRole('button', { name: strings.dashboard.acknowledge })).toBeNull();
+  });
+
+  it('shows a skeleton under the back link while the job loads', async () => {
+    stubFetch(routes());
+    const release = holdFetch(`/jobs/${JOB.id}`);
+    renderApp(`/jobs/${JOB.id}`);
+    expect(await screen.findByRole('link', { name: strings.jobDetail.back })).toBeTruthy();
+    const main = screen.getByRole('main');
+    const busy = within(main).getAllByRole('status', { busy: true });
+    expect(busy.length).toBeGreaterThan(0);
+    expect(busy.some((node) => node.textContent?.includes(strings.states.loading))).toBe(true);
+    expect(within(main).queryByRole('heading', { level: 1, name: HOSTILE_JOB })).toBeNull();
+    expect(within(main).queryByRole('alert')).toBeNull();
+    release();
+    expect(await screen.findByRole('heading', { level: 1, name: HOSTILE_JOB })).toBeTruthy();
+  });
+
+  it('shows the error state with the request id and a retry when the job fails to load (not a 404), and loads on retry', async () => {
+    const user = userEvent.setup();
+    let attempts = 0;
+    stubFetch({
+      ...routes(),
+      // useJob retries a non-404 once, so both first answers fail.
+      [`GET /api/v1/jobs/${JOB.id}`]: () => {
+        attempts += 1;
+        return attempts <= 2 ? serverError('req-job') : { status: 200, body: JOB };
+      },
+    });
+    renderApp(`/jobs/${JOB.id}`);
+    const alert = await screen.findByRole('alert', {}, { timeout: 4000 });
+    expect(alert.textContent).toContain(DB_DOWN);
+    expect(alert.textContent).toContain('req-job');
+    expect(attempts).toBe(2);
+    expect(screen.getByRole('heading', { level: 1, name: strings.jobs.title })).toBeTruthy();
+    expect(screen.queryByRole('heading', { level: 1, name: strings.jobDetail.notFoundTitle })).toBeNull();
+    expect(screen.getByRole('link', { name: strings.jobDetail.back })).toBeTruthy();
+    await user.click(within(alert).getByRole('button', { name: strings.states.retry }));
+    expect(await screen.findByRole('heading', { level: 1, name: HOSTILE_JOB })).toBeTruthy();
+    expect(attempts).toBe(3);
+  });
+
+  it('keeps the job on screen when a later refetch of it fails', async () => {
+    let failJob = false;
+    const { calls } = stubFetch({
+      ...routes(),
+      [`GET /api/v1/jobs/${JOB.id}`]: () => (failJob ? serverError('req-poll') : { status: 200, body: JOB }),
+    });
+    renderApp(`/jobs/${JOB.id}`);
+    expect(await screen.findByRole('heading', { level: 1, name: HOSTILE_JOB })).toBeTruthy();
+    await screen.findByTestId('day-strip');
+    failJob = true;
+    const before = jobGets(calls);
+    // A visibility change refetches the stale queries (the test client keeps
+    // refetchOnWindowFocus on with staleTime 0): it stands in for the 60 s
+    // poll without fake timers.
+    act(() => {
+      window.dispatchEvent(new Event('visibilitychange'));
+    });
+    // The refetch and useJob's one retry (about 1 s later) both fail.
+    await waitFor(() => expect(jobGets(calls)).toBeGreaterThanOrEqual(before + 2), { timeout: 4000 });
+    await settle();
+    expect(screen.getByRole('heading', { level: 1, name: HOSTILE_JOB })).toBeTruthy();
+    expect(screen.getByTestId('day-strip')).toBeTruthy();
+    expect(within(screen.getByRole('main')).queryByRole('alert')).toBeNull();
+    expect(screen.queryByText('req-poll')).toBeNull();
+  });
+
+  it('keeps the job on screen when its runs fail to load: the strip and the runs tab show the error with a retry', async () => {
+    stubFetch({ ...routes(), [`GET /api/v1/jobs/${JOB.id}/occurrences`]: serverError('req-occ') });
+    renderApp(`/jobs/${JOB.id}`);
+    expect(await screen.findByRole('heading', { level: 1, name: HOSTILE_JOB })).toBeTruthy();
+    const strip = await within(card(strings.jobDetail.stripTitle)).findByRole('alert');
+    expect(strip.textContent).toContain('req-occ');
+    expect(within(strip).getByRole('button', { name: strings.states.retry })).toBeTruthy();
+    expect(screen.queryByTestId('day-strip')).toBeNull();
+    const runs = await within(card(strings.jobDetail.historyTitle)).findByRole('alert');
+    expect(runs.textContent).toContain('req-occ');
+    expect(within(runs).getByRole('button', { name: strings.states.retry })).toBeTruthy();
+    expect(screen.queryByRole('table', { name: strings.jobDetail.runsTab })).toBeNull();
+    // The rest of the page is unaffected.
+    expect(card(strings.jobDetail.stateTitle)).toBeTruthy();
+    expect(await screen.findByTestId('job-raw-message')).toBeTruthy();
+  });
+
+  it('shows the error with a retry in the state changes tab when the flips fail to load', async () => {
+    const user = userEvent.setup();
+    stubFetch({ ...routes(), 'GET /api/v1/flips': serverError('req-flips') });
+    renderApp(`/jobs/${JOB.id}`);
+    expect(await screen.findByRole('table', { name: strings.jobDetail.runsTab })).toBeTruthy();
+    await user.click(screen.getByRole('tab', { name: /State changes/ }));
+    const flips = await within(card(strings.jobDetail.historyTitle)).findByRole('alert');
+    expect(flips.textContent).toContain('req-flips');
+    expect(within(flips).getByRole('button', { name: strings.states.retry })).toBeTruthy();
+    expect(screen.queryByRole('table', { name: strings.jobDetail.flipsTab })).toBeNull();
+    expect(screen.getByTestId('day-strip')).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: HOSTILE_JOB })).toBeTruthy();
+  });
+
+  it('shows the error with a retry in the latest message card when the results fail to load', async () => {
+    const { calls } = stubFetch({ ...routes(), [`GET /api/v1/jobs/${JOB.id}/results`]: serverError('req-res') });
+    renderApp(`/jobs/${JOB.id}`);
+    expect(await screen.findByRole('heading', { level: 1, name: HOSTILE_JOB })).toBeTruthy();
+    const alert = await within(card(strings.jobDetail.rawTitle)).findByRole('alert');
+    expect(alert.textContent).toContain('req-res');
+    expect(within(alert).getByRole('button', { name: strings.states.retry })).toBeTruthy();
+    expect(screen.queryByTestId('job-raw-message')).toBeNull();
+    expect(calls.some((call) => call.url.includes('/messages/'))).toBe(false);
+    expect(await screen.findByTestId('day-strip')).toBeTruthy();
+  });
+
+  it('shows the error with a retry when the latest message fails with a 500', async () => {
+    stubFetch({ ...routes(), [`GET /api/v1/messages/${RESULT.raw_message_id}`]: serverError('req-raw') });
+    renderApp(`/jobs/${JOB.id}`);
+    expect(await screen.findByRole('heading', { level: 1, name: HOSTILE_JOB })).toBeTruthy();
+    // useRawMessage retries a non-404 once (about 1 s) before the error shows.
+    const alert = await within(card(strings.jobDetail.rawTitle)).findByRole('alert', {}, { timeout: 4000 });
+    expect(alert.textContent).toContain('req-raw');
+    expect(within(alert).getByRole('button', { name: strings.states.retry })).toBeTruthy();
+    expect(within(card(strings.jobDetail.rawTitle)).queryByText(strings.jobDetail.rawGone)).toBeNull();
+    expect(screen.queryByTestId('job-raw-message')).toBeNull();
+  });
+
+  it('says the latest message was purged when it answers 404, without retrying it', async () => {
+    const { calls } = stubFetch({ ...routes(), [`GET /api/v1/messages/${RESULT.raw_message_id}`]: { status: 404, body: { title: 'Message not found', status: 404 } } });
+    renderApp(`/jobs/${JOB.id}`);
+    expect(await screen.findByRole('heading', { level: 1, name: HOSTILE_JOB })).toBeTruthy();
+    expect(await within(card(strings.jobDetail.rawTitle)).findByText(strings.jobDetail.rawGone)).toBeTruthy();
+    expect(within(card(strings.jobDetail.rawTitle)).queryByRole('alert')).toBeNull();
+    expect(screen.queryByTestId('job-raw-message')).toBeNull();
+    // A retry would come about 1 s after the first answer.
+    await settle(1200);
+    expect(calls.filter((call) => call.url.includes(`/messages/${RESULT.raw_message_id}`))).toHaveLength(1);
   });
 
   it('is the same page for the technician, with the jobs list linking to it', async () => {

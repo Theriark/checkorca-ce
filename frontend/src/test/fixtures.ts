@@ -323,9 +323,21 @@ export const ACTIVITY_ITEMS: ActivityItem[] = [
   makeActivity({ id: 'a1000000-0000-4000-8000-000000000003', at: '2026-11-19T17:02:00Z', kind: 'config', summary: 'Job pause', ref_kind: 'job', ref_id: 'j1000000-0000-4000-8000-000000000004' }),
 ];
 
+/** A link with a script URL: rendered as markup it would run on a click. */
+export const HOSTILE_LINK = '<a href="javascript:alert(1)">x</a>';
+
+export const HOSTILE_ACTIVITY: ActivityItem = makeActivity({
+  id: 'a1000000-0000-4000-8000-000000000004',
+  at: '2026-11-20T07:50:00Z',
+  kind: 'config',
+  summary: `Client renamed to ${HOSTILE_LINK} ${HOSTILE_NAME}`,
+  ref_kind: 'client',
+  ref_id: 'c1000000-0000-4000-8000-000000000001',
+});
+
 export const DIGEST: DigestPreview = {
   date: '2026-11-20',
-  subject: 'Morning check 2026-11-20: 2 failed, 3 silent, 1 warning, 12 verified',
+  subject: 'Morning check 2026-11-20: 2 failed <script>window.__pwned = 5</script> 3 silent <img src=x onerror="window.__pwned = 6"> 12 verified',
   html: '<!doctype html><html><body style="margin:0;padding:24px;font-family:sans-serif"><h1 style="font-size:22px">Morning check, 20 Nov 2026</h1><p>12 verified, 2 failed, 3 silent.</p><script>window.parent.__pwned = 3; document.body.innerHTML = "pwned"</script><img src="x" onerror="window.__pwned = 4"></body></html>',
   text: 'Morning check, 20 Nov 2026\n12 verified, 2 failed, 3 silent.\n<script>alert(1)</script>',
 };
