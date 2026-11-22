@@ -4,9 +4,12 @@ from fastapi import APIRouter
 
 from app.api.problems import PROBLEM_RESPONSES
 from app.api.v1 import (
+    acknowledge,
     auth,
     clients,
+    dashboard,
     evaluation,
+    exports,
     inboxes,
     ingest,
     jobs,
@@ -26,6 +29,7 @@ router.include_router(users.router)
 router.include_router(tokens.router)
 router.include_router(clients.router)
 router.include_router(jobs.router)
+router.include_router(acknowledge.router)
 router.include_router(schedule.router)
 router.include_router(inboxes.router)
 router.include_router(messages.router)
@@ -35,3 +39,5 @@ router.include_router(ingest.router)
 router.include_router(packs.router)
 router.include_router(unmatched.router)
 router.include_router(system.router)
+router.include_router(dashboard.router)
+router.include_router(exports.router)

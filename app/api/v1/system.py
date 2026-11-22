@@ -1,9 +1,12 @@
-"""system/status: the worker heartbeat and lock holder, inbox activity and the
-parse queue. Phase C8-B adds the notification queues and the evaluator lag.
+"""system/status: the worker heartbeat and lock holder, inbox activity, the
+parse and notification queues, the evaluator lag, the version and the
+extension API level.
 
-Admins and technicians, or an API token of scope read.
+Admins and technicians, or an API token of scope read. The notification
+queues stay 0 until phase C9 sends notifications.
 """
 
+from datetime import timedelta
 from typing import cast
 
 from fastapi import APIRouter
@@ -18,6 +21,8 @@ from app.api.v1.ingest_schemas import (
     SystemStatus,
     WorkerStatus,
 )
+from app.ext import EXTENSION_API_LEVEL
+from app.repos.dashboard import DashboardRepository
 from app.repos.heartbeat import HeartbeatRepository
 from app.repos.inboxes import InboxRepository
 from app.repos.messages import RawMessageRepository
@@ -31,13 +36,20 @@ async def system_status(
     principal: ReaderDep, services: ServicesDep, db: DbDep
 ) -> SystemStatus:
     """A heartbeat older than 3 minutes (or none) is stale: the web app shows a
-    red banner and /readyz answers 503."""
+    red banner and /readyz answers 503. evaluator_lag_seconds is how long the
+    oldest evaluation the evaluator owes has waited (a deadline it has not
+    looked at yet, or a job it never evaluated); 0 when it is up to date."""
+    now = services.clock.now()
     row = await HeartbeatRepository(db, services.policy).get(principal)
-    heartbeat = heartbeat_view(row, services.clock.now())
+    heartbeat = heartbeat_view(row, now)
     inboxes = await InboxRepository(db, services.policy).activity(
         principal, limit=MAX_LIMIT
     )
     pending = await RawMessageRepository(db, services.policy).pending_count(principal)
+    oldest = await DashboardRepository(db, services.policy).oldest_due(
+        principal, now=now
+    )
+    lag = timedelta(0) if oldest is None else max(now - oldest, timedelta(0))
     return SystemStatus(
         worker=WorkerStatus(
             heartbeat_at=heartbeat.at,
@@ -55,7 +67,11 @@ async def system_status(
             )
             for inbox in inboxes
         ],
-        queue=QueueStatus(pending_messages=pending),
+        queue=QueueStatus(
+            pending_messages=pending, pending_notifications=0, failed_notifications=0
+        ),
+        evaluator_lag_seconds=round(lag.total_seconds(), 3),
         version=__version__,
         revision=services.settings.revision or None,
+        extension_api_level=EXTENSION_API_LEVEL,
     )
