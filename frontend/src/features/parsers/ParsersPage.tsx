@@ -15,7 +15,7 @@ import { DataTable } from '../../components/ui/DataTable';
 import { Switch } from '../../components/ui/Switch';
 import type { DataTableColumn } from '../../components/ui/dataTableUtils';
 import { useToast } from '../../components/ui/useToast';
-import { fill, formatDateTime } from '../../lib/format';
+import { fill, formatDate } from '../../lib/format';
 import { strings } from '../../strings';
 import { PageHeader } from '../shared/PageHeader';
 import { errorSentence } from '../shared/errors';
@@ -81,7 +81,7 @@ export function ParsersPage() {
         </span>
       ),
     },
-    { id: 'updated', header: copy.columns.updated, sortValue: (pack) => pack.updated_at, numeric: true, cell: (pack) => formatDateTime(pack.updated_at) },
+    { id: 'updated', header: copy.columns.updated, sortValue: (pack) => pack.updated_at, numeric: true, cell: (pack) => formatDate(pack.updated_at) },
     {
       id: 'actions',
       header: <span className="sr-only">{copy.columns.actions}</span>,
@@ -136,7 +136,10 @@ export function ParsersPage() {
         onRetry={() => void list.refetch()}
         defaultSort={{ column: 'pack', direction: 'asc' }}
         onRowClick={open}
-        minWidth={820}
+        // Six narrow columns (the date is a day, the id has the vendor under
+        // it): at 390 px the Status and Enabled columns stay on screen and only
+        // Updated and the menu need a short scroll (C5-F hygiene).
+        minWidth={620}
         emptyTitle={copy.emptyTitle}
         emptyDescription={copy.emptyLead}
         emptyAction={

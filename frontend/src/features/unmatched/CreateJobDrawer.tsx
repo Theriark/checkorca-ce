@@ -93,7 +93,9 @@ export function CreateJobDrawer({ open, onOpenChange, result, suggest = false, o
   const nameRef = useRef<HTMLInputElement>(null);
   const formId = 'create-job-form';
   const zone = useMemo(() => browserTimeZone(), []);
-  const suggestion = useScheduleSuggestion(result?.result_id ?? null, zone, open && asked);
+  // Off once the job exists: the binding refresh would otherwise fetch the
+  // suggestion (and its 422) once more while the summary is on screen.
+  const suggestion = useScheduleSuggestion(result?.result_id ?? null, zone, open && asked && done === null);
 
   // A fresh form for every open.
   useEffect(() => {

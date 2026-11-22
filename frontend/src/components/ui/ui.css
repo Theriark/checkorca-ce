@@ -693,6 +693,7 @@
   display: grid;
   gap: var(--space-2);
   min-width: 0;
+  container-type: inline-size;
   padding: var(--space-4) var(--space-5);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -759,6 +760,25 @@
 
 .co-stat__change--danger {
   color: var(--status-danger);
+}
+
+/* A narrow card (five in a row at 1440 px with the sidebar open, or two at
+   390 px) stacks the foot: the change line above a full-width sparkline,
+   instead of the two wrapping unevenly (C2 hygiene). */
+@container (max-width: 240px) {
+  .co-stat__foot {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .co-stat__foot .co-sparkline-box {
+    margin-left: 0;
+    max-width: none !important;
+  }
+
+  .co-stat__change {
+    justify-content: flex-start;
+  }
 }
 
 /* ---------- Empty and error states ---------- */

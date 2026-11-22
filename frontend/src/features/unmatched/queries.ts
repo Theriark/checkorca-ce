@@ -49,7 +49,9 @@ export function useJobSearch(q: string, enabled: boolean) {
 function useAfterBinding() {
   const queryClient = useQueryClient();
   return () => {
-    void queryClient.invalidateQueries({ queryKey: UNMATCHED_KEY });
+    // The queue, not the schedule suggestions: a bound result's suggestion
+    // (often a 422) is of no use any more and would only be fetched again.
+    void queryClient.invalidateQueries({ queryKey: [...UNMATCHED_KEY, 'list'] });
     void queryClient.invalidateQueries({ queryKey: JOBS_KEY });
     void queryClient.invalidateQueries({ queryKey: CLIENTS_KEY });
     void queryClient.invalidateQueries({ queryKey: MESSAGES_KEY });
