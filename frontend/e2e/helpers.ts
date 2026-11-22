@@ -48,9 +48,11 @@ export function systemStatus(stale: boolean): SystemStatus {
       ? { heartbeat_at: '2026-11-19T11:38:00Z', age_seconds: 1320, stale: true, holder: 'worker-1:42', started_at: '2026-11-19T08:00:00Z' }
       : { heartbeat_at: '2026-11-19T11:59:40Z', age_seconds: 20, stale: false, holder: 'worker-1:42', started_at: '2026-11-19T08:00:00Z' },
     inboxes: [],
-    queue: { pending_messages: stale ? 3 : 0 },
+    queue: { pending_messages: stale ? 3 : 0, pending_notifications: 0, failed_notifications: 0 },
+    evaluator_lag_seconds: 0,
     version: '27.0.0',
     revision: 'e2e',
+    extension_api_level: 1,
   };
 }
 

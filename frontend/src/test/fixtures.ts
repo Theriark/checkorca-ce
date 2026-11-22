@@ -152,9 +152,11 @@ export function makeStatus(overrides: Partial<SystemStatus> = {}): SystemStatus 
   return {
     worker: { heartbeat_at: '2026-11-19T12:00:00Z', age_seconds: 20, stale: false, holder: 'worker-1:42', started_at: '2026-11-19T08:00:00Z' },
     inboxes: [],
-    queue: { pending_messages: 0 },
+    queue: { pending_messages: 0, pending_notifications: 0, failed_notifications: 0 },
+    evaluator_lag_seconds: 0,
     version: '27.0.0',
     revision: 'abc1234',
+    extension_api_level: 1,
     ...overrides,
   };
 }

@@ -469,22 +469,7 @@ class DashboardRepository(Repository):
                 Client.id, Client.name
             )
         query = self.policy.scope(principal, self.resource, query)
-        found: list[BreakdownRow] = []
-        # add_columns is not in the row type: read the row as a sequence.
-        row: Sequence[Any]
-        for row in await self.db.execute(query):
-            key = None if row[3] is None else str(row[3])
-            label = None if row[4] is None else str(row[4])
-            found.append(
-                BreakdownRow(
-                    key=key,
-                    label=label,
-                    verified=int(row[0]),
-                    failed=int(row[1]),
-                    silent=int(row[2]),
-                )
-            )
-        return found
+        return [_breakdown_row(row) for row in await self.db.execute(query)]
 
     @guarded("list")
     async def activity(
@@ -775,6 +760,18 @@ class DashboardRepository(Repository):
             flips=flip_rows,
             messages=list((await self.db.scalars(messages)).all()),
         )
+
+
+def _breakdown_row(row: Sequence[Any]) -> BreakdownRow:
+    """verified, failed, silent, then the key and label columns that
+    breakdown adds (outside the row type of its select)."""
+    return BreakdownRow(
+        key=None if row[3] is None else str(row[3]),
+        label=None if row[4] is None else str(row[4]),
+        verified=int(row[0]),
+        failed=int(row[1]),
+        silent=int(row[2]),
+    )
 
 
 def _history_row(row: Sequence[Any]) -> HistoryRow:
