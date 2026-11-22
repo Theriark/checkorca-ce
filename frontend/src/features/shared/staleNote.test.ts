@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { staleSince } from './StaleNote';
+import { staleSince } from './staleSince';
 
 describe('staleSince', () => {
   it('is null while no query failed to refresh', () => {
