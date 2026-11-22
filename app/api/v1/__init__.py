@@ -6,6 +6,8 @@ from app.api.problems import PROBLEM_RESPONSES
 from app.api.v1 import (
     acknowledge,
     auth,
+    channel_rules,
+    channels,
     clients,
     dashboard,
     evaluation,
@@ -14,9 +16,11 @@ from app.api.v1 import (
     ingest,
     jobs,
     messages,
+    notifications,
     packs,
     results,
     schedule,
+    settings,
     system,
     tokens,
     unmatched,
@@ -41,3 +45,7 @@ router.include_router(unmatched.router)
 router.include_router(system.router)
 router.include_router(dashboard.router)
 router.include_router(exports.router)
+router.include_router(channels.router)
+router.include_router(channel_rules.router)
+router.include_router(notifications.router)
+router.include_router(settings.router)

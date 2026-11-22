@@ -1826,10 +1826,356 @@ export interface paths {
       };
     };
   };
+  "/api/v1/channels": {
+    get: {
+      /** List Channels */
+      parameters: {
+        query: {
+          cursor?: string | null;
+          limit?: number;
+        };
+        path: never;
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["ChannelPage"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+    post: {
+      /** Create Channel */
+      parameters: {
+        query: never;
+        path: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": components["schemas"]["NewChannel"];
+        };
+      };
+      responses: {
+        "201": {
+          content: {
+            "application/json": components["schemas"]["ChannelOut"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/channels/check-url": {
+    post: {
+      /** Check Url */
+      parameters: {
+        query: never;
+        path: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": components["schemas"]["TargetCheck"];
+        };
+      };
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["TargetCheckResult"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/channels/{channel_id}": {
+    get: {
+      /** Get Channel */
+      parameters: {
+        query: never;
+        path: {
+          channel_id: string;
+        };
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["ChannelOut"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+    delete: {
+      /** Delete Channel */
+      parameters: {
+        query: never;
+        path: {
+          channel_id: string;
+        };
+      };
+      requestBody?: never;
+      responses: {
+        "204": {
+          content: never;
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+    patch: {
+      /** Update Channel */
+      parameters: {
+        query: never;
+        path: {
+          channel_id: string;
+        };
+      };
+      requestBody: {
+        content: {
+          "application/json": components["schemas"]["ChannelPatch"];
+        };
+      };
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["ChannelOut"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/channels/{channel_id}/test": {
+    post: {
+      /** Test Channel */
+      parameters: {
+        query: never;
+        path: {
+          channel_id: string;
+        };
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["ChannelTestResult"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/channel-rules": {
+    get: {
+      /** List Rules */
+      parameters: {
+        query: {
+          channel_id?: string | null;
+          cursor?: string | null;
+          limit?: number;
+        };
+        path: never;
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["RulePage"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+    post: {
+      /** Create Rule */
+      parameters: {
+        query: never;
+        path: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": components["schemas"]["NewRule"];
+        };
+      };
+      responses: {
+        "201": {
+          content: {
+            "application/json": components["schemas"]["RuleOut"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/channel-rules/{rule_id}": {
+    delete: {
+      /** Delete Rule */
+      parameters: {
+        query: never;
+        path: {
+          rule_id: string;
+        };
+      };
+      requestBody?: never;
+      responses: {
+        "204": {
+          content: never;
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+    patch: {
+      /** Update Rule */
+      parameters: {
+        query: never;
+        path: {
+          rule_id: string;
+        };
+      };
+      requestBody: {
+        content: {
+          "application/json": components["schemas"]["RulePatch"];
+        };
+      };
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["RuleOut"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/notifications": {
+    get: {
+      /** List Notifications */
+      parameters: {
+        query: {
+          status?: "queued" | "sent" | "retrying" | "failed" | null;
+          channel_id?: string | null;
+          cursor?: string | null;
+          limit?: number;
+        };
+        path: never;
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["NotificationPage"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
+  "/api/v1/settings": {
+    get: {
+      /** Get Settings */
+      parameters: {
+        query: never;
+        path: never;
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["DigestSettingsOut"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+    patch: {
+      /** Update Settings */
+      parameters: {
+        query: never;
+        path: never;
+      };
+      requestBody: {
+        content: {
+          "application/json": components["schemas"]["DigestSettingsPatch"];
+        };
+      };
+      responses: {
+        "200": {
+          content: {
+            "application/json": components["schemas"]["DigestSettingsOut"];
+          };
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
+  };
 }
 
 export interface components {
   schemas: {
+    /** Who acknowledged the job's state. email is null for an API token: only
+signed-in users see addresses. */
+    AcknowledgedBy: {
+      id: string;
+      email: string | null;
+    };
     /** One entry of the timeline. ref_kind and ref_id point to what it is
 about (job, message, or the target of a configuration change). */
     ActivityItem: {
@@ -1950,6 +2296,41 @@ id; label: the pack's vendor or the client's name. */
       failed: number;
       silent: number;
     };
+    ChannelOut: {
+      id: string;
+      kind: "email" | "slack" | "teams" | "webhook";
+      label: string;
+      enabled: boolean;
+      config: Record<string, unknown>;
+      available: boolean;
+      secret_label: string | null;
+      secret_set: boolean;
+      secret_hint: string | null;
+      last_status: "sent" | "failed" | null;
+      last_status_at: string | null;
+      last_error: string | null;
+      created_at: string;
+      updated_at: string;
+    };
+    ChannelPage: {
+      items: components["schemas"]["ChannelOut"][];
+      next_cursor: string | null;
+    };
+    /** Only the fields sent change. config keys sent replace the stored ones
+(a null removes the key) and the result is checked again. A secret sent
+replaces the stored one; an empty secret removes it. Changing a setting
+that decides where the secret goes needs the secret again (422). */
+    ChannelPatch: {
+      label?: string | null;
+      enabled?: boolean | null;
+      config?: Record<string, unknown> | null;
+      secret?: string | null;
+    };
+    /** ok: the test message was delivered; detail says what happened. */
+    ChannelTestResult: {
+      ok: boolean;
+      detail: string;
+    };
     ClientOut: {
       id: string;
       name: string;
@@ -2031,6 +2412,19 @@ one result on); timezone defaults to the digest time zone of Settings. */
       subject: string;
       html: string;
       text: string;
+    };
+    /** When the daily digest goes out (HH:MM in the zone) and whether a
+24-hour reminder follows a failing or missed job. */
+    DigestSettingsOut: {
+      digest_time_local: string;
+      digest_timezone: string;
+      reminder_24h: boolean;
+    };
+    /** Only the fields sent change; at least one must be sent. */
+    DigestSettingsPatch: {
+      digest_time_local?: string | null;
+      digest_timezone?: string | null;
+      reminder_24h?: boolean | null;
     };
     /** One invalid input: where it is (for example body.email) and why. */
     FieldProblem: {
@@ -2185,6 +2579,7 @@ one result on); timezone defaults to the digest time zone of Settings. */
       state_since: string | null;
       last_success_at: string | null;
       acknowledged_at: string | null;
+      acknowledged_by?: components["schemas"]["AcknowledgedBy"] | null;
       created_at: string;
       updated_at: string;
     };
@@ -2265,6 +2660,15 @@ parses it (parse_state pending). */
       email: string;
       password: string;
     };
+    /** A channel. config is the kind's settings (docs/notifications.md);
+secret is its credential (the relay password), stored encrypted. */
+    NewChannel: {
+      kind: "email" | "slack" | "teams" | "webhook";
+      label: string;
+      enabled?: boolean;
+      config?: Record<string, unknown>;
+      secret?: string | null;
+    };
     NewClient: {
       name: string;
       notes?: string;
@@ -2307,6 +2711,14 @@ by ping_token, or by client_hint and job_name for the matcher. */
       run_id?: string | null;
       details?: Record<string, unknown>;
     };
+    /** scope all covers every job (scope_id null); client and job need the
+client's or the job's id. digest is for scope all only. */
+    NewRule: {
+      channel_id: string;
+      scope?: "all" | "client" | "job";
+      scope_id?: string | null;
+      events: ("failing" | "missed" | "warning" | "recovered" | "digest")[];
+    };
     NewToken: {
       label: string;
       scope: "ingest" | "read";
@@ -2315,6 +2727,32 @@ by ping_token, or by client_hint and job_name for the matcher. */
       email: string;
       password: string;
       role: "admin" | "technician";
+    };
+    /** One notification: about a flip (failing, missed, warning, recovered,
+reminder; flip_id, job and client set) or the digest of digest_day. */
+    NotificationOut: {
+      id: string;
+      channel_id: string;
+      channel_label: string;
+      channel_kind: "email" | "slack" | "teams" | "webhook";
+      event: "failing" | "missed" | "warning" | "recovered" | "reminder" | "digest";
+      status: "queued" | "sent" | "retrying" | "failed";
+      attempts: number;
+      error: string | null;
+      flip_id: string | null;
+      job_id: string | null;
+      job_name: string | null;
+      client_id: string | null;
+      client_name: string | null;
+      digest_day: string | null;
+      created_at: string;
+      last_attempt_at: string | null;
+      next_attempt_at: string | null;
+      sent_at: string | null;
+    };
+    NotificationPage: {
+      items: components["schemas"]["NotificationOut"][];
+      next_cursor: string | null;
     };
     /** One expected run of a job. note explains the state in a few words
 (recovered after retry, late result, started, never finished). */
@@ -2458,6 +2896,25 @@ the deciding result says the run ended (finished, else received). */
       from: string;
       to: string;
     };
+    RuleOut: {
+      id: string;
+      channel_id: string;
+      scope: "all" | "client" | "job";
+      scope_id: string | null;
+      scope_name: string | null;
+      events: ("failing" | "missed" | "warning" | "recovered" | "digest")[];
+      created_at: string;
+    };
+    RulePage: {
+      items: components["schemas"]["RuleOut"][];
+      next_cursor: string | null;
+    };
+    /** Only the fields sent change; the result is checked as a new rule. */
+    RulePatch: {
+      scope?: "all" | "client" | "job" | null;
+      scope_id?: string | null;
+      events?: ("failing" | "missed" | "warning" | "recovered" | "digest")[] | null;
+    };
     /** The next times, or why the schedule cannot be used (error and field). */
     SchedulePreview: {
       next: string[];
@@ -2511,6 +2968,18 @@ timezone; basis is the time read of each run; results how many runs. */
       version: string;
       revision: string | null;
       extension_api_level: number;
+    };
+    TargetCheck: {
+      url: string;
+    };
+    /** The URL may be called: its host, port, the addresses it resolves to
+and why it is allowed. A refused URL answers 422 with the reason. */
+    TargetCheckResult: {
+      ok: boolean;
+      host: string;
+      port: number;
+      addresses: string[];
+      allowed_by: "public" | "allowed_host" | "allow_private";
     };
     TokenOut: {
       id: string;
@@ -2652,4 +3121,18 @@ export type operations = {
   export_day_api_v1_exports_day_csv_get: paths["/api/v1/exports/day.csv"]["get"];
   export_history_api_v1_exports_history_csv_get: paths["/api/v1/exports/history.csv"]["get"];
   export_client_api_v1_clients__client_id__export_csv_get: paths["/api/v1/clients/{client_id}/export.csv"]["get"];
+  list_channels_api_v1_channels_get: paths["/api/v1/channels"]["get"];
+  create_channel_api_v1_channels_post: paths["/api/v1/channels"]["post"];
+  check_url_api_v1_channels_check_url_post: paths["/api/v1/channels/check-url"]["post"];
+  get_channel_api_v1_channels__channel_id__get: paths["/api/v1/channels/{channel_id}"]["get"];
+  delete_channel_api_v1_channels__channel_id__delete: paths["/api/v1/channels/{channel_id}"]["delete"];
+  update_channel_api_v1_channels__channel_id__patch: paths["/api/v1/channels/{channel_id}"]["patch"];
+  test_channel_api_v1_channels__channel_id__test_post: paths["/api/v1/channels/{channel_id}/test"]["post"];
+  list_rules_api_v1_channel_rules_get: paths["/api/v1/channel-rules"]["get"];
+  create_rule_api_v1_channel_rules_post: paths["/api/v1/channel-rules"]["post"];
+  delete_rule_api_v1_channel_rules__rule_id__delete: paths["/api/v1/channel-rules/{rule_id}"]["delete"];
+  update_rule_api_v1_channel_rules__rule_id__patch: paths["/api/v1/channel-rules/{rule_id}"]["patch"];
+  list_notifications_api_v1_notifications_get: paths["/api/v1/notifications"]["get"];
+  get_settings_api_v1_settings_get: paths["/api/v1/settings"]["get"];
+  update_settings_api_v1_settings_patch: paths["/api/v1/settings"]["patch"];
 };

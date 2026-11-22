@@ -67,6 +67,12 @@ class Settings(BaseSettings):
     # and 60 jobs with 14 days of history, seeded once by the worker. Same
     # host rule as the seed accounts.
     dev_demo_data: bool = False
+    # Outbound HTTP (webhook channels, the heartbeat; app/security/ssrf.py):
+    # private, loopback, link-local and metadata addresses are refused unless
+    # ALLOW_PRIVATE_TARGETS is true or the host is exactly one of the
+    # comma-separated OUTBOUND_ALLOWED_HOSTS.
+    allow_private_targets: bool = False
+    outbound_allowed_hosts: str = Field(default="", max_length=2000)
 
     @field_validator("secret_key")
     @classmethod
@@ -128,6 +134,13 @@ class Settings(BaseSettings):
     def inbox_domain(self) -> str:
         """The domain of the inbox addresses: MAIL_DOMAIN or BASE_URL's host."""
         return self.mail_domain or (urlsplit(self.base_url).hostname or "localhost")
+
+    @property
+    def allowed_hosts(self) -> frozenset[str]:
+        """OUTBOUND_ALLOWED_HOSTS as lower-case host names (exact matches)."""
+        listed = self.outbound_allowed_hosts.split(",")
+        names = (name.strip().lower().rstrip(".") for name in listed)
+        return frozenset(name for name in names if name)
 
 
 def known_secrets(settings: Settings) -> list[str]:

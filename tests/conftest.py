@@ -47,9 +47,14 @@ OPTIONAL_VARIABLES = (
     "DEV_SEED_PASSWORD_ADMIN",
     "DEV_SEED_PASSWORD_TECHNICIAN",
     "DEV_DEMO_DATA",
+    "ALLOW_PRIVATE_TARGETS",
+    "OUTBOUND_ALLOWED_HOSTS",
 )
 # Emptied before each database test; settings keeps its single row.
 TABLES = (
+    "notification",
+    "channel_rule",
+    "channel",
     "flip",
     "occurrence",
     "job_state",
@@ -101,7 +106,7 @@ async def db_engine(migrated: None) -> AsyncIterator[AsyncEngine]:
             text(
                 "UPDATE settings SET external_heartbeat_url_enc = NULL, "
                 "demo_seeded = false, digest_timezone = 'Europe/Lisbon', "
-                "digest_time_local = '07:30'"
+                "digest_time_local = '07:30', reminder_24h = false"
             )
         )
     yield engine

@@ -18,6 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from app.__main__ import main
+from app.access import SYSTEM
 from app.db.models import (
     AppSettings,
     AppUser,
@@ -26,6 +27,7 @@ from app.db.models import (
     Flip,
     Job,
     JobResult,
+    Notification,
     Occurrence,
     RawMessage,
     name_key,
@@ -33,8 +35,10 @@ from app.db.models import (
 from app.ext.events import Event
 from app.main import create_app
 from app.matcher import tokens
+from app.notify.dispatcher import dispatch_notifications
 from app.parsers.engine import Parsed, mail_from_raw, parse
 from app.parsers.loader import builtin_packs
+from app.repos.notifications import ChannelRepository, ChannelRuleRepository
 from app.schedule import parse_spec
 from app.seed.accounts import SeedError
 from app.seed.demo import (
@@ -299,3 +303,33 @@ async def check_the_dashboard(client: httpx.AsyncClient) -> None:
     assert day.status_code == 200 and day.text.count("\n") > 1
     preview = (await client.get("/api/v1/digest/preview")).json()
     assert "<script" not in preview["html"].lower()
+
+
+async def test_the_replay_notifies_no_channel(
+    demo: WorkerContext, db_engine: AsyncEngine, clock: FakeClock
+) -> None:
+    """The worker's context carries the NotificationQueue; the replay drops
+    it (subscribers=()), so two weeks of made-up flips queue nothing, even
+    with a channel listening to every job."""
+    assert demo.subscribers, "build_context adds the NotificationQueue"
+    async with demo.sessionmaker() as db:
+        channel = await ChannelRepository(db, demo.policy).create(
+            SYSTEM, kind="email", label="Ops mail", now=clock.now(), config={}
+        )
+        await ChannelRuleRepository(db, demo.policy).create(
+            SYSTEM,
+            channel_id=channel.id,
+            scope="all",
+            scope_id=None,
+            events=["failing", "missed", "warning", "recovered"],
+            now=clock.now(),
+        )
+        await db.commit()
+    report = await seed_demo(demo, clock.now())
+    assert report.seeded
+    await dispatch_notifications(demo, clock.now())
+    seeded = await counts(db_engine)
+    assert seeded["flip"] > 0
+    async with async_sessionmaker(db_engine)() as db:
+        query = select(func.count()).select_from(Notification)
+        assert (await db.execute(query)).scalar_one() == 0

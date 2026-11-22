@@ -1,5 +1,7 @@
 """The single settings row. Stored credentials go through the SecretBox."""
 
+from typing import Any, Final
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -7,6 +9,11 @@ from app.access import AccessPolicy, Principal
 from app.db.models import AppSettings
 from app.repos.base import Repository, guarded
 from app.security.crypto import SecretBox
+
+# The fields of the digest settings (settings route, phase C9-B).
+_DIGEST_FIELDS: Final = frozenset(
+    {"digest_time_local", "digest_timezone", "reminder_24h"}
+)
 
 
 class SettingsRepository(Repository):
@@ -17,8 +24,25 @@ class SettingsRepository(Repository):
         self._box = box
 
     @guarded("read")
-    async def get(self, principal: Principal) -> AppSettings:
-        return (await self.db.scalars(select(AppSettings))).one()
+    async def get(
+        self, principal: Principal, *, for_update: bool = False
+    ) -> AppSettings:
+        query = select(AppSettings)
+        if for_update:
+            query = query.with_for_update()
+        return (await self.db.scalars(query)).one()
+
+    @guarded("update")
+    async def update_digest(
+        self, principal: Principal, row: AppSettings, **changes: Any
+    ) -> None:
+        """Change digest_time_local, digest_timezone or reminder_24h."""
+        unknown = set(changes) - _DIGEST_FIELDS
+        if unknown:
+            raise ValueError(f"cannot update {sorted(unknown)}")
+        for field, value in changes.items():
+            setattr(row, field, value)
+        await self.db.flush()
 
     @guarded("read")
     async def external_heartbeat_url(self, principal: Principal) -> str | None:
