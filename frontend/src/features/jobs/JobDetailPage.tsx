@@ -246,7 +246,7 @@ function LatestMessage({ jobId, enabled }: { readonly jobId: string; readonly en
         <Skeleton height={120} radius="md" />
       </SkeletonGroup>
     );
-  } else if (results.isError) {
+  } else if (results.isLoadingError) {
     body = <ErrorState error={results.error} onRetry={() => void results.refetch()} compact />;
   } else if (!messageId) {
     body = <p className="co-summary__muted">{copy.rawNone}</p>;
@@ -294,11 +294,15 @@ export function JobDetailPage() {
   const copy = strings.jobDetail;
   const { toast } = useToast();
   const job = useJob(jobId);
-  const now = useMemo(() => new Date(), []);
+  // Moves with every poll of the job, so the strip rolls over at midnight.
+  const now = useMemo(() => (job.dataUpdatedAt ? new Date(job.dataUpdatedAt) : new Date()), [job.dataUpdatedAt]);
   const from = useMemo(() => startOfDayAgo(now, STRIP_DAYS - 1).toISOString(), [now]);
   const to = useMemo(() => startOfDayAgo(now, -1).toISOString(), [now]);
-  const occurrences = useOccurrences(jobId, from, to, job.isSuccess);
-  const flips = useFlips({ job_id: jobId }, job.isSuccess);
+  // A failed poll keeps the job on screen; the dependent lists follow the
+  // data, not the last fetch.
+  const loaded = job.data !== undefined;
+  const occurrences = useOccurrences(jobId, from, to, loaded);
+  const flips = useFlips({ job_id: jobId }, loaded);
   const acknowledge = useAcknowledgeJob();
   const actions = useJobActions();
   const [editOpen, setEditOpen] = useState(false);
@@ -318,7 +322,7 @@ export function JobDetailPage() {
       </div>
     );
   }
-  if (job.isError) {
+  if (job.isLoadingError) {
     const notFound = job.error instanceof ApiError && job.error.status === 404;
     return (
       <div className="co-page">
@@ -406,7 +410,7 @@ export function JobDetailPage() {
           <SkeletonGroup>
             <Skeleton height={40} radius="md" />
           </SkeletonGroup>
-        ) : occurrences.isError ? (
+        ) : occurrences.isLoadingError ? (
           <ErrorState error={occurrences.error} onRetry={() => void occurrences.refetch()} compact />
         ) : occurrences.data.length === 0 ? (
           <EmptyState compact visual="none" title={copy.stripEmptyTitle} description={copy.stripEmptyLead} />
@@ -437,7 +441,7 @@ export function JobDetailPage() {
                     <Skeleton height={32} />
                     <Skeleton height={32} />
                   </SkeletonGroup>
-                ) : occurrences.isError ? (
+                ) : occurrences.isLoadingError ? (
                   <ErrorState error={occurrences.error} onRetry={() => void occurrences.refetch()} compact />
                 ) : (
                   <RunsTable runs={runs} />
@@ -452,7 +456,7 @@ export function JobDetailPage() {
                     <Skeleton height={32} />
                     <Skeleton height={32} />
                   </SkeletonGroup>
-                ) : flips.isError ? (
+                ) : flips.isLoadingError ? (
                   <ErrorState error={flips.error} onRetry={() => void flips.refetch()} compact />
                 ) : (
                   <>
@@ -473,7 +477,7 @@ export function JobDetailPage() {
         <ScheduleCard job={data} />
       </div>
 
-      <LatestMessage jobId={data.id} enabled={job.isSuccess} />
+      <LatestMessage jobId={data.id} enabled={loaded} />
 
       <JobDrawer open={editOpen} job={data} onOpenChange={setEditOpen} />
       {actions.dialogs}

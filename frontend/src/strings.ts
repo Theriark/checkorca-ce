@@ -957,6 +957,8 @@ export const strings = {
     lead: 'Which clients are verified, failed or silent, in the last 24 hours.',
     generatedAt: 'As of {time}',
     refreshing: 'Refreshing',
+    staleData: 'Last refresh failed: showing the numbers from {time}',
+    attentionUnavailable: 'The list loads with the numbers above.',
     seedData: 'Seed data',
     seedLead: 'Demo clients and jobs fed with simulated mail and pings; delete them when you add your own.',
     stats: { verified: 'Verified', failed: 'Failed', silent: 'Silent', unmatched: 'Unmatched', paused: 'Paused' },
@@ -1071,7 +1073,9 @@ export const strings = {
     preparing: 'Preparing the file',
     downloaded: 'Export downloaded',
     failed: 'The export did not download',
-    tooMany: 'Too many rows for one file: choose fewer days.',
+    tooManyDay: 'Today has too many runs for one file. Export each client from its client page.',
+    tooManyHistory: 'The last 30 days have too many runs for one file. Export each client from its client page.',
+    tooManyClient: 'The full history of this client is too large for one file. Export the last 30 days from the Morning check.',
   },
 
   digest: {

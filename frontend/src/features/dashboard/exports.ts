@@ -4,11 +4,28 @@ import { exportsApi } from '../../api/dashboard';
 import { toDateInputValue } from '../../lib/format';
 import { saveBlob } from '../shared/download';
 
-/** Every run due on one day; today in the browser's zone by default. */
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+const BOM = String.fromCharCode(0xfeff);
+
+/** The date column of the first row, if the file has one. */
+async function firstRowDate(blob: Blob): Promise<string | null> {
+  try {
+    const text = await blob.text();
+    const rows = (text.startsWith(BOM) ? text.slice(1) : text).split(/\r?\n/);
+    const first = rows[1]?.split(',')[0] ?? '';
+    return DAY.test(first) ? first : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Every run due on one day. Without a date the server picks today in the
+ *  digest zone (the browser's zone can be a day off), and the file is
+ *  named after the day the rows carry. */
 export async function exportDay(date?: string | null): Promise<string> {
-  const day = date ?? toDateInputValue();
-  const blob = await exportsApi.day(day);
-  const name = `day-${day}.csv`;
+  const blob = await exportsApi.day(date ?? null);
+  const day = date ?? (await firstRowDate(blob));
+  const name = day ? `day-${day}.csv` : 'day.csv';
   saveBlob(blob, name);
   return name;
 }

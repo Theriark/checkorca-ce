@@ -263,7 +263,7 @@ export function ClientDetailPage() {
       const name = await exportClientHistory(data.id);
       toast({ tone: 'success', title: strings.exports.downloaded, description: name });
     } catch (caught) {
-      toast({ tone: 'danger', title: strings.exports.failed, description: isStatus(caught, 422) ? strings.exports.tooMany : errorSentence(caught) });
+      toast({ tone: 'danger', title: strings.exports.failed, description: isStatus(caught, 422) ? strings.exports.tooManyClient : errorSentence(caught) });
     } finally {
       setExportingHistory(false);
     }

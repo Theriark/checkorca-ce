@@ -13,7 +13,7 @@ import { ErrorState } from '../../components/ui/ErrorState';
 import { Input } from '../../components/ui/Input';
 import { Skeleton, SkeletonGroup } from '../../components/ui/Skeleton';
 import { Tabs } from '../../components/ui/Tabs';
-import { fill, toDateInputValue } from '../../lib/format';
+import { fill } from '../../lib/format';
 import { strings } from '../../strings';
 import { useDigestPreview } from './queries';
 import './dashboard.css';
@@ -28,10 +28,14 @@ const TEXT_TAB = 'text';
 
 export function DigestPreviewDialog({ open, onOpenChange }: DigestPreviewDialogProps) {
   const copy = strings.digest;
-  const [date, setDate] = useState(() => toDateInputValue());
+  // Null until the person picks a day: the first request sends no date, so
+  // the server answers today in the digest zone, and the field shows the
+  // date of that answer.
+  const [picked, setPicked] = useState<string | null>(null);
   const [tab, setTab] = useState(HTML_TAB);
-  const valid = /^\d{4}-\d{2}-\d{2}$/.test(date);
-  const preview = useDigestPreview(valid ? date : null, open && valid);
+  const valid = picked === null || /^\d{4}-\d{2}-\d{2}$/.test(picked);
+  const preview = useDigestPreview(valid ? picked : null, open && valid);
+  const date = picked ?? preview.data?.date ?? '';
 
   let body: React.ReactNode;
   if (!valid) {
@@ -90,7 +94,7 @@ export function DigestPreviewDialog({ open, onOpenChange }: DigestPreviewDialogP
       open={open}
       onOpenChange={onOpenChange}
       title={copy.title}
-      description={fill(copy.lead, { date: valid ? date : '…' })}
+      description={fill(copy.lead, { date: valid && date ? date : '…' })}
       size="lg"
       footer={
         <Button variant="primary" onClick={() => onOpenChange(false)}>
@@ -99,7 +103,7 @@ export function DigestPreviewDialog({ open, onOpenChange }: DigestPreviewDialogP
       }
     >
       <div className="co-digest__controls">
-        <Input label={copy.date} type="date" value={date} min="2000-01-01" max="2099-12-31" onChange={(event) => setDate(event.target.value)} className="co-digest__date" />
+        <Input label={copy.date} type="date" value={date} min="2000-01-01" max="2099-12-31" onChange={(event) => setPicked(event.target.value)} className="co-digest__date" />
       </div>
       {body}
     </Dialog>

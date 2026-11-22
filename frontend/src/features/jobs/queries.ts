@@ -64,6 +64,8 @@ export function useOccurrences(jobId: string, from: string, to: string, enabled 
     },
     enabled,
     refetchInterval: 60_000,
+    // At midnight the window moves; keep the old strip until the new one is in.
+    placeholderData: (previous) => previous,
   });
 }
 

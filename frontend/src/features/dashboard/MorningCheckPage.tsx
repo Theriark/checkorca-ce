@@ -180,13 +180,17 @@ export function MorningCheckPage() {
       const name = await (which === 'day' ? exportDay() : exportHistory());
       toast({ tone: 'success', title: strings.exports.downloaded, description: name });
     } catch (caught) {
-      toast({ tone: 'danger', title: strings.exports.failed, description: isStatus(caught, 422) ? strings.exports.tooMany : errorSentence(caught) });
+      const tooMany = which === 'day' ? strings.exports.tooManyDay : strings.exports.tooManyHistory;
+      toast({ tone: 'danger', title: strings.exports.failed, description: isStatus(caught, 422) ? tooMany : errorSentence(caught) });
     } finally {
       setExporting(null);
     }
   };
 
   const lead = data ? fill(copy.generatedAt, { time: formatTime(data.generated_at) }) : copy.lead;
+  // A failed poll keeps the last answer on screen (TanStack Query keeps data
+  // on a refetch error); only a first load that failed shows an error state.
+  const refreshFailed = [today, ribbon, trend, breakdown, activity].some((query) => query.isRefetchError);
 
   return (
     <div className="co-page co-dash">
@@ -196,7 +200,16 @@ export function MorningCheckPage() {
         lead={
           <span className="co-dash__lead">
             {lead}
-            {today.isFetching && !today.isPending && <span className="co-dash__refreshing">{copy.refreshing}</span>}
+            {today.isFetching && !today.isPending ? (
+              <span className="co-dash__refreshing">{copy.refreshing}</span>
+            ) : (
+              refreshFailed &&
+              data && (
+                <span className="co-dash__refreshing" data-testid="stale-data">
+                  {fill(copy.staleData, { time: formatTime(data.generated_at) })}
+                </span>
+              )
+            )}
           </span>
         }
         badges={
@@ -231,7 +244,7 @@ export function MorningCheckPage() {
         </p>
       )}
 
-      {today.isError ? (
+      {today.isLoadingError ? (
         <ErrorState error={today.error} onRetry={() => void today.refetch()} retrying={today.isFetching} />
       ) : (
         <div className="co-dash__top">
@@ -273,7 +286,7 @@ export function MorningCheckPage() {
             problemsOnly={problemsOnly}
             onProblemsOnly={setProblemsOnly}
             loading={ribbon.isPending}
-            error={ribbon.isError ? ribbon.error : undefined}
+            error={ribbon.isLoadingError ? ribbon.error : undefined}
             onRetry={() => void ribbon.refetch()}
             retrying={ribbon.isFetching}
           />
@@ -292,8 +305,8 @@ export function MorningCheckPage() {
                   <Skeleton height={56} radius="md" />
                   <Skeleton height={56} radius="md" />
                 </SkeletonGroup>
-              ) : today.isError ? (
-                <ErrorState error={today.error} onRetry={() => void today.refetch()} compact />
+              ) : today.isLoadingError ? (
+                <p className="co-summary__muted">{copy.attentionUnavailable}</p>
               ) : data && data.attention.length === 0 ? (
                 <EmptyState compact visual="none" title={copy.attentionEmptyTitle} description={copy.attentionEmptyLead} />
               ) : data ? (
@@ -313,7 +326,7 @@ export function MorningCheckPage() {
                 <SkeletonGroup>
                   <Skeleton height={200} radius="md" />
                 </SkeletonGroup>
-              ) : trend.isError ? (
+              ) : trend.isLoadingError ? (
                 <ErrorState error={trend.error} onRetry={() => void trend.refetch()} retrying={trend.isFetching} compact />
               ) : trendTotal === 0 ? (
                 <EmptyState compact visual="none" title={copy.trendEmptyTitle} description={copy.trendEmptyLead} />
@@ -346,7 +359,7 @@ export function MorningCheckPage() {
                   <Skeleton height={20} />
                   <Skeleton height={20} />
                 </SkeletonGroup>
-              ) : breakdown.isError ? (
+              ) : breakdown.isLoadingError ? (
                 <ErrorState error={breakdown.error} onRetry={() => void breakdown.refetch()} retrying={breakdown.isFetching} compact />
               ) : breakdown.data.items.length === 0 ? (
                 <EmptyState compact visual="none" title={copy.breakdownEmptyTitle} description={copy.breakdownEmptyLead} />
@@ -378,7 +391,7 @@ export function MorningCheckPage() {
                   <Skeleton height={40} />
                   <Skeleton height={40} />
                 </SkeletonGroup>
-              ) : activity.isError ? (
+              ) : activity.isLoadingError ? (
                 <ErrorState error={activity.error} onRetry={() => void activity.refetch()} retrying={activity.isFetching} compact />
               ) : activityItems.length === 0 ? (
                 <EmptyState compact visual="none" title={copy.activityEmptyTitle} description={copy.activityEmptyLead} />

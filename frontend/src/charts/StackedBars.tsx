@@ -61,7 +61,8 @@ export function StackedBars({ days, label, height = 180, className }: StackedBar
   const slot = innerWidth / count;
   const barWidth = Math.max(Math.min(slot * 0.68, 28), 2);
   const y = (value: number) => MARGIN.top + innerHeight - (value / max) * innerHeight;
-  const ticks = max >= 2 ? [0, max / 2, max] : [0, max];
+  // Runs are whole: the middle tick only when it lands on a whole number.
+  const ticks = max >= 2 && Number.isInteger(max / 2) ? [0, max / 2, max] : [0, max];
   const labelEvery = Math.max(1, Math.ceil(count / 6));
   const summary = `${label}: ${count} ${count === 1 ? strings.chart.day : strings.chart.days}, ${totals.verified} ${strings.dashboard.stats.verified.toLowerCase()}, ${totals.failed} ${strings.dashboard.stats.failed.toLowerCase()}, ${totals.silent} ${strings.dashboard.stats.silent.toLowerCase()}`;
 
