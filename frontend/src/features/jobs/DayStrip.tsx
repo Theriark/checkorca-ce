@@ -1,6 +1,4 @@
 /** The 30-day strip (dayStrip.ts) drawn as cells with an icon per state. */
-import { useMemo } from 'react';
-
 import type { OccurrenceOut } from '../../api/jobs';
 import { fill, formatDate } from '../../lib/format';
 import { OCCURRENCE_STYLES, occurrenceLabel } from '../../ribbon/occurrenceState';
@@ -17,7 +15,7 @@ export interface DayStripProps {
 export function DayStrip({ occurrences, now, days = 30 }: DayStripProps) {
   const copy = strings.jobDetail;
   const clock = now ?? new Date();
-  const cells = useMemo(() => stripCells(occurrences, clock, days), [occurrences, clock, days]);
+  const cells = stripCells(occurrences, clock, days);
   const first = cells[0];
   return (
     <figure className="co-strip" aria-label={copy.stripLabel} data-testid="day-strip">
