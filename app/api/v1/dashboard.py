@@ -137,6 +137,14 @@ def check_day(day: date, field: str) -> date:
     return day
 
 
+def check_moment(moment: datetime, field: str) -> datetime:
+    """A time asked for must lie in the years of FIRST_DAY to LAST_DAY (a
+    window around year 1 or 9999 would overflow)."""
+    if not FIRST_DAY <= moment.date() <= LAST_DAY:
+        raise invalid_query(field, f"Choose a time from {FIRST_DAY} to {LAST_DAY}.")
+    return moment
+
+
 async def app_settings(
     services: Services, db: AsyncSession, principal: Principal
 ) -> AppSettings:
@@ -267,6 +275,10 @@ def ribbon_window(
     to: datetime | None,
 ) -> tuple[datetime, datetime]:
     """The night by default; one bound alone gives an 18-hour window."""
+    if start is not None:
+        check_moment(start, "from")
+    if to is not None:
+        check_moment(to, "to")
     if start is None:
         if to is None:
             return night_window(now, zone)

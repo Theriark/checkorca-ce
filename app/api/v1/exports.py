@@ -149,11 +149,11 @@ def as_json(value: object) -> str:
     )
 
 
-def too_many() -> ProblemError:
+def too_many(advice: str = "choose fewer days") -> ProblemError:
     return ProblemError(
         422,
         "Export too large",
-        f"The export would have more than {MAX_ROWS} rows; choose fewer days.",
+        f"The export would have more than {MAX_ROWS} rows; {advice}.",
     )
 
 
@@ -358,9 +358,19 @@ async def export_client(
     client, its jobs and their settings, occurrences, results, flips and
     messages (headers only; the raw message stays in the app)."""
     history = await DashboardRepository(db, services.policy).client_history(
-        principal, client_id, limit=MAX_ROWS
+        principal, client_id, limit=MAX_ROWS + 1
     )
     if history is None:
         raise ProblemError(404, "Client not found")
+    # 422 when a record kind has more than MAX_ROWS rows: never cut short.
+    kinds: tuple[Sequence[object], ...] = (
+        history.jobs,
+        history.occurrences,
+        history.results,
+        history.flips,
+        history.messages,
+    )
+    if any(len(rows) > MAX_ROWS for rows in kinds):
+        raise too_many("export the client's runs with history.csv instead")
     text = render_table(CLIENT_COLUMNS, client_cells(history))
     return csv_response(text, f"checkorca-client-{client_id}.csv")

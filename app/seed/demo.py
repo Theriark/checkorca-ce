@@ -5,7 +5,9 @@ localhost, as for the seed accounts) the worker seeds, once: 20 fictional
 clients (legal R-11) with the note "Seed data", 60 jobs (every CE parser
 pack, plus scripts that report through their ping URL) and one SMTP inbox,
 then 14 days of their history. settings.demo_seeded is set at the end; a
-second run adds nothing.
+second run adds nothing. When demo clients exist without demo_seeded (an
+earlier seed stopped half way) nothing is added and demo_seeded stays false.
+The replay delivers no event to the event subscribers.
 
 The history goes through the real pipeline on an injected clock that walks
 the 14 days: each alert mail is checked and stored by accept_message (the
@@ -460,9 +462,11 @@ async def _replay(
     now: datetime,
     report: DemoReport,
 ) -> None:
-    """Walk the simulated time: deliver what arrived, parse, evaluate."""
+    """Walk the simulated time: deliver what arrived, parse, evaluate. The
+    replay has no event subscribers: two weeks of made-up flips must never
+    reach a notification channel."""
     clock = SimulatedClock(start)
-    simulated = dataclasses.replace(context, clock=clock)
+    simulated = dataclasses.replace(context, clock=clock, subscribers=())
     evaluator = Evaluator(simulated, only=frozenset(job.id for job in jobs.values()))
     parse = ParseHook()
     pending = sorted(events, key=lambda event: event.at)
@@ -519,23 +523,25 @@ async def seed_demo(context: "WorkerContext", now: datetime) -> DemoReport:
     plan = demo_plan()
     made = await _create(context, plan, created)
     if made is None:
+        # An earlier seed stopped half way: its history is incomplete, so
+        # demo_seeded stays false. Deleting the demo clients seeds again.
         report.reason = "demo clients exist already"
         logger.warning("demo seed: demo clients exist already; not seeded again")
-    else:
-        inbox, jobs = made
-        report.clients = len(CLIENTS)
-        report.jobs = len(jobs)
-        events = [event for job in plan for event in job_events(job, start, now)]
-        events += unmatched_events(now)
-        await _replay(context, inbox, jobs, events, start, now, report)
-        async with context.sessionmaker() as db:
-            repository = JobRepository(db, context.policy)
-            for number in sorted(PAUSED):
-                job = await repository.get(SYSTEM, jobs[number].id, for_update=True)
-                if job is not None:
-                    await repository.update(SYSTEM, job, enabled=False, updated_at=now)
-            await db.commit()
-        report.seeded = True
+        return report
+    inbox, jobs = made
+    report.clients = len(CLIENTS)
+    report.jobs = len(jobs)
+    events = [event for job in plan for event in job_events(job, start, now)]
+    events += unmatched_events(now)
+    await _replay(context, inbox, jobs, events, start, now, report)
+    async with context.sessionmaker() as db:
+        repository = JobRepository(db, context.policy)
+        for number in sorted(PAUSED):
+            job = await repository.get(SYSTEM, jobs[number].id, for_update=True)
+            if job is not None:
+                await repository.update(SYSTEM, job, enabled=False, updated_at=now)
+        await db.commit()
+    report.seeded = True
     async with context.sessionmaker() as db:
         settings = SettingsRepository(db, context.policy, context.secret_box)
         await settings.mark_demo_seeded(SYSTEM)
