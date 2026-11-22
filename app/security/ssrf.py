@@ -1,0 +1,202 @@
+"""The SSRF guard: which URLs the server may call (dev-work-plan C9-B).
+
+Every outbound HTTP request made on an admin's behalf (the webhook, Slack and
+Teams channels of phase C9-I, the outbound heartbeat of phase C10) asks
+check_target first:
+
+1. The URL is http or https, has a host and carries no user name or password.
+2. The host is resolved: every IPv4 and IPv6 address of it.
+3. Every address must be public. Loopback, private (RFC 1918, fc00::/7),
+   link-local (169.254.0.0/16 and fe80::/10, where cloud metadata services
+   answer), shared (100.64.0.0/10), multicast, reserved and unspecified
+   addresses are refused, and so is an IPv6 address that carries one of them
+   (IPv4-mapped, 6to4, NAT64).
+
+Two settings relax the rule: ALLOW_PRIVATE_TARGETS=true allows every address,
+and a host that is exactly one of OUTBOUND_ALLOWED_HOSTS (no wildcard, no
+subdomain) is allowed whatever it resolves to.
+
+The caller connects to one of Target.addresses, not to the name again, so the
+DNS answer cannot change between the check and the connection (DNS
+rebinding), and follows no redirect. A refusal is TargetRefused, whose text is
+one readable sentence that names the host and the address, never the path or
+the query of the URL (they may hold a webhook secret).
+
+The SMTP relay of an e-mail channel is not checked here: an MSP often sends
+through an internal relay, and only an admin can set it (docs/security.md).
+"""
+
+import asyncio
+import ipaddress
+import socket
+from collections.abc import Awaitable, Callable, Collection, Sequence
+from dataclasses import dataclass
+from typing import Final
+from urllib.parse import urlsplit
+
+SCHEMES: Final = frozenset({"http", "https"})
+DEFAULT_PORTS: Final = {"http": 80, "https": 443}
+MAX_URL_LENGTH: Final = 2000
+# Seconds one DNS lookup may take.
+RESOLVE_TIMEOUT: Final = 5.0
+# Metadata services of the big clouds; all but the Alibaba one are link-local
+# or private anyway, the name only makes the refusal clearer.
+_METADATA = (
+    "169.254.169.254",
+    "169.254.170.2",
+    "fd00:ec2::254",
+    "100.100.100.200",
+)
+METADATA_ADDRESSES: Final = frozenset(map(ipaddress.ip_address, _METADATA))
+NAT64_PREFIX: Final = ipaddress.ip_network("64:ff9b::/96")
+ADVICE: Final = (
+    "Outbound requests go to public addresses only. An admin can allow this "
+    "host with OUTBOUND_ALLOWED_HOSTS, or private targets with "
+    "ALLOW_PRIVATE_TARGETS."
+)
+
+type IpAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
+type Resolver = Callable[[str, int], Awaitable[Sequence[str]]]
+
+
+class TargetRefused(ValueError):
+    """The URL may not be called; the text says why in one sentence."""
+
+
+@dataclass(frozen=True, slots=True)
+class Target:
+    """A URL that passed the guard, with the addresses to connect to.
+
+    allowed_by is public, allowed_host (OUTBOUND_ALLOWED_HOSTS) or
+    allow_private (ALLOW_PRIVATE_TARGETS).
+    """
+
+    scheme: str
+    host: str
+    port: int
+    addresses: tuple[str, ...]
+    allowed_by: str
+
+
+async def system_resolver(host: str, port: int) -> list[str]:
+    """Every address of host, through the system resolver."""
+    loop = asyncio.get_running_loop()
+    found = await loop.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    return [str(info[4][0]) for info in found]
+
+
+def embedded_ipv4(address: ipaddress.IPv6Address) -> ipaddress.IPv4Address | None:
+    """The IPv4 address an IPv6 address carries (mapped, 6to4 or NAT64)."""
+    if address.ipv4_mapped is not None:
+        return address.ipv4_mapped
+    if address.sixtofour is not None:
+        return address.sixtofour
+    if address in NAT64_PREFIX:
+        return ipaddress.IPv4Address(int(address) & 0xFFFFFFFF)
+    return None
+
+
+def refusal(address: IpAddress) -> str | None:
+    """Why the address may not be called (a phrase), or None when it is
+    public."""
+    if isinstance(address, ipaddress.IPv6Address):
+        inner = embedded_ipv4(address)
+        if inner is not None:
+            reason = refusal(inner)
+            if reason is not None:
+                return f"{reason} inside an IPv6 address"
+    if address in METADATA_ADDRESSES:
+        return "a cloud metadata address"
+    if address.is_unspecified:
+        return "the unspecified address"
+    if address.is_loopback:
+        return "a loopback address"
+    if address.is_link_local:
+        return "a link-local address"
+    if address.is_multicast:
+        return "a multicast address"
+    if address.is_private:
+        return "a private address"
+    if not address.is_global:
+        return "an address that is not public"
+    return None
+
+
+def parse_address(value: str) -> IpAddress | None:
+    try:
+        return ipaddress.ip_address(value)
+    except ValueError:
+        return None
+
+
+async def check_target(
+    url: str,
+    *,
+    allow_private: bool,
+    allowed_hosts: Collection[str],
+    resolver: Resolver = system_resolver,
+) -> Target:
+    """The checked target of url; TargetRefused when it may not be called."""
+    if len(url) > MAX_URL_LENGTH:
+        raise TargetRefused(f"The URL is longer than {MAX_URL_LENGTH} characters.")
+    try:
+        parts = urlsplit(url.strip())
+        port = parts.port
+    except ValueError:
+        raise TargetRefused("The URL cannot be read.") from None
+    scheme = parts.scheme.lower()
+    if scheme not in SCHEMES:
+        raise TargetRefused("Only http:// and https:// URLs can be called.")
+    if parts.username is not None or parts.password is not None:
+        raise TargetRefused("A URL may not carry a user name or password.")
+    host = (parts.hostname or "").rstrip(".")
+    if not host:
+        raise TargetRefused("The URL has no host.")
+    port = port or DEFAULT_PORTS[scheme]
+    literal = parse_address(host)
+    if literal is not None:
+        addresses: list[IpAddress] = [literal]
+    else:
+        addresses = await resolve(host, port, resolver)
+    refused = [
+        (address, reason)
+        for address in addresses
+        if (reason := refusal(address)) is not None
+    ]
+    if not refused:
+        allowed_by = "public"
+    elif host in allowed_hosts:
+        allowed_by = "allowed_host"
+    elif allow_private:
+        allowed_by = "allow_private"
+    else:
+        address, reason = refused[0]
+        if literal is not None:
+            raise TargetRefused(f"{address} is {reason}. {ADVICE}")
+        raise TargetRefused(f"{host} resolves to {address}, {reason}. {ADVICE}")
+    return Target(
+        scheme=scheme,
+        host=host,
+        port=port,
+        addresses=tuple(str(address) for address in addresses),
+        allowed_by=allowed_by,
+    )
+
+
+async def resolve(host: str, port: int, resolver: Resolver) -> list[IpAddress]:
+    """Every address of host, without repeats; TargetRefused when it has none."""
+    unresolved = TargetRefused(f"The host {host} cannot be resolved.")
+    try:
+        async with asyncio.timeout(RESOLVE_TIMEOUT):
+            found = await resolver(host, port)
+    except (OSError, UnicodeError, TimeoutError):
+        raise unresolved from None
+    addresses: list[IpAddress] = []
+    for value in found:
+        # A zone id (fe80::1%eth0) is dropped; the address is link-local anyway.
+        address = parse_address(value.split("%", 1)[0])
+        if address is not None and address not in addresses:
+            addresses.append(address)
+    if not addresses:
+        raise unresolved
+    return addresses
