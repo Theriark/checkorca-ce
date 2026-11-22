@@ -1,8 +1,9 @@
 /** Job queries and mutations. Job changes also refresh the clients (their
  *  counts and worst state come from the jobs). */
-import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { jobsApi, type JobListQuery, type JobOut, type JobPatch, type NewJob, type PauseRequest } from '../../api/jobs';
+import { ApiError } from '../../api/client';
+import { flipsApi, jobsApi, type FlipQuery, type JobListQuery, type JobOut, type JobPatch, type NewJob, type OccurrenceOut, type PauseRequest } from '../../api/jobs';
 import { CLIENTS_KEY } from '../clients/queries';
 
 export const JOBS_KEY = ['jobs'] as const;
@@ -30,6 +31,60 @@ export function useJobList(filters: JobFilters) {
     queryFn: ({ pageParam, signal }) => jobsApi.list({ ...filters, cursor: pageParam, limit: PAGE_SIZE }, signal),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.next_cursor,
+  });
+}
+
+export function jobKey(jobId: string) {
+  return [...JOBS_KEY, 'detail', jobId] as const;
+}
+
+/** One job; a 404 is an answer (the not-found state), not retried. */
+export function useJob(jobId: string) {
+  return useQuery({
+    queryKey: jobKey(jobId),
+    queryFn: ({ signal }) => jobsApi.get(jobId, signal),
+    retry: (count, error) => !(error instanceof ApiError && error.status === 404) && count < 1,
+    refetchInterval: 60_000,
+  });
+}
+
+/** The runs of a job in a window (the 30-day strip and the history). */
+export function useOccurrences(jobId: string, from: string, to: string, enabled = true) {
+  return useQuery({
+    queryKey: [...JOBS_KEY, 'occurrences', jobId, from, to],
+    queryFn: async ({ signal }) => {
+      const items: OccurrenceOut[] = [];
+      let cursor: string | null = null;
+      do {
+        const page = await jobsApi.occurrences(jobId, { from, to, cursor, limit: 200 }, signal);
+        items.push(...page.items);
+        cursor = page.next_cursor;
+      } while (cursor);
+      return items;
+    },
+    enabled,
+    refetchInterval: 60_000,
+  });
+}
+
+/** The newest results of a job (first page). */
+export function useJobResults(jobId: string, enabled = true) {
+  return useQuery({
+    queryKey: [...JOBS_KEY, 'results', jobId],
+    queryFn: ({ signal }) => jobsApi.results(jobId, { limit: 50 }, signal),
+    enabled,
+    refetchInterval: 60_000,
+  });
+}
+
+/** The state changes of a job or a client, newest first. */
+export function useFlips(query: Pick<FlipQuery, 'job_id' | 'client_id'>, enabled = true) {
+  return useInfiniteQuery({
+    queryKey: [...JOBS_KEY, 'flips', { job_id: query.job_id ?? null, client_id: query.client_id ?? null }],
+    queryFn: ({ pageParam, signal }) => flipsApi.list({ ...query, cursor: pageParam, limit: 50 }, signal),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.next_cursor,
+    enabled,
   });
 }
 

@@ -16,11 +16,15 @@ import { ConfirmDialog } from '../shared/ConfirmDialog';
 import { errorSentence } from '../shared/errors';
 import { useArchiveJob, usePauseJob, useRestoreJob, useResumeJob } from './queries';
 
+/** What the pause, resume, archive and restore actions need of a job: the
+ *  attention list of the morning check has these two fields, not a JobOut. */
+export type JobRef = Pick<JobOut, 'id' | 'name'>;
+
 export interface JobActions {
-  readonly pause: (job: JobOut) => void;
-  readonly resume: (job: JobOut) => void;
-  readonly archive: (job: JobOut) => void;
-  readonly restore: (job: JobOut) => void;
+  readonly pause: (job: JobRef) => void;
+  readonly resume: (job: JobRef) => void;
+  readonly archive: (job: JobRef) => void;
+  readonly restore: (job: JobRef) => void;
   readonly copyPing: (job: JobOut) => void;
   readonly dialogs: ReactNode;
 }
@@ -31,14 +35,14 @@ export function useJobActions(): JobActions {
   const resumeMutation = useResumeJob();
   const archiveMutation = useArchiveJob();
   const restoreMutation = useRestoreJob();
-  const [pauseTarget, setPauseTarget] = useState<JobOut | null>(null);
+  const [pauseTarget, setPauseTarget] = useState<JobRef | null>(null);
   const [pauseUntil, setPauseUntil] = useState('');
   const [pauseError, setPauseError] = useState<string | null>(null);
   const [pauseFieldError, setPauseFieldError] = useState<string | null>(null);
-  const [archiveTarget, setArchiveTarget] = useState<JobOut | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<JobRef | null>(null);
   const [archiveError, setArchiveError] = useState<string | null>(null);
 
-  const pause = useCallback((job: JobOut) => {
+  const pause = useCallback((job: JobRef) => {
     setPauseUntil('');
     setPauseError(null);
     setPauseFieldError(null);
@@ -74,7 +78,7 @@ export function useJobActions(): JobActions {
   // mutateAsync per call: TanStack runs per-call mutate callbacks only for
   // the last call, so two quick resumes would lose a toast.
   const resume = useCallback(
-    (job: JobOut) => {
+    (job: JobRef) => {
       void resumeMutation
         .mutateAsync(job.id)
         .then(() => toast({ tone: 'success', title: strings.jobs.resumed, description: job.name }))
@@ -83,7 +87,7 @@ export function useJobActions(): JobActions {
     [resumeMutation, toast],
   );
 
-  const archive = useCallback((job: JobOut) => {
+  const archive = useCallback((job: JobRef) => {
     setArchiveError(null);
     setArchiveTarget(job);
   }, []);
@@ -102,7 +106,7 @@ export function useJobActions(): JobActions {
   };
 
   const restore = useCallback(
-    (job: JobOut) => {
+    (job: JobRef) => {
       void restoreMutation
         .mutateAsync(job.id)
         .then(() => toast({ tone: 'success', title: strings.jobs.restoredToast, description: job.name }))
