@@ -2,6 +2,7 @@
 
 import re
 import uuid
+from collections.abc import Collection
 from datetime import datetime
 from typing import Any
 
@@ -47,6 +48,15 @@ class UserRepository(Repository):
         query = select(AppUser).where(AppUser.id == user_id)
         query = self.policy.scope(principal, self.resource, query)
         return (await self.db.scalars(query)).one_or_none()
+
+    @guarded("list")
+    async def emails(
+        self, principal: Principal, user_ids: Collection[uuid.UUID]
+    ) -> dict[uuid.UUID, str]:
+        """The e-mail address of each of these users that exists."""
+        query = select(AppUser.id, AppUser.email).where(AppUser.id.in_(user_ids))
+        query = self.policy.scope(principal, self.resource, query)
+        return {user_id: email for user_id, email in await self.db.execute(query)}
 
     @guarded("read")
     async def find_by_email(

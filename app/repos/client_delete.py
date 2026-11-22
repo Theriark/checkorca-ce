@@ -7,27 +7,36 @@ delete fail rather than leave rows behind; tests/repos/test_client_delete.py
 also fails until the table is added.
 
 Every later table that holds client data joins this map in its own phase:
-add a step before the steps of the tables it references.
+add a step before the steps of the tables it references. A table that names a
+client or a job without a foreign key (channel_rule.scope_id, phase C9) is
+listed in SCOPED_TABLES, so the test still finds it. channel holds no client
+data and is not in the map.
 """
 
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Final
 
-from sqlalchemy import ColumnElement, delete, or_, select
+from sqlalchemy import ColumnElement, and_, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
 from app.db.base import Base
 from app.db.models import (
+    ChannelRule,
     Client,
     Flip,
     Job,
     JobResult,
     JobStateRecord,
+    Notification,
     Occurrence,
     RawMessage,
 )
+
+# Tables that hold a client's or a job's id without a foreign key.
+SCOPED_TABLES: Final = frozenset({"channel_rule"})
 
 type DeleteRows = Callable[[uuid.UUID], ColumnElement[bool]]
 
@@ -63,7 +72,24 @@ def _client_jobs(column: InstrumentedAttribute[uuid.UUID]) -> DeleteRows:
     return rows
 
 
+def _client_notifications(client_id: uuid.UUID) -> ColumnElement[bool]:
+    """Notifications about the client's flips (the digest names no client)."""
+    flips = select(Flip.id).where(_client_flips(client_id))
+    return Notification.flip_id.in_(flips)
+
+
+def _client_rules(client_id: uuid.UUID) -> ColumnElement[bool]:
+    """Rules for the client, and rules for one of its jobs."""
+    jobs = select(Job.id).where(Job.client_id == client_id)
+    return or_(
+        and_(ChannelRule.scope == "client", ChannelRule.scope_id == client_id),
+        and_(ChannelRule.scope == "job", ChannelRule.scope_id.in_(jobs)),
+    )
+
+
 CLIENT_DELETE_MAP: tuple[DeleteStep, ...] = (
+    DeleteStep(Notification, _client_notifications),
+    DeleteStep(ChannelRule, _client_rules),
     DeleteStep(Flip, _client_flips),
     DeleteStep(Occurrence, _client_jobs(Occurrence.job_id)),
     DeleteStep(JobStateRecord, _client_jobs(JobStateRecord.job_id)),
