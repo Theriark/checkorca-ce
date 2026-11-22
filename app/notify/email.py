@@ -174,6 +174,16 @@ class EmailKind:
         await asyncio.to_thread(deliver, config, secret, email)
 
 
+def login(session: smtplib.SMTP, username: str, password: str) -> None:
+    """Log in to the relay. smtplib tries the next mechanism after a refusal,
+    and many relays hang up on that second try: a relay that closes the
+    connection during the login refused it."""
+    try:
+        session.login(username, password)
+    except smtplib.SMTPServerDisconnected:
+        raise DeliveryError("The relay refused the user name or password.") from None
+
+
 def deliver(config: Mapping[str, Any], secret: str | None, email: EmailMessage) -> None:
     """Send one e-mail through the relay (blocking); DeliveryError on failure."""
     host = str(config["host"])
@@ -193,7 +203,7 @@ def deliver(config: Mapping[str, Any], secret: str | None, email: EmailMessage) 
                 session.starttls(context=ssl.create_default_context())
                 session.ehlo()
             if config.get("username"):
-                session.login(str(config["username"]), secret or "")
+                login(session, str(config["username"]), secret or "")
             session.send_message(email)
     except DeliveryError:
         raise

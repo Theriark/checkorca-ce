@@ -106,7 +106,7 @@ async def db_engine(migrated: None) -> AsyncIterator[AsyncEngine]:
             text(
                 "UPDATE settings SET external_heartbeat_url_enc = NULL, "
                 "demo_seeded = false, digest_timezone = 'Europe/Lisbon', "
-                "digest_time_local = '07:30'"
+                "digest_time_local = '07:30', reminder_24h = false"
             )
         )
     yield engine

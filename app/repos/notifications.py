@@ -176,13 +176,13 @@ class ChannelRuleRepository(Repository):
             for client_id, name in await self.db.execute(query):
                 names[client_id] = name
         if jobs:
-            query = (
+            job_query = (
                 select(Job.id, Client.name, Job.name)
                 .join(Client, Client.id == Job.client_id)
                 .where(Job.id.in_(jobs))
             )
-            query = self.policy.scope(principal, self.resource, query)
-            for job_id, client_name, job_name in await self.db.execute(query):
+            job_query = self.policy.scope(principal, self.resource, job_query)
+            for job_id, client_name, job_name in await self.db.execute(job_query):
                 names[job_id] = f"{client_name} / {job_name}"
         return names
 

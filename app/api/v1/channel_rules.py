@@ -145,7 +145,7 @@ async def create_rule(
     )
     if channel is None:
         raise invalid_rule("channel_id", "No channel with this id.")
-    events = list(body.events)
+    events: list[str] = list(body.events)
     await check_rule(services, db, principal, body.scope, body.scope_id, events)
     rule = await ChannelRuleRepository(db, services.policy).create(
         principal,
@@ -193,7 +193,7 @@ async def update_rule(
         scope_id = None
     else:
         scope_id = rule.scope_id if scope == rule.scope else None
-    events = list(body.events) if body.events is not None else list(rule.events)
+    events: list[str] = list(body.events if body.events is not None else rule.events)
     await check_rule(services, db, principal, scope, scope_id, events)
     changes: dict[str, Any] = {
         field: value
