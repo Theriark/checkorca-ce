@@ -2,7 +2,7 @@
 
 import base64
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -140,3 +140,101 @@ async def make_job(
     assert response.status_code == 201, response.text
     created: dict[str, Any] = response.json()
     return created
+
+
+async def move_to(
+    client: httpx.AsyncClient, clock: FakeClock, moment: datetime
+) -> None:
+    """Move the clock to moment, using the session at least every 11 hours so
+    the 12-hour idle limit never signs the test out."""
+    step = timedelta(hours=11)
+    while moment - clock.now() > step:
+        clock.advance(seconds=step.total_seconds())
+        assert (await client.get("/api/v1/auth/me")).status_code == 200
+    clock.advance(seconds=(moment - clock.now()).total_seconds())
+
+
+def ping_path(job: dict[str, Any]) -> str:
+    return "/api/v1/ping/" + str(job["ping_url"]).rsplit("/", 1)[1]
+
+
+# The dashboard scenario (phase C8-B), on the fake clock from 2027-01-04
+# 09:00Z: three clients, five daily Europe/Lisbon jobs (UTC+0 in January) and
+# two nights of runs. Night 1 (4 January): the archive at 20:00, the dump at
+# 22:00 and the nightly backup at 23:00 report success; the offsite copy at
+# 21:00 never reports. Night 2: the archive warns, the dump fails, the nightly
+# backup succeeds, the offsite copy stays silent. The paused job never runs.
+# One result for an unknown job waits in Unmatched. The evaluator runs at
+# 09:00 on 5 and 6 January; the scenario ends on 6 January at 09:00.
+SCENARIO_END = datetime(2027, 1, 6, 9, tzinfo=UTC)
+SCENARIO_JOBS = (
+    ("nightly", 0, "Nightly server backup", "23:00"),
+    ("dump", 0, "Database dump", "22:00"),
+    ("offsite", 1, "Offsite copy", "21:00"),
+    ("archive", 2, "Mail archive", "20:00"),
+    ("paused", 2, "Paused job", "23:30"),
+)
+
+
+async def build_scenario(
+    client: httpx.AsyncClient,
+    csrf: str,
+    clock: FakeClock,
+    tick: Callable[[], Awaitable[None]],
+) -> dict[str, dict[str, Any]]:
+    """The scenario through the API; returns the jobs by key."""
+    headers = {CSRF_HEADER: csrf}
+    clients = [await make_client(client, csrf, name) for name in CLIENT_NAMES]
+    jobs = {
+        key: await make_job(
+            client, csrf, clients[index]["id"], name, schedule_expr=expr
+        )
+        for key, index, name, expr in SCENARIO_JOBS
+    }
+    paused = await client.post(
+        f"/api/v1/jobs/{jobs['paused']['id']}/pause", headers=headers
+    )
+    assert paused.status_code == 200
+    created = await client.post(
+        "/api/v1/tokens",
+        json={"label": "Scripts", "scope": "ingest"},
+        headers=headers,
+    )
+    assert created.status_code == 201
+    bearer = {"Authorization": f"Bearer {created.json()['token']}"}
+
+    async def post_result(body: dict[str, Any]) -> None:
+        response = await client.post("/api/v1/results", json=body, headers=bearer)
+        assert response.status_code == 202, response.text
+
+    nights = ((4, "success", 15, ""), (5, "warning", 10, "/fail"))
+    for day, archive, dump_minute, dump_signal in nights:
+        evening = datetime(2027, 1, day, 20, tzinfo=UTC)
+        await move_to(client, clock, evening.replace(minute=31))
+        await post_result(
+            {
+                "job_id": jobs["archive"]["id"],
+                "status": archive,
+                "started_at": evening.replace(second=30).isoformat(),
+                "finished_at": evening.replace(minute=30).isoformat(),
+            }
+        )
+        await move_to(client, clock, evening.replace(hour=22, minute=dump_minute))
+        dumped = await client.get(ping_path(jobs["dump"]) + dump_signal)
+        assert dumped.status_code == 200
+        await move_to(client, clock, evening.replace(hour=23, minute=20))
+        assert (await client.get(ping_path(jobs["nightly"]))).status_code == 200
+        if day == 4:
+            await move_to(client, clock, datetime(2027, 1, 5, 9, tzinfo=UTC))
+            await tick()
+            await move_to(client, clock, datetime(2027, 1, 5, 12, tzinfo=UTC))
+            await post_result(
+                {
+                    "job_name": "Unknown export job",
+                    "client_hint": "Nobody Example Ltd",
+                    "status": "failed",
+                }
+            )
+    await move_to(client, clock, SCENARIO_END)
+    await tick()
+    return jobs
