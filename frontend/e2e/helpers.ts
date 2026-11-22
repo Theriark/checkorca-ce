@@ -125,6 +125,17 @@ export async function expectAccessible(page: Page, { frames = true }: { frames?:
   expect(results.violations, JSON.stringify(results.violations, null, 2)).toEqual([]);
 }
 
+/** The hostile fixtures (script tags, img onerror, javascript: links) are
+ *  on screen as text only: no inline script, no element with an onerror
+ *  attribute, no javascript: link in the page, and none of them ran (each
+ *  would set window.__pwned). Call it once the hostile text has rendered. */
+export async function expectNothingRan(page: Page) {
+  expect(await page.locator('script:not([src])').count(), 'inline script elements').toBe(0);
+  expect(await page.locator('[onerror]').count(), 'elements with an onerror attribute').toBe(0);
+  expect(await page.locator('a[href^="javascript:"]').count(), 'javascript: links').toBe(0);
+  expect(await page.evaluate(() => (window as unknown as { __pwned?: number }).__pwned)).toBeUndefined();
+}
+
 /** Nothing overflows the viewport horizontally. */
 export async function expectNoHorizontalOverflow(page: Page) {
   const report = await page.evaluate(() => {

@@ -1,8 +1,10 @@
 import { expect, test } from '@playwright/test';
 
-import { HARBOURSIDE, installFakeApi, installIngestApi } from './fakeApi';
-import { HOSTILE_CLIENT_NAME, HOSTILE_JOB_ID, HOSTILE_JOB_NAME, installDashboardApi } from './fakeDashboard';
-import { ADMIN, SCHEMES, TECHNICIAN, WIDTHS, expectAccessible, expectNoHorizontalOverflow, setView, shot, stubApi, watchConsole } from './helpers';
+import { HARBOURSIDE, NORTHWIND, ORCHARD, SEED_JOBS, installFakeApi, installIngestApi } from './fakeApi';
+import { HOSTILE_CLIENT, HOSTILE_CLIENT_ID, HOSTILE_CLIENT_NAME, HOSTILE_FLIP_REASON, HOSTILE_IMG, HOSTILE_JOB_ID, HOSTILE_JOB_NAME, HOSTILE_LINK, hostileJob, installDashboardApi } from './fakeDashboard';
+import { ADMIN, SCHEMES, TECHNICIAN, WIDTHS, expectAccessible, expectNoHorizontalOverflow, expectNothingRan, setView, shot, stubApi, watchConsole } from './helpers';
+
+const HOSTILE_INBOX = `Alerts ${HOSTILE_IMG} box`;
 
 for (const scheme of SCHEMES) {
   for (const width of WIDTHS) {
@@ -36,9 +38,7 @@ for (const scheme of SCHEMES) {
       await expect(raw).toContainText('<script>window.__pwned = 6</script>');
       await expect(raw).toContainText('<a href="javascript:window.__pwned = 8">open</a>');
       expect(await raw.locator('script, img, a').count()).toBe(0);
-      expect(await page.locator('script:not([src])').count()).toBe(0);
-      expect(await page.locator('img[onerror], a[href^="javascript:"]').count()).toBe(0);
-      expect(await page.evaluate(() => (window as unknown as { __pwned?: number }).__pwned)).toBeUndefined();
+      await expectNothingRan(page);
       expect(await raw.evaluate((element) => getComputedStyle(element).fontFamily)).toMatch(/JetBrains Mono/);
       await expectNoHorizontalOverflow(page);
       await expectAccessible(page);
@@ -58,6 +58,7 @@ for (const scheme of SCHEMES) {
             inboxes: [
               { id: 'i1', kind: 'smtp', label: 'Veeam reports', last_message_at: '2026-11-19T23:05:00Z' },
               { id: 'i2', kind: 'webhook', label: 'Script <script>window.__pwned = 1</script> results', last_message_at: null },
+              { id: 'i3', kind: 'smtp', label: HOSTILE_INBOX, last_message_at: null },
             ],
             queue: { pending_messages: 2, pending_notifications: 0, failed_notifications: 0 },
             evaluator_lag_seconds: 0,
@@ -74,9 +75,10 @@ for (const scheme of SCHEMES) {
       await expect(page.getByTestId('evaluator-lag')).toContainText('Up to date');
       await expect(page.getByText('Veeam reports')).toBeVisible();
       await expect(page.getByText('Script <script>window.__pwned = 1</script> results')).toBeVisible();
+      await expect(page.getByText(HOSTILE_INBOX)).toBeVisible();
       await expect(page.getByTestId('system-version')).toContainText('27.0.0');
       await expect(page.getByTestId('system-revision')).toContainText('e2e0000');
-      expect(await page.evaluate(() => (window as unknown as { __pwned?: number }).__pwned)).toBeUndefined();
+      await expectNothingRan(page);
       await expectNoHorizontalOverflow(page);
       await expectAccessible(page);
       await page.screenshot({ path: shot('system', width, scheme), fullPage: width > 390 });
@@ -85,42 +87,73 @@ for (const scheme of SCHEMES) {
   }
 }
 
-for (const [width, scheme] of [
-  [1440, 'light'],
-  [390, 'dark'],
-] as const) {
-  test(`client detail at ${width} px, ${scheme}: the ribbon tab, the history tab and the history export`, async ({ page }) => {
-    const errors = watchConsole(page);
-    await stubApi(page, { me: ADMIN });
-    const fake = await installFakeApi(page);
-    const store = await installDashboardApi(page, { fake });
-    await setView(page, width, scheme);
-    await page.goto(`/clients/${HARBOURSIDE.id}`);
-    await expect(page.getByRole('heading', { level: 1, name: HARBOURSIDE.name })).toBeVisible();
-    await page.getByRole('tab', { name: 'Night Ribbon' }).click();
-    if (width > 390) {
-      const ribbon = page.getByTestId('night-ribbon');
-      await expect(ribbon.locator('.co-nr__row-svg')).toHaveCount(1);
-      await expect(ribbon.locator('.co-nr__ring--hollow')).toHaveCount(1);
-      await expect(ribbon.locator('.co-nr__ring--verified')).toHaveCount(2);
-    } else {
-      await expect(page.getByTestId('ribbon-chips').locator('.co-nrc__chip')).toHaveCount(4);
-    }
-    await expectAccessible(page);
-    await page.screenshot({ path: shot('client-ribbon', width, scheme), fullPage: width > 390 });
-    await page.getByRole('tab', { name: 'History' }).click();
-    const history = page.getByRole('table', { name: 'History' });
-    await expect(history.locator('tbody tr')).toHaveCount(1);
-    await expect(history).toContainText('SQL dump script');
-    await expect(history).toContainText('Finished with warnings');
-    const download = page.waitForEvent('download');
-    await page.getByRole('button', { name: 'Export history' }).click();
-    expect((await download).suggestedFilename()).toBe(`client-${HARBOURSIDE.id}-history.csv`);
-    expect(store.calls.some((call) => call.url === `/api/v1/clients/${HARBOURSIDE.id}/export.csv`)).toBe(true);
-    await expect(page.locator('.co-toast--success').last()).toContainText('Export downloaded');
-    expect(errors()).toEqual([]);
-  });
+for (const scheme of SCHEMES) {
+  for (const width of WIDTHS) {
+    test(`client detail at ${width} px, ${scheme}: the ribbon tab, the history tab and the history export`, async ({ page }) => {
+      const errors = watchConsole(page);
+      await stubApi(page, { me: ADMIN });
+      const fake = await installFakeApi(page);
+      const store = await installDashboardApi(page, { fake });
+      await setView(page, width, scheme);
+      await page.goto(`/clients/${HARBOURSIDE.id}`);
+      await expect(page.getByRole('heading', { level: 1, name: HARBOURSIDE.name })).toBeVisible();
+      await page.getByRole('tab', { name: 'Night Ribbon' }).click();
+      if (width > 390) {
+        const ribbon = page.getByTestId('night-ribbon');
+        await expect(ribbon.locator('.co-nr__row-svg')).toHaveCount(1);
+        await expect(ribbon.locator('.co-nr__ring--hollow')).toHaveCount(1);
+        await expect(ribbon.locator('.co-nr__ring--verified')).toHaveCount(2);
+      } else {
+        await expect(page.getByTestId('ribbon-chips').locator('.co-nrc__chip')).toHaveCount(4);
+      }
+      await expectAccessible(page);
+      await page.screenshot({ path: shot('client-ribbon', width, scheme), fullPage: width > 390 });
+      await page.getByRole('tab', { name: 'History' }).click();
+      const history = page.getByRole('table', { name: 'History' });
+      await expect(history.locator('tbody tr')).toHaveCount(1);
+      await expect(history).toContainText('SQL dump script');
+      await expect(history).toContainText('Finished with warnings');
+      const download = page.waitForEvent('download');
+      await page.getByRole('button', { name: 'Export history' }).click();
+      expect((await download).suggestedFilename()).toBe(`client-${HARBOURSIDE.id}-history.csv`);
+      expect(store.calls.some((call) => call.url === `/api/v1/clients/${HARBOURSIDE.id}/export.csv`)).toBe(true);
+      await expect(page.locator('.co-toast--success').last()).toContainText('Export downloaded');
+      expect(errors()).toEqual([]);
+    });
+  }
 }
+
+test('client detail of the hostile client: name, notes, aliases, jobs, ribbon and history render as text, nothing runs', async ({ page }) => {
+  const errors = watchConsole(page);
+  await stubApi(page, { me: ADMIN });
+  const fake = await installFakeApi(page, { clients: [HARBOURSIDE, NORTHWIND, ORCHARD, HOSTILE_CLIENT], jobs: [...SEED_JOBS, hostileJob(null)] });
+  await installDashboardApi(page, { fake });
+  await setView(page, 1440, 'light');
+  await page.goto(`/clients/${HOSTILE_CLIENT_ID}`);
+  // The header, the summary (notes with a javascript: link, an alias with an
+  // img onerror) and the jobs tab (the job name with an img onerror).
+  await expect(page.getByRole('heading', { level: 1, name: HOSTILE_CLIENT_NAME })).toBeVisible();
+  await expect(page.getByText(HOSTILE_LINK)).toBeVisible();
+  await expect(page.locator('.co-chip', { hasText: HOSTILE_IMG })).toBeVisible();
+  await expect(page.getByRole('link', { name: HOSTILE_JOB_NAME })).toBeVisible();
+  await expectNothingRan(page);
+  await expectAccessible(page);
+  // The ribbon tab: the client's one silent run.
+  await page.getByRole('tab', { name: 'Night Ribbon' }).click();
+  const ribbon = page.getByTestId('night-ribbon');
+  await expect(ribbon.locator('.co-nr__row-svg')).toHaveCount(1);
+  await expect(ribbon.locator('.co-nr__ring--hollow')).toHaveCount(1);
+  await expectNothingRan(page);
+  // The history tab: both flips, the job name resolved, the reason with an img onerror.
+  await page.getByRole('tab', { name: 'History' }).click();
+  const history = page.getByRole('table', { name: 'History' });
+  await expect(history.locator('tbody tr')).toHaveCount(2);
+  await expect(history).toContainText(HOSTILE_JOB_NAME);
+  await expect(history).toContainText(HOSTILE_FLIP_REASON);
+  await expectNothingRan(page);
+  await page.screenshot({ path: 'screenshots/client-hostile-1440-light.png', fullPage: true });
+  expect(errors()).toEqual([]);
+});
 
 test('jobs list links to the job detail; an unknown job shows the not-found state in the shell', async ({ page }) => {
   await stubApi(page, { me: TECHNICIAN });

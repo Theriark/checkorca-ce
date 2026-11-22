@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 
 import { installFakeApi } from './fakeApi';
-import { HOSTILE_CLIENT_NAME, HOSTILE_JOB_NAME, installDashboardApi } from './fakeDashboard';
-import { ADMIN, SCHEMES, TECHNICIAN, WIDTHS, expectAccessible, expectNoContainerOverflow, expectNoHorizontalOverflow, setView, shot, stubApi, watchConsole } from './helpers';
+import { DIGEST, HOSTILE_CLIENT_NAME, HOSTILE_JOB_NAME, HOSTILE_LINK, installDashboardApi } from './fakeDashboard';
+import { ADMIN, SCHEMES, TECHNICIAN, WIDTHS, expectAccessible, expectNoContainerOverflow, expectNoHorizontalOverflow, expectNothingRan, setView, shot, stubApi, watchConsole } from './helpers';
 
 // The digest fixture carries a script on purpose; the sandboxed frame refuses
 // to run it and Chromium says so on the console. Nothing else may log.
@@ -57,19 +57,29 @@ for (const scheme of SCHEMES) {
       await expect(rows.nth(3)).toHaveAttribute('data-state', 'warning');
       await expect(rows.nth(0)).toContainText(HOSTILE_JOB_NAME);
       await expect(rows.nth(0)).toContainText(HOSTILE_CLIENT_NAME);
-      expect(await page.locator('script:not([src])').count()).toBe(0);
-      expect(await page.locator('img[onerror]').count()).toBe(0);
-      expect(await page.evaluate(() => (window as unknown as { __pwned?: number }).__pwned)).toBeUndefined();
       await expect(rows.nth(2)).toContainText('Acknowledged');
       await expect(rows.nth(2).getByRole('link', { name: 'Open message' })).toBeVisible();
       // Trend, breakdown and activity.
       await expect(page.getByRole('img', { name: /Last 30 days: 30 days/ })).toBeVisible();
       await expect(page.getByRole('list', { name: /Breakdown/ }).locator('.co-bd__row')).toHaveCount(3);
-      await expect(page.getByRole('list', { name: 'Activity' }).getByRole('listitem')).toHaveCount(3);
+      const activity = page.getByRole('list', { name: 'Activity' });
+      await expect(activity.getByRole('listitem')).toHaveCount(3);
+      // Every hostile text has rendered now (attention, ribbon, activity with a
+      // javascript: link): all of it is text, nothing ran.
+      await expect(activity).toContainText(HOSTILE_JOB_NAME);
+      await expect(activity).toContainText(HOSTILE_CLIENT_NAME);
+      await expect(activity).toContainText(HOSTILE_LINK);
+      await expectNothingRan(page);
       await expectNoHorizontalOverflow(page);
       await expectNoContainerOverflow(page, ['.co-stat', '.co-ring', '.co-dash__card']);
       await expectAccessible(page);
       await page.screenshot({ path: shot('morning-check', width, scheme), fullPage: width > 390 });
+      // The breakdown by client names the hostile client, as text too.
+      await page.getByRole('group', { name: 'Group by' }).getByRole('button', { name: 'Client', exact: true }).click();
+      const byClient = page.getByRole('list', { name: 'Breakdown: Client' });
+      await expect(byClient.locator('.co-bd__row')).toHaveCount(3);
+      await expect(byClient).toContainText(HOSTILE_CLIENT_NAME);
+      await expectNothingRan(page);
       expect(errors()).toEqual([]);
     });
   }
@@ -114,49 +124,64 @@ test('morning check: problems only narrows the ribbon, acknowledge posts and sho
   const file = await download;
   expect(file.suggestedFilename()).toMatch(/^day-\d{4}-\d{2}-\d{2}\.csv$/);
   await expect(page.locator('.co-toast--success').last()).toContainText('Export downloaded');
-  expect(store.calls.some((call) => call.url.includes('/exports/day.csv') && /date=\d{4}-\d{2}-\d{2}/.test(call.url))).toBe(true);
+  // No date: the server picks today in the digest zone; the name is the day of the rows.
+  const dayCall = store.calls.find((call) => call.url.includes('/exports/day.csv'));
+  expect(dayCall?.url).toBeDefined();
+  expect(dayCall?.url).not.toContain('date=');
   const history = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export last 30 days (CSV)' }).click();
   expect((await history).suggestedFilename()).toMatch(/^history-\d{4}-\d{2}-\d{2}\.csv$/);
   expect(errors()).toEqual([]);
 });
 
-for (const [width, scheme] of [
-  [1440, 'light'],
-  [390, 'dark'],
-] as const) {
-  test(`digest preview at ${width} px, ${scheme}: a sandboxed frame without script permission renders the e-mail, the text tab escapes`, async ({ page }) => {
-    const errors = watchConsole(page, [], SANDBOX_REFUSAL);
-    await stubApi(page, { me: ADMIN });
-    const fake = await installFakeApi(page);
-    await installDashboardApi(page, { fake });
-    await setView(page, width, scheme);
-    await page.goto('/');
-    await page.getByRole('button', { name: 'Preview the digest' }).click();
-    const dialog = page.getByRole('dialog', { name: 'Morning digest' });
-    await expect(dialog).toBeVisible();
-    await expect(dialog).toContainText('1 failed, 2 silent, 1 warning, 9 verified');
-    const frame = dialog.getByTestId('digest-frame');
-    await expect(frame).toHaveAttribute('sandbox', '');
-    await expect(frame).not.toHaveAttribute('src', /./);
-    const inner = page.frameLocator('[data-testid="digest-frame"]');
-    await expect(inner.locator('body')).toContainText('Morning check');
-    await expect(inner.locator('body')).toContainText(HOSTILE_JOB_NAME);
-    // The fixture's script and onerror would replace the whole body with the
-    // word pwned (the job name itself contains it as text), so the table must stay.
-    await expect(inner.locator('table')).toHaveCount(1);
-    expect(await page.evaluate(() => (window as unknown as { __pwned?: number }).__pwned)).toBeUndefined();
-    // The frame runs no script, so axe checks the dialog and the frame element only.
-    await expectAccessible(page, { frames: false });
-    await page.screenshot({ path: shot('digest-preview', width, scheme) });
-    await dialog.getByRole('tab', { name: 'As text' }).click();
-    await expect(dialog.getByTestId('digest-text')).toContainText('<script>alert(1)</script>');
-    expect(await dialog.locator('script').count()).toBe(0);
-    expect(errors()).toEqual([]);
-  });
+for (const scheme of SCHEMES) {
+  for (const width of WIDTHS) {
+    test(`digest preview at ${width} px, ${scheme}: a sandboxed frame without script permission renders the e-mail, the subject and the text tab escape`, async ({ page }) => {
+      const errors = watchConsole(page, [], SANDBOX_REFUSAL);
+      await stubApi(page, { me: ADMIN });
+      const fake = await installFakeApi(page);
+      const store = await installDashboardApi(page, { fake });
+      await setView(page, width, scheme);
+      await page.goto('/');
+      await page.getByRole('button', { name: 'Preview the digest' }).click();
+      const dialog = page.getByRole('dialog', { name: 'Morning digest' });
+      await expect(dialog).toBeVisible();
+      await expect(dialog).toContainText('1 failed, 2 silent, 1 warning, 9 verified');
+      // The first request names no day: the server answers today in its zone.
+      const firstPreview = store.calls.find((call) => call.url.includes('/digest/preview'));
+      expect(firstPreview?.url).toBeDefined();
+      expect(firstPreview?.url).not.toContain('date=');
+      // The subject carries a script tag and an img onerror: shown as text.
+      await expect(dialog.locator('.co-digest__subject-text')).toHaveText(DIGEST.subject);
+      expect(await dialog.locator('script, [onerror], a[href^="javascript:"]').count()).toBe(0);
+      const frame = dialog.getByTestId('digest-frame');
+      // An empty sandbox: no allow-scripts, no allow-same-origin, nothing else.
+      await expect(frame).toHaveAttribute('sandbox', '');
+      await expect(frame).not.toHaveAttribute('src', /./);
+      const inner = page.frameLocator('[data-testid="digest-frame"]');
+      await expect(inner.locator('body')).toContainText('Morning check');
+      await expect(inner.locator('body')).toContainText(HOSTILE_JOB_NAME);
+      // The fixture's script, onerror and javascript: link would replace the
+      // whole body with the word pwned (the job name itself contains it as
+      // text), so the table must stay, even after the link is clicked.
+      await expect(inner.locator('table')).toHaveCount(1);
+      await inner.getByRole('link', { name: 'Open the dashboard' }).click();
+      await expect(inner.locator('table')).toHaveCount(1);
+      await expect(inner.locator('body')).toContainText('9 verified, 1 failed, 2 silent, 1 warning.');
+      await expectNothingRan(page);
+      // The frame runs no script, so axe checks the dialog and the frame element only.
+      await expectAccessible(page, { frames: false });
+      await page.screenshot({ path: shot('digest-preview', width, scheme) });
+      await dialog.getByRole('tab', { name: 'As text' }).click();
+      await expect(dialog.getByTestId('digest-text')).toContainText('<script>alert(1)</script>');
+      expect(await dialog.locator('script').count()).toBe(0);
+      expect(errors()).toEqual([]);
+    });
+  }
 }
 
 test('morning check: the first-run checklist, then the error state with a retry', async ({ page }) => {
+  const errors = watchConsole(page, [503]);
   await stubApi(page, { me: ADMIN });
   await installFakeApi(page, { clients: [], jobs: [] });
   await installDashboardApi(page, { empty: true });
@@ -176,7 +201,9 @@ test('morning check: the first-run checklist, then the error state with a retry'
   await expect(page.getByRole('alert').first()).toContainText('The database did not answer in time.');
   await expect(page.getByRole('alert').first()).toContainText('req-e2e-503');
   await expect(page.getByRole('button', { name: 'Try again' }).first()).toBeVisible();
+  await expectAccessible(page);
   await page.screenshot({ path: 'screenshots/morning-check-error-1440-light.png' });
+  expect(errors()).toEqual([]);
 });
 
 test('morning check: the technician has the same page, at tablet width in dark', async ({ page }) => {

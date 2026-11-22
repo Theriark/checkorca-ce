@@ -2,7 +2,9 @@
    ribbon, the trend, the breakdown, the activity, the digest, the exports,
    acknowledge, occurrences, results and flips. Typed against the generated
    schema. Data is synthetic: fictional companies; one client and one job
-   carry a script tag and an img onerror so every page proves it escapes them.
+   carry a script tag and an img onerror, and an activity entry, the client's
+   notes, a flip and the digest carry more (javascript: links included), so
+   every page proves it escapes them.
    Install after installFakeApi: Playwright tries the newest route first, so
    the acknowledge, occurrences and results routes win over the jobs route. */
 import type { Page, Route } from '@playwright/test';
@@ -10,6 +12,7 @@ import type { Page, Route } from '@playwright/test';
 import type { components } from '../src/api/schema';
 import { HARBOURSIDE, NORTHWIND, SEED_JOBS, type FakeStore } from './fakeApi';
 
+type ClientOut = components['schemas']['ClientOut'];
 type DashboardToday = components['schemas']['DashboardToday'];
 type AttentionItem = components['schemas']['AttentionItem'];
 type Ribbon = components['schemas']['Ribbon'];
@@ -34,6 +37,25 @@ export const HOSTILE_CLIENT_NAME = 'Blue Fern <script>window.__pwned = 1</script
 export const HOSTILE_JOB_ID = 'j1000000-0000-4000-8000-00000000c0de';
 export const HOSTILE_JOB_NAME = 'Nightly <img src=x onerror="window.__pwned = 2"> copy';
 export const HOSTILE_MESSAGE_ID = 'm1000000-0000-4000-8000-00000000c0de';
+/** A javascript: link as text: an activity summary and the hostile client's notes carry it. */
+export const HOSTILE_LINK = '<a href="javascript:window.__pwned = 9">open</a>';
+/** An img onerror as text: an alias of the hostile client and a flip reason carry it. */
+export const HOSTILE_IMG = '<img src=x onerror="window.__pwned = 10">';
+export const HOSTILE_FLIP_REASON = `No result by the deadline ${HOSTILE_IMG}`;
+
+/** The hostile client as the clients API answers it, for a spec that seeds
+ *  installFakeApi with it (with hostileJob(null) as its job). */
+export const HOSTILE_CLIENT: ClientOut = {
+  id: HOSTILE_CLIENT_ID,
+  name: HOSTILE_CLIENT_NAME,
+  notes: `Call the office first. ${HOSTILE_LINK}`,
+  aliases: ['Blue Fern', `BF ${HOSTILE_IMG}`],
+  archived: false,
+  created_at: '2026-11-01T09:00:00Z',
+  job_count: 0,
+  status_counts: {},
+  worst_state: null,
+};
 
 const VEEAM = SEED_JOBS[0];
 const SQL = SEED_JOBS[1];
@@ -198,7 +220,7 @@ function buildBreakdown(by: 'vendor' | 'client'): Breakdown {
 function buildActivity(start: Date): ActivityItem[] {
   return [
     { id: 'a1', at: at(start, 14), kind: 'flip', summary: `${HOSTILE_JOB_NAME} (${HOSTILE_CLIENT_NAME}): ok to missed`, ref_kind: 'job', ref_id: HOSTILE_JOB_ID },
-    { id: 'a2', at: at(start, 6.7), kind: 'ingest', summary: 'Message received in Veeam reports: parsed', ref_kind: 'message', ref_id: HOSTILE_MESSAGE_ID },
+    { id: 'a2', at: at(start, 6.7), kind: 'ingest', summary: `Message received in Veeam reports: parsed ${HOSTILE_LINK}`, ref_kind: 'message', ref_id: HOSTILE_MESSAGE_ID },
     { id: 'a3', at: at(start, 6.3), kind: 'flip', summary: `${COVE?.name ?? ''} (${NORTHWIND.name}): ok to warning`, ref_kind: 'job', ref_id: COVE?.id ?? '' },
     { id: 'a4', at: at(start, -2), kind: 'config', summary: 'Job pause', ref_kind: 'job', ref_id: SYNOLOGY?.id ?? '' },
     { id: 'a5', at: at(start, -5), kind: 'config', summary: 'Client create', ref_kind: 'client', ref_id: HARBOURSIDE.id },
@@ -207,8 +229,8 @@ function buildActivity(start: Date): ActivityItem[] {
 
 export const DIGEST: DigestPreview = {
   date: dateKey(new Date()),
-  subject: `Morning check ${dateKey(new Date())}: 1 failed, 2 silent, 1 warning, 9 verified`,
-  html: `<!doctype html><html><body style="margin:0;padding:24px;font-family:sans-serif;background:#f4f6f9"><h1 style="font-size:22px;margin:0 0 8px">Morning check, ${dateKey(new Date())}</h1><p style="margin:0 0 16px">9 verified, 1 failed, 2 silent, 1 warning.</p><table role="presentation" style="border-collapse:collapse"><tr><td style="padding:6px 12px;border:1px solid #ddd">${HOSTILE_JOB_NAME.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</td><td style="padding:6px 12px;border:1px solid #ddd">Missed</td></tr></table><script>document.body.innerHTML = "pwned"; window.parent.__pwned = 3</script><img src="x" onerror="document.body.innerHTML = 'pwned'"></body></html>`,
+  subject: `Morning check ${dateKey(new Date())}: 1 failed, 2 silent, 1 warning, 9 verified <script>window.__pwned = 13</script> <img src=x onerror="window.__pwned = 14">`,
+  html: `<!doctype html><html><body style="margin:0;padding:24px;font-family:sans-serif;background:#f4f6f9"><h1 style="font-size:22px;margin:0 0 8px">Morning check, ${dateKey(new Date())}</h1><p style="margin:0 0 16px">9 verified, 1 failed, 2 silent, 1 warning.</p><p style="margin:0 0 16px"><a href="javascript:document.body.innerHTML = 'pwned'">Open the dashboard</a></p><table role="presentation" style="border-collapse:collapse"><tr><td style="padding:6px 12px;border:1px solid #ddd">${HOSTILE_JOB_NAME.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</td><td style="padding:6px 12px;border:1px solid #ddd">Missed</td></tr></table><script>document.body.innerHTML = "pwned"; window.parent.__pwned = 3</script><img src="x" onerror="document.body.innerHTML = 'pwned'"></body></html>`,
   text: `Morning check, ${dateKey(new Date())}\n9 verified, 1 failed, 2 silent, 1 warning.\n<script>alert(1)</script>\n`,
 };
 
@@ -257,7 +279,7 @@ export async function installDashboardApi(page: Page, options: DashboardOptions 
     store.occurrences.push({ job_id: HOSTILE_JOB_ID, scheduled_for: at(day, 5), deadline: at(day, 10.5), state, result_id: state === 'missed' ? null : `r-${back}`, note: state === 'failed' ? 'disk full' : null });
   }
   store.flips.push(
-    { id: 'f1', job_id: HOSTILE_JOB_ID, client_id: HOSTILE_CLIENT_ID, from_state: 'ok', to_state: 'missed', reason: 'No result by the deadline', at: at(start, 10.5) },
+    { id: 'f1', job_id: HOSTILE_JOB_ID, client_id: HOSTILE_CLIENT_ID, from_state: 'ok', to_state: 'missed', reason: HOSTILE_FLIP_REASON, at: at(start, 10.5) },
     { id: 'f2', job_id: HOSTILE_JOB_ID, client_id: HOSTILE_CLIENT_ID, from_state: 'unknown', to_state: 'ok', reason: 'First verified run', at: at(start, -29 * 24 + 6) },
     { id: 'f3', job_id: SQL?.id ?? '', client_id: HARBOURSIDE.id, from_state: 'ok', to_state: 'warning', reason: 'Finished with warnings', at: at(start, 4) },
   );
@@ -365,7 +387,7 @@ export async function installDashboardApi(page: Page, options: DashboardOptions 
   return store;
 }
 
-function hostileJob(acknowledgedAt: string | null): components['schemas']['JobOut'] {
+export function hostileJob(acknowledgedAt: string | null): components['schemas']['JobOut'] {
   return {
     id: HOSTILE_JOB_ID,
     client_id: HOSTILE_CLIENT_ID,
