@@ -4,6 +4,7 @@ that never holds the channel's secret."""
 
 import asyncio
 import logging
+import traceback
 from collections.abc import Mapping
 from typing import Any, Final
 
@@ -49,7 +50,13 @@ async def send_message(
     except TimeoutError:
         return f"The delivery took longer than {SEND_TIMEOUT:.0f} seconds."
     except Exception as error:
-        # The class and the stack only: the text may hold anything.
-        logger.error("channel kind %s failed", kind.name, exc_info=error)
+        # The class and the stack only: the text may hold anything, and a
+        # logged exception repeats it.
+        logger.error(
+            "channel kind %s failed (%s)\n%s",
+            kind.name,
+            type(error).__name__,
+            "".join(traceback.format_tb(error.__traceback__)),
+        )
         return f"The {kind.name} delivery failed ({type(error).__name__})."
     return None

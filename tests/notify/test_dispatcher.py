@@ -8,6 +8,7 @@ Clients and jobs are synthetic (legal R-11: fictional companies).
 """
 
 import dataclasses
+import logging
 import uuid
 from collections.abc import AsyncIterator, Mapping
 from datetime import UTC, datetime, timedelta
@@ -73,6 +74,8 @@ class FakeKind:
         self.sent: list[Message] = []
         self.tries = 0
         self.failures = 0
+        # Raise an unexpected error whose text holds the secret.
+        self.crash = False
 
     def check_config(
         self, config: Mapping[str, Any], *, has_secret: bool
@@ -87,6 +90,8 @@ class FakeKind:
         outbound: Outbound,
     ) -> None:
         self.tries += 1
+        if self.crash:
+            raise RuntimeError(f"the socket library printed {secret}")
         if self.failures:
             self.failures -= 1
             raise DeliveryError(f"The relay said no to {secret}.")
@@ -315,8 +320,13 @@ async def test_one_notification_per_flip_and_channel_never_two(
 
 
 async def test_the_retry_ladder_then_failed(
-    context: WorkerContext, kind: FakeKind, db_engine: AsyncEngine, clock: FakeClock
+    context: WorkerContext,
+    kind: FakeKind,
+    db_engine: AsyncEngine,
+    clock: FakeClock,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
+    caplog.set_level(logging.DEBUG, logger="app")
     recorder = Recorder(db_engine)
     context = dataclasses.replace(context, subscribers=(*context.subscribers, recorder))
     await add_job(context, await add_client(context))
@@ -361,6 +371,138 @@ async def test_the_retry_ladder_then_failed(
             SYSTEM, failed_since=clock.now() - timedelta(hours=24)
         )
     assert counts == (0, 1)
+    # The worker's log never holds the relay password either (D-6).
+    assert "failed after 4 attempts" in caplog.text
+    assert SECRET not in caplog.text
+
+
+async def test_an_unexpected_kind_error_is_stored_and_logged_without_the_secret(
+    context: WorkerContext,
+    kind: FakeKind,
+    db_engine: AsyncEngine,
+    clock: FakeClock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.DEBUG, logger="app")
+    await add_job(context, await add_client(context))
+    channel = await add_channel(context, secret=SECRET)
+    await add_rule(context, channel, ["missed"])
+    kind.crash = True
+    at(clock, MISSED_AT)
+    await tick(context)
+    (row,) = await notifications(db_engine)
+    assert (row.status, row.attempts) == ("retrying", 1)
+    assert row.error == "The email delivery failed (RuntimeError)."
+    assert "channel kind email failed (RuntimeError)" in caplog.text
+    assert SECRET not in caplog.text
+    assert SECRET not in (await stored_channel(db_engine, channel)).last_error
+
+
+async def test_one_broken_notification_does_not_stop_the_others(
+    context: WorkerContext,
+    kind: FakeKind,
+    db_engine: AsyncEngine,
+    clock: FakeClock,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A notification whose message cannot be made (a renderer, the
+    database) fails on its own retry ladder; the ones due after it are still
+    sent in the same tick."""
+    caplog.set_level(logging.DEBUG, logger="app")
+    await add_job(context, await add_client(context))
+    first = await add_channel(context, "Ops mail")
+    await add_rule(context, first, ["missed"])
+    second = await add_channel(context, "Service desk")
+    await add_rule(context, second, ["missed"])
+    at(clock, MISSED_AT)
+    await Evaluator(context).run(clock.now())
+    # Both are due at the same moment; the lower id is sent first.
+    broken_id = min(row.id for row in await notifications(db_engine))
+    compose = Dispatcher.compose
+
+    async def breaking(
+        self: Dispatcher, db: Any, notification: Notification, *args: Any
+    ) -> Message | None:
+        if notification.id == broken_id:
+            raise RuntimeError(f"the renderer printed {SECRET}")
+        return await compose(self, db, notification, *args)
+
+    monkeypatch.setattr(Dispatcher, "compose", breaking)
+    outcome = await Dispatcher(context).run(clock.now())
+    assert (outcome.sent, outcome.retrying, outcome.left) == (1, 1, 0)
+    rows = {row.id: row for row in await notifications(db_engine)}
+    broken = rows.pop(broken_id)
+    assert (broken.status, broken.attempts) == ("retrying", 1)
+    assert broken.error == "The notification could not be sent (RuntimeError)."
+    assert [row.status for row in rows.values()] == ["sent"]
+    assert len(kind.sent) == 1
+    # Broken every time: the ladder ends in failed, the queue is not stuck.
+    for wait in RETRY_DELAYS:
+        clock.advance(seconds=wait.total_seconds())
+        await dispatch_notifications(context, clock.now())
+    rows = {row.id: row for row in await notifications(db_engine)}
+    assert (rows[broken_id].status, rows[broken_id].attempts) == ("failed", 4)
+    assert f"notification {broken_id} could not be sent (RuntimeError)" in caplog.text
+    assert SECRET not in caplog.text
+
+
+async def test_a_failing_channel_gets_one_attempt_per_tick(
+    context: WorkerContext, kind: FakeKind, db_engine: AsyncEngine, clock: FakeClock
+) -> None:
+    """A relay that fails (or hangs) does not take the tick's budget: the
+    channel's other notifications wait for the next tick."""
+    dental = await add_client(context)
+    await add_job(context, dental)
+    await add_job(context, dental, "Database dump")
+    await add_rule(context, await add_channel(context), ["missed"])
+    kind.failures = 100
+    at(clock, MISSED_AT)
+    await Evaluator(context).run(clock.now())
+    outcome = await Dispatcher(context).run(clock.now())
+    assert (outcome.retrying, outcome.left, kind.tries) == (1, 1, 1)
+    kind.failures = 0
+    second = await Dispatcher(context).run(clock.now())
+    assert (second.sent, kind.tries) == (1, 2)
+
+
+async def test_a_flip_the_queue_missed_is_caught_up(
+    context: WorkerContext, kind: FakeKind, db_engine: AsyncEngine, clock: FakeClock
+) -> None:
+    """The worker stopped after the evaluator's commit and before the
+    NotificationQueue ran: the next dispatcher tick queues the flip once,
+    for the channels that existed at the flip."""
+    await add_job(context, await add_client(context))
+    channel = await add_channel(context)
+    await add_rule(context, channel, ["missed"])
+    at(clock, MISSED_AT)
+    await Evaluator(dataclasses.replace(context, subscribers=())).run(clock.now())
+    assert await notifications(db_engine) == []
+    clock.advance(minutes=1)
+    later = await add_channel(context, "Added after the flip")
+    await add_rule(context, later, ["missed"])
+    outcome = await Dispatcher(context).run(clock.now())
+    assert (outcome.caught_up, outcome.sent) == (1, 1)
+    (row,) = await notifications(db_engine)
+    assert (row.channel_id, row.event, row.status) == (channel.id, "missed", "sent")
+    await tick(context)
+    clock.advance(minutes=20)
+    await tick(context)
+    assert [message.event for message in kind.sent] == ["missed"]
+    assert len(await notifications(db_engine)) == 1
+
+
+async def test_the_catch_up_leaves_old_flips_alone(
+    context: WorkerContext, kind: FakeKind, db_engine: AsyncEngine, clock: FakeClock
+) -> None:
+    await add_job(context, await add_client(context))
+    await add_rule(context, await add_channel(context), ["missed"])
+    at(clock, MISSED_AT)
+    await Evaluator(dataclasses.replace(context, subscribers=())).run(clock.now())
+    clock.advance(minutes=16)
+    outcome = await Dispatcher(context).run(clock.now())
+    assert outcome.caught_up == 0
+    assert await notifications(db_engine) == []
 
 
 async def test_a_retry_that_succeeds_is_sent(
@@ -465,6 +607,24 @@ async def test_the_24_hour_reminder_is_off_by_default_and_sent_once(
     clock.advance(hours=3)
     await tick(context)
     assert len(kind.sent) == 2
+
+
+async def test_turning_reminders_on_late_reminds_of_no_old_outage(
+    context: WorkerContext, kind: FakeKind, db_engine: AsyncEngine, clock: FakeClock
+) -> None:
+    """A flip older than 24 hours plus REMINDER_WINDOW gets no reminder when
+    the setting is turned on later."""
+    await add_job(context, await add_client(context))
+    await add_rule(context, await add_channel(context), ["missed"])
+    at(clock, MISSED_AT)
+    await tick(context)
+    at(clock, MISSED_AT + timedelta(hours=27))
+    await set_reminders(db_engine, True)
+    await tick(context)
+    clock.advance(minutes=30)
+    await tick(context)
+    assert [message.event for message in kind.sent] == ["missed"]
+    assert [row.event for row in await notifications(db_engine)] == ["missed"]
 
 
 async def test_no_reminder_for_an_acknowledged_or_recovered_job(

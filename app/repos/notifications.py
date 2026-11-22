@@ -8,17 +8,30 @@ digest day) adds nothing.
 """
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Final
 
-from sqlalchemy import and_, delete, exists, func, or_, select, tuple_, update
+from sqlalchemy import (
+    and_,
+    any_,
+    case,
+    delete,
+    exists,
+    func,
+    literal,
+    or_,
+    select,
+    tuple_,
+    update,
+)
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import aliased
 
 from app.access import Principal
 from app.db.models import (
+    AuditEvent,
     Channel,
     ChannelRule,
     Client,
@@ -275,10 +288,12 @@ class NotificationRepository(Repository):
         client_id: uuid.UUID,
         job_id: uuid.UUID,
         event: str,
+        existing_at: datetime | None = None,
     ) -> list[uuid.UUID]:
         """Enabled channels with a rule for the event that covers the job:
         scope all, the job's client or the job itself. A channel with several
-        such rules is listed once."""
+        such rules is listed once. With existing_at, only channels and rules
+        created by then."""
         covers = or_(
             ChannelRule.scope == "all",
             and_(ChannelRule.scope == "client", ChannelRule.scope_id == client_id),
@@ -295,6 +310,11 @@ class NotificationRepository(Repository):
             .distinct()
             .order_by(Channel.id)
         )
+        if existing_at is not None:
+            query = query.where(
+                Channel.created_at <= existing_at,
+                ChannelRule.created_at <= existing_at,
+            )
         query = self.policy.scope(principal, self.resource, query)
         return list((await self.db.scalars(query)).all())
 
@@ -318,11 +338,11 @@ class NotificationRepository(Repository):
     @guarded("list")
     async def due(
         self, principal: Principal, *, now: datetime, limit: int
-    ) -> list[uuid.UUID]:
+    ) -> list[tuple[uuid.UUID, uuid.UUID]]:
         """Queued and retrying notifications whose time has come, oldest due
-        first."""
+        first: (notification id, channel id)."""
         query = (
-            select(Notification.id)
+            select(Notification.id, Notification.channel_id)
             .where(
                 Notification.status.in_(OPEN_STATUSES),
                 Notification.next_attempt_at <= now,
@@ -331,14 +351,17 @@ class NotificationRepository(Repository):
             .limit(limit)
         )
         query = self.policy.scope(principal, self.resource, query)
-        return list((await self.db.scalars(query)).all())
+        return [(row[0], row[1]) for row in await self.db.execute(query)]
 
     @guarded("update")
     async def claim(
         self, principal: Principal, notification_id: uuid.UUID, *, now: datetime
     ) -> tuple[Notification, Channel] | None:
-        """Lock a due notification and read its channel; None when it is not
-        due any more or another transaction holds it."""
+        """Lock a due notification and its channel; None when it is not due
+        any more or another transaction holds either. The channel is locked
+        here, not later when its last status is written, so the dispatcher
+        locks in the order of a channel delete (channel, then its
+        notifications) and the two cannot deadlock."""
         query = (
             select(Notification, Channel)
             .join(Channel, Channel.id == Notification.channel_id)
@@ -347,7 +370,9 @@ class NotificationRepository(Repository):
                 Notification.status.in_(OPEN_STATUSES),
                 Notification.next_attempt_at <= now,
             )
-            .with_for_update(of=Notification, skip_locked=True)
+            .with_for_update(
+                of=(Notification, Channel), key_share=True, skip_locked=True
+            )
         )
         query = self.policy.scope(principal, self.resource, query)
         row = (await self.db.execute(query)).one_or_none()
@@ -411,7 +436,9 @@ class NotificationRepository(Repository):
     ) -> list[Reminder]:
         """Flips to failing or missed made in [start, end) whose job has not
         changed state since and is not acknowledged, with each enabled
-        channel that was notified of them and has no reminder yet."""
+        channel that was notified of them and has no reminder yet. The jobs
+        are locked FOR KEY SHARE, as hold_job does, so a client delete waits
+        for the reminders queued in this transaction."""
         later = aliased(Flip)
         reminded = aliased(Notification)
         changed = exists().where(later.job_id == Flip.job_id, later.at > Flip.at)
@@ -436,12 +463,83 @@ class NotificationRepository(Repository):
             )
             .order_by(Flip.at, Flip.id, Notification.channel_id)
             .limit(limit)
+            .with_for_update(of=Job, read=True, key_share=True)
         )
         query = self.policy.scope(principal, self.resource, query)
         return [
             Reminder(flip_id=row[0], channel_id=row[1])
             for row in await self.db.execute(query)
         ]
+
+    @guarded("list")
+    async def unqueued_flips(
+        self,
+        principal: Principal,
+        *,
+        after: datetime,
+        until: datetime,
+        problem_states: Collection[str],
+        limit: int,
+    ) -> list[Flip]:
+        """Flips made in (after, until] that notify (to a problem state, or
+        from one to ok) and have no notification of their event yet, while
+        an enabled channel has a rule for it that covers the job. Only
+        channels and rules that existed at the flip count, so a new channel
+        does not hear of older flips."""
+        problems = list(problem_states)
+        event = case(
+            (Flip.to_state.in_(problems), Flip.to_state),
+            (
+                and_(Flip.to_state == "ok", Flip.from_state.in_(problems)),
+                literal("recovered"),
+            ),
+            else_=None,
+        )
+        covered = exists().where(
+            ChannelRule.channel_id == Channel.id,
+            Channel.enabled.is_(True),
+            Channel.created_at <= Flip.at,
+            ChannelRule.created_at <= Flip.at,
+            event == any_(ChannelRule.events),
+            or_(
+                ChannelRule.scope == "all",
+                and_(
+                    ChannelRule.scope == "client",
+                    ChannelRule.scope_id == Flip.client_id,
+                ),
+                and_(ChannelRule.scope == "job", ChannelRule.scope_id == Flip.job_id),
+            ),
+        )
+        queued = exists().where(
+            Notification.flip_id == Flip.id, Notification.event == event
+        )
+        query = (
+            select(Flip)
+            .where(
+                Flip.at > after,
+                Flip.at <= until,
+                event.is_not(None),
+                covered,
+                ~queued,
+            )
+            .order_by(Flip.at, Flip.id)
+            .limit(limit)
+        )
+        query = self.policy.scope(principal, self.resource, query)
+        return list((await self.db.scalars(query)).all())
+
+    @guarded("read")
+    async def demo_seeded_at(
+        self, principal: Principal, *, since: datetime
+    ) -> datetime | None:
+        """When the demo seed finished, if that was after since (its audit
+        event seed.demo). The flips it replayed are made-up history that
+        never notifies (app/seed/demo.py)."""
+        query = select(func.max(AuditEvent.at)).where(
+            AuditEvent.at >= since, AuditEvent.action == "seed.demo"
+        )
+        seeded: datetime | None = (await self.db.execute(query)).scalar_one()
+        return seeded
 
     @guarded("list")
     async def page(

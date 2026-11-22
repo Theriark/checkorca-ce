@@ -13,6 +13,12 @@ Both parts run in the worker; docs/notifications.md is the contract.
    queues nothing.
 2. dispatch_notifications is a tick hook (app/worker/loop.py TICK_HOOKS),
    after the evaluator. On every tick it
+   0. catches up: a flip of the last 15 minutes (CATCH_UP_WINDOW) that
+      notifies but has no notification yet is queued as the subscriber would
+      have, for the channels and rules that existed at the flip. That covers
+      a worker stopped between the evaluator's commit and the queue's, and a
+      subscriber that failed or timed out. The flips the demo seed replayed
+      (up to its audit event seed.demo) are left alone;
    a. queues the digest of the local day once its digest time has passed
       (settings.digest_time_local in settings.digest_timezone) for every
       enabled channel with a digest rule that has none of that day yet: once
@@ -21,11 +27,13 @@ Both parts run in the worker; docs/notifications.md is the contract.
       to failing or missed whose job has not changed state and is not
       acknowledged 24 hours later;
    c. sends what is due, each notification in its own transaction, locked
-      with SKIP LOCKED. A failed attempt is tried again after 1, 5 and 30
-      minutes (RETRY_DELAYS, on the injected Clock); after the fourth attempt
-      the notification is failed. After the commit, NotificationSent goes to
-      the subscribers for a notification about a flip that was sent or failed
-      for good.
+      with its channel and SKIP LOCKED. A failed attempt is tried again after
+      1, 5 and 30 minutes (RETRY_DELAYS, on the injected Clock); after the
+      fourth attempt the notification is failed. An unexpected error counts
+      as a failed attempt of that notification only; a channel with an
+      attempt to retry gets no more attempts in this tick. After the commit,
+      NotificationSent goes to the subscribers for a notification about a
+      flip that was sent or failed for good.
 
 A crash after the relay accepted a message and before the commit sends it
 again on the next tick: delivery is at least once.
@@ -75,6 +83,10 @@ REMINDER_WINDOW: Final = timedelta(hours=2)
 MAX_SENDS_PER_TICK: Final = 200
 MAX_REMINDERS_PER_TICK: Final = 500
 BUDGET_SECONDS: Final = 30.0
+# How far back every tick looks for flips the NotificationQueue missed, and
+# how many of them it queues at most.
+CATCH_UP_WINDOW: Final = timedelta(minutes=15)
+MAX_CATCH_UP_PER_TICK: Final = 200
 
 logger = logging.getLogger(__name__)
 
@@ -130,14 +142,21 @@ class NotificationQueue:
             return
         await self.queue(event, kind)
 
-    async def queue(self, flip: FlipCreated, kind: str) -> int:
-        """Queue the flip's notifications; the number queued."""
+    async def queue(
+        self, flip: FlipCreated, kind: str, *, existing_at: datetime | None = None
+    ) -> int:
+        """Queue the flip's notifications; the number queued. With
+        existing_at, only channels and rules that existed then count."""
         async with self.sessionmaker() as db:
             repository = NotificationRepository(db, self.policy)
             if not await repository.hold_job(SYSTEM, flip.job_id):
                 return 0
             channels = await repository.matching_channels(
-                SYSTEM, client_id=flip.client_id, job_id=flip.job_id, event=kind
+                SYSTEM,
+                client_id=flip.client_id,
+                job_id=flip.job_id,
+                event=kind,
+                existing_at=existing_at,
             )
             if not channels:
                 return 0
@@ -164,6 +183,14 @@ class NotificationQueue:
         return queued
 
 
+def queue_of(context: "WorkerContext") -> NotificationQueue | None:
+    """The context's NotificationQueue; None without it (the demo replay)."""
+    for subscriber in context.subscribers:
+        if isinstance(subscriber, NotificationQueue):
+            return subscriber
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class DigestSettings:
     """The settings the dispatcher reads on every tick."""
@@ -177,6 +204,7 @@ class DigestSettings:
 class DispatchReport:
     """What one tick did, for the log and the tests."""
 
+    caught_up: int = 0
     digests: int = 0
     reminders: int = 0
     sent: int = 0
@@ -211,6 +239,7 @@ class Dispatcher:
     async def run(self, now: datetime) -> DispatchReport:
         report = DispatchReport()
         settings = await self._settings()
+        report.caught_up = await self.catch_up(now)
         report.digests = await self.queue_digest(settings, now)
         if settings.reminder_24h:
             report.reminders = await self.queue_reminders(now)
@@ -284,6 +313,49 @@ class Dispatcher:
             await db.commit()
         return queued
 
+    async def catch_up(self, now: datetime) -> int:
+        """Queue what the NotificationQueue did not: the flips of the last
+        CATCH_UP_WINDOW without their notifications, because the worker
+        stopped between the evaluator's commit and the queue's, or the
+        subscriber failed or timed out. The unique key keeps a flip that is
+        queued meanwhile at one notification. Without the subscriber (the
+        demo replay's context) nothing is queued, and the flips the demo seed
+        replayed are left alone."""
+        queue = queue_of(self.context)
+        if queue is None:
+            return 0
+        after = now - CATCH_UP_WINDOW
+        async with self.context.sessionmaker() as db:
+            repository = NotificationRepository(db, self.context.policy)
+            seeded = await repository.demo_seeded_at(SYSTEM, since=after)
+            if seeded is not None:
+                after = max(after, seeded)
+            flips = await repository.unqueued_flips(
+                SYSTEM,
+                after=after,
+                until=now,
+                problem_states=PROBLEM_STATES,
+                limit=MAX_CATCH_UP_PER_TICK,
+            )
+        queued = 0
+        for flip in flips:
+            kind = event_of(flip.from_state, flip.to_state)
+            if kind is None:
+                continue
+            event = FlipCreated(
+                flip_id=flip.id,
+                job_id=flip.job_id,
+                client_id=flip.client_id,
+                from_state=flip.from_state,
+                to_state=flip.to_state,
+                reason=flip.reason,
+                at=flip.at,
+            )
+            queued += await queue.queue(event, kind, existing_at=flip.at)
+        if queued:
+            logger.warning("notifications: %d caught up for earlier flips", queued)
+        return queued
+
     async def send_due(
         self, settings: DigestSettings, now: datetime, report: DispatchReport
     ) -> None:
@@ -295,15 +367,23 @@ class Dispatcher:
             repository = NotificationRepository(db, self.context.policy)
             due = await repository.due(SYSTEM, now=ready, limit=self.max_sends)
         started = clock.monotonic()
-        for index, notification_id in enumerate(due):
+        # A channel with an attempt to retry in this tick gets no more
+        # attempts in it, so a hanging relay does not use up the budget of
+        # the others.
+        broken: set[uuid.UUID] = set()
+        for index, (notification_id, channel_id) in enumerate(due):
             if index and clock.monotonic() - started >= self.budget_seconds:
                 report.left += len(due) - index
                 break
+            if channel_id in broken:
+                report.left += 1
+                continue
             status = await self.send_one(notification_id, settings, ready)
             if status == "sent":
                 report.sent += 1
             elif status == "retrying":
                 report.retrying += 1
+                broken.add(channel_id)
             elif status == "failed":
                 report.failed += 1
 
@@ -311,7 +391,41 @@ class Dispatcher:
         self, notification_id: uuid.UUID, settings: DigestSettings, now: datetime
     ) -> str | None:
         """One attempt at one notification; its new status, or None when it
-        was not due any more or another worker holds it."""
+        was not due any more or another worker holds it.
+
+        An unexpected error (composing the message, the database) never
+        stops the tick: it counts as a failed attempt of this notification
+        only, written in a new transaction, so a notification that fails the
+        same way every time ends failed on the retry ladder and the ones
+        after it are still sent."""
+        try:
+            return await self._send_one(notification_id, settings, now, None)
+        except Exception as error:
+            name = type(error).__name__
+            # The class only: the text may hold anything.
+            logger.error(
+                "notification %s could not be sent (%s)", notification_id, name
+            )
+            outcome = Outcome(f"The notification could not be sent ({name}).")
+        try:
+            return await self._send_one(notification_id, settings, now, outcome)
+        except Exception as error:
+            logger.error(
+                "notification %s: the failed attempt was not stored (%s)",
+                notification_id,
+                type(error).__name__,
+            )
+            return None
+
+    async def _send_one(
+        self,
+        notification_id: uuid.UUID,
+        settings: DigestSettings,
+        now: datetime,
+        failure: Outcome | None,
+    ) -> str | None:
+        """send_one in one transaction; with failure, that outcome is stored
+        without an attempt to send."""
         context = self.context
         events: list[Event] = []
         async with context.sessionmaker() as db:
@@ -320,7 +434,10 @@ class Dispatcher:
             if claimed is None:
                 return None
             notification, channel = claimed
-            outcome = await self.attempt(db, notification, channel, settings, now)
+            if failure is None:
+                outcome = await self.attempt(db, notification, channel, settings, now)
+            else:
+                outcome = failure
             at = context.clock.now()
             attempts = notification.attempts + 1
             wait = None if outcome.final else retry_delay(attempts)
