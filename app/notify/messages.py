@@ -4,7 +4,8 @@ the daily digest and a channel test.
 The text is plain and short: the client and the job, what changed, why (the
 flip's reason) and a link to the job. Times are shown in the digest zone. The
 subject holds the client and job names on one line; the e-mail kind makes it
-a single header line. Webhook kinds (C9-I) use Message.flip, not the text.
+a single header line. Webhook kinds (C9-I) build from Message.flip and
+Message.digest, not from the text.
 """
 
 from datetime import date, datetime
@@ -13,7 +14,7 @@ from zoneinfo import ZoneInfo
 
 from app import PRODUCT_NAME
 from app.ext.notifications import FlipFacts, Message
-from app.ext.reports import RenderedReport
+from app.ext.reports import Digest, RenderedReport
 
 # What the job did, after "Client / Job".
 EVENT_PHRASES: Final[dict[str, str]] = {
@@ -58,19 +59,25 @@ def flip_message(event: str, facts: FlipFacts, zone: ZoneInfo) -> Message:
         subject=f"{PRODUCT_NAME}: {headline}",
         text="\n".join(lines) + "\n",
         url=facts.url,
+        at=facts.at,
         flip=facts,
     )
 
 
-def digest_message(report: RenderedReport, url: str, day: date) -> Message:
-    """The daily digest of day as the ReportRenderer made it."""
+def digest_message(
+    report: RenderedReport, url: str, day: date, digest: Digest
+) -> Message:
+    """The daily digest of day as the ReportRenderer made it; digest carries
+    the numbers, so a webhook kind builds its payload from them."""
     return Message(
         event="digest",
         subject=report.subject,
         text=report.text,
         html=report.html,
         url=url,
+        at=digest.generated_at,
         digest_day=day,
+        digest=digest,
     )
 
 
@@ -86,4 +93,5 @@ def channel_test_message(label: str, url: str, now: datetime) -> Message:
             f"Open {PRODUCT_NAME}: {url}\n"
         ),
         url=url,
+        at=now,
     )
