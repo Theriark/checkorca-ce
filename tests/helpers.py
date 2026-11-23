@@ -354,10 +354,7 @@ def http_answer(status: int = 200) -> bytes:
         status, "OK"
     )
     return (
-        f"HTTP/1.1 {status} {text}\r\n"
-        "Content-Length: 0\r\n"
-        "Connection: close\r\n"
-        "\r\n"
+        f"HTTP/1.1 {status} {text}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
     ).encode()
 
 

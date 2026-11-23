@@ -539,9 +539,7 @@ class Dispatcher:
                 url=f"{base}/",
             )
             report = context.report_renderer.render(digest)
-            return digest_message(
-                report, f"{base}/", notification.digest_day, digest
-            )
+            return digest_message(report, f"{base}/", notification.digest_day, digest)
         if notification.flip_id is None:
             return None
         repository = NotificationRepository(db, context.policy)

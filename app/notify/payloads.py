@@ -23,6 +23,7 @@ from typing import Any, Final
 
 from app import PRODUCT_NAME
 from app.ext.notifications import Message
+from app.ext.reports import Digest
 
 # The words of the digest states, the same table as app/notify/digest.py
 # keeps for the e-mail body (kept here so the payload builders stay pure).
@@ -153,7 +154,7 @@ def _one_line(text: str) -> str:
     return " ".join(text.split())
 
 
-def _left_over(digest: Any) -> int:
+def _left_over(digest: Digest) -> int:
     """How many jobs of the digest no card body lists."""
     return len(digest.items) - MAX_DIGEST_ITEMS + digest.more_items
 
@@ -261,7 +262,7 @@ def _teams_sections(message: Message) -> list[dict[str, Any]]:
     digest = message.digest
     if digest is None:
         return []
-    sections = [
+    sections: list[dict[str, Any]] = [
         {
             "text": (
                 f"Verified {digest.verified}, failed {digest.failed}, "
@@ -272,8 +273,7 @@ def _teams_sections(message: Message) -> list[dict[str, Any]]:
     facts = [
         {
             "name": escape_teams(
-                f"{STATE_WORDS.get(item.state, item.state)}: "
-                f"{item.client} / {item.job}"
+                f"{STATE_WORDS.get(item.state, item.state)}: {item.client} / {item.job}"
             ),
             "value": escape_teams(f"due {iso(item.scheduled_for)}"),
         }
