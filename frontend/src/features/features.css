@@ -1761,7 +1761,8 @@
   row-gap: 2px;
 }
 
-/* The event chips of a rule stay compact in the table. */
+/* The event chips of a rule stay compact in the table and wrap on a phone:
+   every event stays readable, none is hidden. */
 .co-events {
   gap: var(--space-1);
 }
@@ -1770,12 +1771,6 @@
   height: 20px;
   margin-left: 0;
   font-size: var(--text-12);
-}
-
-@media (max-width: 479px) {
-  .co-events__chip:nth-child(n + 4) {
-    display: none;
-  }
 }
 
 /* ---------- Settings (C9-F) ---------- */
