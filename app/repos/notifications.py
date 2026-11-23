@@ -179,8 +179,8 @@ class ChannelRuleRepository(Repository):
     async def scope_names(
         self, principal: Principal, rules: Sequence[ChannelRule]
     ) -> dict[uuid.UUID, str]:
-        """Client and job names of the rules' scopes: \"Client\" for a client,
-        \"Client / Job\" for a job (two queries at most)."""
+        """Client and job names of the rules' scopes: "Client" for a client,
+        "Client / Job" for a job (two queries at most)."""
         names: dict[uuid.UUID, str] = {}
         clients = {rule.scope_id for rule in rules if rule.scope == "client"}
         jobs = {rule.scope_id for rule in rules if rule.scope == "job"}
