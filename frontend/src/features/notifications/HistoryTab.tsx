@@ -154,6 +154,9 @@ export function HistoryTab({ status, onStatusChange, onCount }: HistoryTabProps)
     },
   ];
 
+  // The list is polled only while its first page alone is loaded (see
+  // useNotificationList), so the note says so only then.
+  const polling = (list.data?.pages.length ?? 0) <= 1;
   const noMatch = filterActive && notifications.length === 0;
   const emptyTitle = noMatch ? copy.noMatch : copy.emptyTitle;
   const emptyDescription = noMatch ? copy.noMatchLead : copy.emptyLead;
@@ -217,9 +220,11 @@ export function HistoryTab({ status, onStatusChange, onCount }: HistoryTabProps)
           </Button>
         </div>
       )}
-      <p className="co-note">
-        <span>{copy.polling}</span>
-      </p>
+      {polling && (
+        <p className="co-note">
+          <span>{copy.polling}</span>
+        </p>
+      )}
     </div>
   );
 }
