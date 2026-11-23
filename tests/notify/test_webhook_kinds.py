@@ -32,7 +32,7 @@ from app.ext.notifications import (
 )
 from app.ext.reports import Digest, DigestItem, RenderedReport
 from app.notify.messages import channel_test_message, digest_message, flip_message
-from app.notify.payloads import escape_markup, payload_of
+from app.notify.payloads import escape_markup, escape_teams, fit, payload_of
 from app.notify.webhook import SlackKind, TeamsKind, WebhookKind, host_of
 from app.security.ssrf import check_target
 from helpers import HttpCapture, http_answer
@@ -245,6 +245,30 @@ def test_user_content_never_becomes_markup() -> None:
         assert "&lt;b&gt;&amp;" in text and "&lt;script&gt;" in text
 
 
+def test_a_teams_name_never_becomes_a_link_or_an_image() -> None:
+    linked = replace(FACTS, job="![x](https://pixel.example.com/a.png)")
+    body = TeamsKind().body_of(flip_message("missed", linked, ZONE))
+    for field in ("summary", "title", "text"):
+        assert "![x](" not in body[field]
+        assert "!&#91;x&#93;(https://pixel.example.com/a.png)" in body[field]
+
+
+def test_fit_never_cuts_an_entity_and_keeps_the_limit() -> None:
+    assert fit("a&b", 10, escape_markup) == "a&amp;b"
+    assert fit("abc", 2, escape_markup) == "ab"
+    # Only whole entities: one "&amp;" fits in 5, a second does not.
+    assert fit("&&&&&&&", 5, escape_markup) == "&amp;"
+    assert fit("&&&&&&&", 9, escape_markup) == "&amp;"
+    assert fit("a[b]", 100, escape_teams) == escape_teams("a[b]")
+    assert fit("<<<", 3, escape_markup) == ""
+    long = SlackKind().body_of(
+        flip_message("missed", replace(FACTS, client="<" * 400), ZONE)
+    )
+    header = long["blocks"][0]["text"]["text"]
+    assert len(header) <= 150 and header.endswith(";")
+    assert escape_teams("[a]") == "&#91;a&#93;"
+
+
 async def test_delivery_reaches_the_checked_target(capture: HttpCapture) -> None:
     for kind_name in KINDS:
         await KINDS[kind_name].send(
@@ -286,6 +310,32 @@ async def test_answers_that_are_not_a_delivery(
     # A redirect is not followed: one request, wherever it points.
     assert len(server.requests) == 1
     assert CANARY not in str(error) and CANARY not in caplog.text
+
+
+@pytest.mark.parametrize("kind_name", list(KINDS))
+async def test_a_redirect_to_a_private_address_is_never_followed(
+    kind_name: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The SSRF table's redirect row: a public-looking target that answers
+    302 to the metadata service or a private host gets one request, and the
+    Location is neither followed nor repeated in the error."""
+    redirect = (
+        b"HTTP/1.1 302 Found\r\n"
+        b"Location: http://169.254.169.254/latest/meta-data/\r\n"
+        b"Content-Length: 0\r\n"
+        b"Connection: close\r\n"
+        b"\r\n"
+    )
+    server = HttpCapture([redirect])
+    await server.start()
+    try:
+        with caplog.at_level(logging.DEBUG, logger="app"):
+            error = await refused(kind_name, server.url, Outbound(allow_private=True))
+    finally:
+        await server.stop()
+    assert str(error) == "The target answered 302 and redirects are not followed."
+    assert len(server.requests) == 1
+    assert "169.254.169.254" not in str(error) and "169.254" not in caplog.text
 
 
 async def test_an_answer_that_is_not_http() -> None:

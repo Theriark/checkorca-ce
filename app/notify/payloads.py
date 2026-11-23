@@ -10,10 +10,14 @@ contract; tests validate every payload against it
 (tests/notify/test_webhook_kinds.py).
 
 Slack and Teams get the same facts as a short plain text plus one block or
-card. Every name and reason from the database goes through escape_markup, so
-user content can never become markup (a job called <b> stays text).
+card. Every Slack field that carries a name or reason goes through
+escape_markup and every Teams field through escape_teams (which also defuses
+Markdown links and images), so user content can never become markup (a job
+called <b> or [x](https://...) stays text). fit cuts a field to its limit
+without cutting an entity in half.
 """
 
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, Final
 
@@ -59,6 +63,29 @@ def escape_markup(text: str) -> str:
     """The Slack and Teams entities of the three characters both render as
     markup: a hostile name stays text (shown with its entities)."""
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def escape_teams(text: str) -> str:
+    """escape_markup plus the square brackets, as numeric references: Teams
+    renders Markdown in a card, and a name like [x](https://...) or
+    ![x](https://...) must not become a link or an image (a reference is
+    never read as Markdown structure)."""
+    return escape_markup(text).replace("[", "&#91;").replace("]", "&#93;")
+
+
+def fit(text: str, limit: int, escape: Callable[[str], str]) -> str:
+    """text escaped and at most limit characters long, cut between whole
+    characters so an entity is never cut in half. escape works character by
+    character (escape_markup and escape_teams do)."""
+    pieces: list[str] = []
+    size = 0
+    for character in text:
+        piece = escape(character)
+        if size + len(piece) > limit:
+            break
+        pieces.append(piece)
+        size += len(piece)
+    return "".join(pieces)
 
 
 def _event_payload(message: Message) -> dict[str, Any]:
@@ -208,16 +235,19 @@ def _slack_sections(message: Message) -> list[dict[str, Any]]:
 
 def slack_body(message: Message) -> dict[str, Any]:
     """The body of a Slack incoming webhook: the plain text, plus a header
-    block and a few section blocks built from the same facts. The header is
-    plain_text, which Slack never renders as markup."""
+    block and a few section blocks built from the same facts. The top-level
+    text is what Slack shows in a notification and reads as mrkdwn, so it is
+    escaped like every section; the header is plain_text and escaped too, so
+    no field carries a raw name. The header is cut to Slack's limit by fit,
+    so an entity is never cut in half."""
     return {
-        "text": _one_line(message.text),
+        "text": escape_markup(_one_line(message.text)),
         "blocks": [
             {
                 "type": "header",
                 "text": {
                     "type": "plain_text",
-                    "text": _one_line(message.subject)[:MAX_HEADER],
+                    "text": fit(_one_line(message.subject), MAX_HEADER, escape_markup),
                 },
             },
         ]
@@ -241,11 +271,11 @@ def _teams_sections(message: Message) -> list[dict[str, Any]]:
     ]
     facts = [
         {
-            "name": escape_markup(
+            "name": escape_teams(
                 f"{STATE_WORDS.get(item.state, item.state)}: "
                 f"{item.client} / {item.job}"
             ),
-            "value": escape_markup(f"due {iso(item.scheduled_for)}"),
+            "value": escape_teams(f"due {iso(item.scheduled_for)}"),
         }
         for item in digest.items[:MAX_DIGEST_ITEMS]
     ]
@@ -260,14 +290,15 @@ def _teams_sections(message: Message) -> list[dict[str, Any]]:
 
 def teams_body(message: Message) -> dict[str, Any]:
     """The body of a Teams message card: the subject as title and summary,
-    the plain text escaped as text, and the digest counts and items as
-    sections."""
+    the plain text as text, and the digest counts and items as sections.
+    Every field that carries a name goes through escape_teams."""
+    subject = _one_line(message.subject)
     return {
         "@type": "MessageCard",
         "@context": "http://schema.org/extensions",
         "themeColor": COLOURS.get(message.event, INK_COLOUR),
-        "summary": _one_line(message.subject)[:MAX_SECTION],
-        "title": _one_line(message.subject)[:MAX_SECTION],
-        "text": escape_markup(message.text[:MAX_SECTION]),
+        "summary": fit(subject, MAX_SECTION, escape_teams),
+        "title": fit(subject, MAX_SECTION, escape_teams),
+        "text": fit(message.text, MAX_SECTION, escape_teams),
         "sections": _teams_sections(message),
     }
