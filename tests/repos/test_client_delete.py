@@ -356,8 +356,8 @@ async def test_delete_removes_the_client_and_its_rows_only(
         "job": 0,
         "client": 0,
     }
-    assert (await client.get(f"/api/v1/clients/{dental['id']})).status_code == 404
-    assert (await client.get(f"/api/v1/jobs/{kept_job['id']})).status_code == 200
+    assert (await client.get(f"/api/v1/clients/{dental['id']}")).status_code == 404
+    assert (await client.get(f"/api/v1/jobs/{kept_job['id']}")).status_code == 200
 
     async with db_engine.connect() as connection:
         remaining = (await connection.execute(select(Job.client_id))).scalars()
