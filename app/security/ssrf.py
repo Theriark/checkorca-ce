@@ -130,6 +130,10 @@ def is_never(address: IpAddress) -> bool:
     OUTBOUND_ALLOWED_HOSTS too."""
     if address.is_link_local:
         return True
+    if isinstance(address, ipaddress.IPv6Address):
+        inner = embedded_ipv4(address)
+        if inner is not None and inner.is_link_local:
+            return True
     return is_metadata(address)
 
 

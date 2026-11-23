@@ -161,6 +161,9 @@ async def test_link_local_and_metadata_are_never_allowed() -> None:
         "http://[::ffff:169.254.169.254]/",
         "http://169.254.0.1/hook",
         "http://[fe80::1]/",
+        # Link-local inside an IPv6 address (mapped, NAT64) too.
+        "http://[::ffff:169.254.0.1]/",
+        "http://[64:ff9b::a9fe:1]/",
     ):
         with pytest.raises(TargetRefused, match="never called") as refused:
             await check(url, allow_private=True, allowed=allowed)
