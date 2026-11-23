@@ -1,7 +1,9 @@
 import type { SectionKey } from '../shell/navigation';
 
 /** The CE sections under the shell, path by path. Literal paths, so the
- *  router knows every section address and a Link to a typo fails to compile. */
+ *  router knows every section address and a Link to a typo fails to compile.
+ *  /notifications has its own route (it keeps its tab and filters in the
+ *  address), so it is not in this list. */
 export const SECTIONS = [
   { path: '/', key: 'morningCheck' },
   { path: '/clients', key: 'clients' },
@@ -9,11 +11,11 @@ export const SECTIONS = [
   { path: '/unmatched', key: 'unmatched' },
   { path: '/inboxes', key: 'inboxes' },
   { path: '/parsers', key: 'parsers' },
-  { path: '/notifications', key: 'notifications' },
   { path: '/system', key: 'system' },
   { path: '/settings', key: 'settings' },
 ] as const satisfies readonly { readonly path: string; readonly key: SectionKey }[];
 
+export const NOTIFICATIONS_PATH = '/notifications';
 export const CLIENT_DETAIL_PATH = '/clients/$clientId';
 export const JOB_DETAIL_PATH = '/jobs/$jobId';
 export const MESSAGES_PATH = '/messages';
@@ -46,6 +48,7 @@ export function isPackDetailPath(pathname: string): boolean {
 export function isSectionPath(pathname: string): boolean {
   return (
     SECTIONS.some((section) => section.path === pathname) ||
+    pathname === NOTIFICATIONS_PATH ||
     isClientDetailPath(pathname) ||
     isJobDetailPath(pathname) ||
     pathname === MESSAGES_PATH ||

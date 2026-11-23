@@ -5,6 +5,7 @@
  * minute by the shell's query. Technicians and admins see the same page.
  */
 import { Activity, CircleCheck, OctagonAlert, Server } from 'lucide-react';
+import { Link } from '@tanstack/react-router';
 
 import type { SystemStatus } from '../../api/system';
 import { ErrorState } from '../../components/ui/ErrorState';
@@ -126,6 +127,17 @@ function QueuesCard({ status }: { readonly status: SystemStatus }) {
         </div>
       </dl>
       <p className="co-card__lead">{copy.notificationsNote}</p>
+      {/* The failed count links to the history filtered on failed; the queue
+          count to the whole history (pending spans queued and retrying, and
+          the history has no combined filter). */}
+      <p className="co-sys__queue-links">
+        <Link to="/notifications" search={{ tab: 'history', status: 'failed' }}>
+          {copy.openFailed}
+        </Link>
+        <Link to="/notifications" search={{ tab: 'history' }}>
+          {copy.openQueued}
+        </Link>
+      </p>
     </section>
   );
 }

@@ -24,9 +24,11 @@ import { JobDetailPage } from './features/jobs/JobDetailPage';
 import { JobsPage } from './features/jobs/JobsPage';
 import { MessageDetailPage } from './features/messages/MessageDetailPage';
 import { MessagesPage } from './features/messages/MessagesPage';
+import { NotificationsPage } from './features/notifications/NotificationsPage';
 import { BenchPage } from './features/parsers/BenchPage';
 import { PackDetailPage } from './features/parsers/PackDetailPage';
 import { ParsersPage } from './features/parsers/ParsersPage';
+import { SettingsPage } from './features/settings/SettingsPage';
 import { SystemPage } from './features/system/SystemPage';
 import { UnmatchedPage } from './features/unmatched/UnmatchedPage';
 import { FirstRunPage } from './routes/FirstRunPage';
@@ -37,7 +39,7 @@ import { PluginRouteOutlet } from './routes/PluginRouteOutlet';
 import { SectionPage } from './routes/SectionPage';
 import { ShellGate } from './routes/ShellGate';
 import { sanitiseRedirect } from './routes/redirect';
-import { BENCH_PATH, CLIENT_DETAIL_PATH, JOB_DETAIL_PATH, MESSAGE_DETAIL_PATH, MESSAGES_PATH, PACK_DETAIL_PATH, SECTIONS } from './routes/sections';
+import { BENCH_PATH, CLIENT_DETAIL_PATH, JOB_DETAIL_PATH, MESSAGE_DETAIL_PATH, MESSAGES_PATH, NOTIFICATIONS_PATH, PACK_DETAIL_PATH, SECTIONS } from './routes/sections';
 import type { SectionKey } from './shell/navigation';
 
 export const GALLERY_PATH = '/_gallery';
@@ -78,6 +80,7 @@ const BUILT: Partial<Record<SectionKey, () => React.JSX.Element>> = {
   inboxes: InboxesPage,
   parsers: ParsersPage,
   system: SystemPage,
+  settings: SettingsPage,
 };
 
 const sectionRoutes = SECTIONS.map(({ path, key }) =>
@@ -104,6 +107,18 @@ const messagesRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: MESSAGES_PATH,
   component: MessagesPage,
+});
+
+// /notifications keeps its tab and the history's failed filter in the
+// address, so the System page can link straight to a filtered history.
+const notificationsRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: NOTIFICATIONS_PATH,
+  validateSearch: (search: Record<string, unknown>): { tab?: string; status?: string } => ({
+    ...(typeof search.tab === 'string' ? { tab: search.tab } : {}),
+    ...(typeof search.status === 'string' ? { status: search.status } : {}),
+  }),
+  component: NotificationsPage,
 });
 
 const messageDetailRoute = createRoute({
@@ -142,7 +157,7 @@ const galleryRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   loginRoute,
   firstRunRoute,
-  shellRoute.addChildren([...sectionRoutes, clientDetailRoute, jobDetailRoute, messagesRoute, messageDetailRoute, packDetailRoute, benchRoute, pluginRoute]),
+  shellRoute.addChildren([...sectionRoutes, clientDetailRoute, jobDetailRoute, messagesRoute, notificationsRoute, messageDetailRoute, packDetailRoute, benchRoute, pluginRoute]),
   ...(GALLERY_ENABLED ? [galleryRoute] : []),
 ]);
 

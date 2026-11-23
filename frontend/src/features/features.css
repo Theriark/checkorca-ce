@@ -1575,3 +1575,316 @@
   flex: none;
   margin-top: 3px;
 }
+
+/* ---------- Notifications (C9-F) ---------- */
+
+/* The head of a tab: the lead line and the create button, wrapping on
+   narrow screens. */
+.co-notif__tabhead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.co-notif__lead {
+  margin: 0;
+  max-width: 60ch;
+  color: var(--text-secondary);
+}
+
+/* The answer of a test send, inline under the channel: a word with its
+   icon, then the sentence; the tone colours the left edge, the text keeps
+   its contrast. */
+.co-testnote {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--status-muted);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  font-size: var(--text-12);
+}
+
+.co-testnote--ok {
+  border-left-color: var(--status-success);
+}
+
+.co-testnote--failed {
+  border-left-color: var(--status-danger);
+}
+
+.co-testnote__icon {
+  flex: none;
+  margin-top: 1px;
+}
+
+.co-testnote--ok .co-testnote__icon {
+  color: var(--status-success);
+}
+
+.co-testnote--failed .co-testnote__icon {
+  color: var(--status-danger);
+}
+
+.co-testnote__body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.co-testnote__word {
+  font-weight: 600;
+}
+
+.co-testnote__detail {
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+/* The check-URL row: the button and, next to it, the result sentence. */
+.co-urlcheck {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.co-urlcheck__result {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--status-success);
+  font-size: var(--text-12);
+  overflow-wrap: anywhere;
+}
+
+/* The switch inside a table cell: a click on it must not open the row. */
+.co-cell-switch {
+  display: inline-flex;
+}
+
+/* An error sentence inside a table cell, in the danger tone. */
+.co-cell-error {
+  font-size: var(--text-12);
+  color: var(--status-danger);
+  overflow-wrap: anywhere;
+  max-width: 36ch;
+}
+
+/* The clear-text login warning keeps its own spacing in the relay
+   section. */
+.co-cleartext {
+  margin-top: calc(-1 * var(--space-2));
+}
+
+/* The events checkboxes of the rule form: one row per event, its icon, the
+   label and its lead; the native checkbox stays visible and is the only
+   thing that changes the choice. */
+.co-checks {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.co-check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  cursor: pointer;
+}
+
+.co-check:hover {
+  background: var(--surface-hover);
+}
+
+.co-check--checked {
+  border-color: var(--border-strong);
+  background: var(--bg-sunken);
+}
+
+.co-check--disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.co-check__input {
+  flex: none;
+  margin: 3px 0 0;
+  accent-color: var(--primary);
+}
+
+.co-check__input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.co-check__icon {
+  flex: none;
+  color: var(--text-secondary);
+}
+
+.co-check--checked .co-check__icon {
+  color: var(--text);
+}
+
+.co-check__text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.co-check__label {
+  font-size: var(--text-14);
+  font-weight: 600;
+}
+
+.co-check__lead {
+  font-size: var(--text-12);
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+/* The scope picker wraps its three options on narrow screens. */
+.co-segmented--wrap {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+
+/* The event chips of a rule stay compact in the table. */
+.co-events {
+  gap: var(--space-1);
+}
+
+.co-events__chip {
+  height: 20px;
+  margin-left: 0;
+  font-size: var(--text-12);
+}
+
+@media (max-width: 479px) {
+  .co-events__chip:nth-child(n + 4) {
+    display: none;
+  }
+}
+
+/* ---------- Settings (C9-F) ---------- */
+
+.co-form__row--digest {
+  grid-template-columns: minmax(140px, 200px) minmax(0, 1fr);
+}
+
+@media (max-width: 639px) {
+  .co-form__row--digest {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* The searchable zone select: the listbox sits under the input, in the
+   form's flow. */
+.co-zoneselect {
+  position: relative;
+}
+
+.co-zoneselect__list {
+  position: relative;
+  display: grid;
+  margin: 0;
+  padding: var(--space-1);
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+}
+
+.co-zoneselect__option {
+  display: block;
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font-size: var(--text-14);
+  text-align: left;
+  cursor: pointer;
+}
+
+.co-zoneselect__option--active,
+.co-zoneselect__option:hover {
+  background: var(--surface-hover);
+}
+
+.co-zoneselect__option--active {
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.co-zoneselect__empty,
+.co-zoneselect__more {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-12);
+  color: var(--text-secondary);
+}
+
+.co-zoneselect__empty {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+}
+
+.co-settings__later {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+/* The queue links on the System page sit under the counts. */
+.co-sys__queue-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin: var(--space-3) 0 0;
+}
+
+.co-sys__queue-links a {
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.co-sys__queue-links a:hover {
+  text-decoration: underline;
+}
+
+.co-sys__queue-links a:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.co-notif__readonly {
+  color: var(--text-secondary);
+}
+
+.co-list-foot__note {
+  align-self: center;
+  margin-right: var(--space-3);
+  font-size: var(--text-12);
+  color: var(--text-secondary);
+}
