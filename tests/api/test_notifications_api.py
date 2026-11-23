@@ -594,8 +594,10 @@ async def test_http_channels_take_the_url_in_config_and_store_it_as_the_secret(
                     await connection.execute(select(Channel.secret_enc))
                 ).scalar_one()
                 audit = (
-                    await connection.execute(select(AuditEvent.details))
-                ).scalars().all()
+                    (await connection.execute(select(AuditEvent.details)))
+                    .scalars()
+                    .all()
+                )
             assert stored is not None and capture.url not in stored
             assert all(capture.url not in str(details) for details in audit)
 
@@ -748,9 +750,7 @@ async def test_a_stored_target_the_guard_now_refuses_fails_the_test_readably(
     problem = tested.json()
     assert problem["title"] == "Target refused"
     assert "10.0.0.5 is a private address" in problem["detail"]
-    assert problem["errors"] == [
-        {"field": "config.url", "message": problem["detail"]}
-    ]
+    assert problem["errors"] == [{"field": "config.url", "message": problem["detail"]}]
     assert "hook-canary-path" not in tested.text
     async with db_engine.connect() as connection:
         query = select(AuditEvent.details).where(AuditEvent.action == "channel.test")

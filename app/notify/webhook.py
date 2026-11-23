@@ -66,9 +66,7 @@ def host_of(url: str) -> str:
     except ValueError:
         raise ChannelConfigError("url", "The URL cannot be read.") from None
     if parts.scheme.lower() not in SCHEMES:
-        raise ChannelConfigError(
-            "url", "The URL must start with http:// or https://."
-        )
+        raise ChannelConfigError("url", "The URL must start with http:// or https://.")
     if parts.username is not None or parts.password is not None:
         raise ChannelConfigError(
             "url", "The URL may not carry a user name or password."
