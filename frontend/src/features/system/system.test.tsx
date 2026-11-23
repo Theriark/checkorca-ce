@@ -45,6 +45,20 @@ describe('/system', () => {
     expect(screen.queryByTestId('stale-worker-banner')).toBeNull();
   });
 
+  it('links the notification counts to the history: the failed count filtered on failed', async () => {
+    const status = makeStatus({ queue: { pending_messages: 0, pending_notifications: 5, failed_notifications: 2 } });
+    stubFetch({ ...ME, 'GET /api/v1/system/status': { status: 200, body: status } });
+    renderApp('/system');
+    const queues = await screen.findByRole('heading', { level: 2, name: strings.system.queuesTitle }).then((heading) => heading.closest('section') as HTMLElement);
+    expect(within(queues).getByText('5')).toBeTruthy();
+    expect(within(queues).getByText('2')).toBeTruthy();
+    // The failed count links to the history filtered on failed; the queue
+    // count to the whole history.
+    const failedLink = within(queues).getByRole('link', { name: strings.system.openFailed });
+    expect(failedLink.getAttribute('href')).toBe('/notifications?tab=history&status=failed');
+    expect(within(queues).getByRole('link', { name: strings.system.openQueued }).getAttribute('href')).toBe('/notifications?tab=history');
+  });
+
   it('renders hostile inbox labels and the worker holder as text, never as markup', async () => {
     const img = '<img src=x onerror="window.__pwned=1">';
     const link = '<a href="javascript:window.__pwned=2">x</a>';

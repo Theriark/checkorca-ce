@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiError } from '../api/client';
 import { PRODUCT_NAME, strings } from '../strings';
+import { makeStatus } from '../test/fixtures';
 import { ADMIN, TECHNICIAN, UNAUTHENTICATED, renderApp, stubFetch } from '../test/render';
 import { firstRunValidation, lockoutRetry, loginErrorMessage } from './authMessages';
 
@@ -173,12 +174,16 @@ describe('shell', () => {
   });
 
   it('hides Settings from the technician', async () => {
-    stubFetch({ 'GET /api/v1/auth/me': { status: 200, body: TECHNICIAN } });
+    stubFetch({
+      'GET /api/v1/auth/me': { status: 200, body: TECHNICIAN },
+      'GET /api/v1/system/status': { status: 200, body: makeStatus() },
+      'GET /api/v1/channels': { status: 200, body: { items: [], next_cursor: null } },
+    });
     renderApp('/notifications');
     const nav = await screen.findByRole('navigation', { name: strings.nav.primary });
     expect(within(nav).queryByRole('link', { name: strings.nav.settings })).toBeNull();
     expect(screen.getByRole('heading', { level: 1, name: strings.nav.notifications })).toBeTruthy();
-    expect(screen.getByText(new RegExp(`${strings.placeholder.arrives} C9`))).toBeTruthy();
+    expect(screen.getByRole('tab', { name: strings.notifications.channelsTab })).toBeTruthy();
   });
 
   it('opens the command search with Ctrl K and navigates', async () => {
