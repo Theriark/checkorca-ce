@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fill, formatDateTime } from '../../lib/format';
 import { strings } from '../../strings';
 import { HOSTILE_NAME, SLACK_CHANNEL, WEBHOOK_CHANNEL, makeChannel, makeStatus } from '../../test/fixtures';
-import { ADMIN, TECHNICIAN, renderApp, stubFetch } from '../../test/render';
+import { ADMIN, TECHNICIAN, holdFetch, renderApp, stubFetch } from '../../test/render';
 
 const ME = { 'GET /api/v1/auth/me': { status: 200, body: ADMIN } };
 const TECH = { 'GET /api/v1/auth/me': { status: 200, body: TECHNICIAN } };
@@ -29,6 +29,41 @@ afterEach(() => {
 });
 
 describe('/notifications channels tab', () => {
+  it('shows a loading table while the channels are held', async () => {
+    stubFetch({ ...ME, ...STATUS, 'GET /api/v1/channels': THREE });
+    const release = holdFetch('/channels?');
+    renderApp('/notifications');
+    const table = await screen.findByRole('table', { name: strings.channels.tableCaption });
+    await waitFor(() => expect(table.querySelector('tbody[aria-busy="true"]')).toBeTruthy());
+    expect(screen.queryByRole('alert')).toBeNull();
+    release();
+    await within(table).findByText('Night crew (fictional)');
+    expect(table.querySelector('tbody[aria-busy="true"]')).toBeNull();
+  });
+
+  it('pages the channels with the cursor on Show more', async () => {
+    const user = userEvent.setup();
+    const FOURTH = makeChannel({ id: 'ch100000-0000-4000-8000-000000000004', label: 'Day crew (fictional)' });
+    const { calls } = stubFetch({
+      ...ME,
+      ...STATUS,
+      'GET /api/v1/channels': (url) => {
+        const cursor = new URLSearchParams(url.split('?')[1] ?? '').get('cursor');
+        return cursor ? { status: 200, body: { items: [FOURTH], next_cursor: null } } : { status: 200, body: { items: [EMAIL, WEBHOOK_CHANNEL, SLACK_CHANNEL], next_cursor: 'cursor-1' } };
+      },
+    });
+    renderApp('/notifications');
+    const table = await screen.findByRole('table', { name: strings.channels.tableCaption });
+    await within(table).findByText('Night crew (fictional)');
+    expect(within(table).queryByText('Day crew (fictional)')).toBeNull();
+    expect(screen.getByText(fill(strings.channels.countMore, { count: 3 }))).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: strings.common.loadMore }));
+    await waitFor(() => expect(calls.some((call) => call.url.includes('cursor=cursor-1'))).toBe(true));
+    await within(table).findByText('Day crew (fictional)');
+    expect(screen.getByText(fill(strings.channels.count, { count: 4 }))).toBeTruthy();
+    expect(screen.queryByRole('button', { name: strings.common.loadMore })).toBeNull();
+  });
+
   it('lists the channels: kind badge (icon and word), target, enabled switch, last delivery', async () => {
     stubFetch({ ...ME, ...STATUS, 'GET /api/v1/channels': THREE });
     renderApp('/notifications');
@@ -88,7 +123,7 @@ describe('/notifications channels tab', () => {
 
   it('shows a test answer inline, and a failed test does not change the last delivery', async () => {
     const user = userEvent.setup();
-    stubFetch({
+    const { calls } = stubFetch({
       ...ME,
       ...STATUS,
       'GET /api/v1/channels': THREE,
@@ -104,6 +139,9 @@ describe('/notifications channels tab', () => {
     // A test never writes last_status: the badge keeps its word.
     expect(within(row).getByText(strings.channels.statusSent)).toBeTruthy();
     expect(within(row).queryByText(strings.channels.statusNone)).toBeNull();
+    // The test is a state change: it carries the CSRF header.
+    const test = calls.find((call) => call.method === 'POST' && call.url.endsWith(`/channels/${EMAIL.id}/test`));
+    expect(new Headers(test?.init?.headers).get('X-CSRF-Token')).toBe(ADMIN.csrf_token);
   });
 
   it('deletes a channel after the confirm, and the confirm can be cancelled', async () => {
@@ -194,6 +232,81 @@ describe('the channel drawer', () => {
     expect(body.secret).toBe(PW);
     expect(csrfOf(calls)).toBe(true);
     expect((await screen.findByText(strings.channelForm.created)).closest('.co-toast--success')).toBeTruthy();
+  });
+
+  it('says every invalid input under its field and sends nothing', async () => {
+    const user = userEvent.setup();
+    const { calls } = stubFetch({ ...ME, ...STATUS, 'GET /api/v1/channels': THREE });
+    renderApp('/notifications');
+    await user.click(await screen.findByRole('button', { name: strings.channels.new }));
+    const drawer = await screen.findByRole('dialog', { name: strings.channelForm.createTitle });
+    const create = () => user.click(within(drawer).getByRole('button', { name: strings.channelForm.create }));
+    // An empty e-mail form: every required field says so at once.
+    await create();
+    expect(await within(drawer).findByText(strings.channelForm.labelRequired)).toBeTruthy();
+    expect(within(drawer).getByText(strings.channelForm.toRequired)).toBeTruthy();
+    expect(within(drawer).getByText(strings.channelForm.fromRequired)).toBeTruthy();
+    expect(within(drawer).getByText(strings.channelForm.hostRequired)).toBeTruthy();
+    // A bad recipient line is named by its number; a bad sender, a port out
+    // of range and a user name without a password each say their sentence.
+    await user.type(within(drawer).getByLabelText(strings.channelForm.label), 'On-call (fictional)');
+    await user.type(within(drawer).getByLabelText(strings.channelForm.to), 'crew@example.com\nOps <ops@example.com>');
+    await user.type(within(drawer).getByLabelText(strings.channelForm.from), 'Checkorca <alerts@example.com>');
+    await user.type(within(drawer).getByLabelText(strings.channelForm.host), 'relay.example.com');
+    await user.clear(within(drawer).getByLabelText(strings.channelForm.port));
+    await user.type(within(drawer).getByLabelText(strings.channelForm.port), '70000');
+    await user.type(within(drawer).getByLabelText(strings.channelForm.username), 'alerts');
+    await create();
+    expect(await within(drawer).findByText(fill(strings.channelForm.toInvalid, { line: 2 }))).toBeTruthy();
+    expect(within(drawer).getByText(strings.channelForm.fromInvalid)).toBeTruthy();
+    expect(within(drawer).getByText(strings.channelForm.portInvalid)).toBeTruthy();
+    expect(within(drawer).getByText(strings.channelForm.passwordRequired)).toBeTruthy();
+    expect(within(drawer).queryByText(strings.channelForm.labelRequired)).toBeNull();
+    // A URL kind: the scheme and credentials rules, said under the URL field.
+    await user.click(within(drawer).getByRole('radio', { name: new RegExp(strings.channels.kinds.webhook) }));
+    await create();
+    expect(await within(drawer).findByText(strings.channelForm.urlRequired)).toBeTruthy();
+    await user.type(within(drawer).getByLabelText(strings.channelForm.url), 'ftp://hooks.example.com/abc');
+    await create();
+    expect(await within(drawer).findByText(strings.channelForm.urlScheme)).toBeTruthy();
+    await user.clear(within(drawer).getByLabelText(strings.channelForm.url));
+    await user.type(within(drawer).getByLabelText(strings.channelForm.url), 'https://user:pw@hooks.example.com/abc');
+    await create();
+    expect(await within(drawer).findByText(strings.channelForm.urlCredentials)).toBeTruthy();
+    // Nothing reached the API: no check, no create.
+    expect(calls.filter((call) => call.method === 'POST')).toHaveLength(0);
+  });
+
+  it('creates the channel once when the submit is activated twice during the URL check', async () => {
+    const user = userEvent.setup();
+    const { calls } = stubFetch({
+      ...ME,
+      ...STATUS,
+      'GET /api/v1/channels': THREE,
+      'POST /api/v1/channels/check-url': { status: 200, body: { host: 'hooks.example.test', port: 443, addresses: ['203.0.113.10'], allowed_by: 'public' } },
+      'POST /api/v1/channels': { status: 201, body: { ...WEBHOOK_CHANNEL, id: 'ch100000-0000-4000-8000-000000000009', label: 'Ops hook 2 (fictional)', config: { url_set: true, url_host: 'hooks.example.test' } } },
+    });
+    const release = holdFetch('/channels/check-url');
+    renderApp('/notifications');
+    await user.click(await screen.findByRole('button', { name: strings.channels.new }));
+    const drawer = await screen.findByRole('dialog', { name: strings.channelForm.createTitle });
+    await user.click(within(drawer).getByRole('radio', { name: new RegExp(strings.channels.kinds.webhook) }));
+    await user.type(within(drawer).getByLabelText(strings.channelForm.label), 'Ops hook 2 (fictional)');
+    await user.type(within(drawer).getByLabelText(strings.channelForm.url), URL);
+    const submit = within(drawer).getByRole('button', { name: strings.channelForm.create });
+    await user.click(submit);
+    // While the check is held the submit is busy and says so; a second
+    // activation (click or Enter) does nothing.
+    await waitFor(() => expect(submit.getAttribute('aria-busy')).toBe('true'));
+    expect(submit.textContent).toContain(strings.channelForm.checkingUrl);
+    expect((submit as HTMLButtonElement).disabled).toBe(true);
+    await user.click(submit);
+    await user.keyboard('{Enter}');
+    release();
+    await waitFor(() => expect(calls.some((call) => call.method === 'POST' && call.url.endsWith('/channels'))).toBe(true));
+    await screen.findByText(strings.channelForm.created);
+    expect(calls.filter((call) => call.method === 'POST' && call.url.endsWith('/channels/check-url'))).toHaveLength(1);
+    expect(calls.filter((call) => call.method === 'POST' && call.url.endsWith('/channels'))).toHaveLength(1);
   });
 
   it('never shows the password again after the save: the edit drawer carries the masked hint only', async () => {
@@ -319,7 +432,10 @@ describe('the channel drawer', () => {
     const { calls } = stubFetch({
       ...ME,
       ...STATUS,
-      'GET /api/v1/channels': (url) => (url.endsWith('/channels') ? THREE : { status: 200, body: { items: [EMAIL, { ...WEBHOOK_CHANNEL, label: 'Ops hook 2 (fictional)', config: { url_set: true, url_host: 'hooks.example.test' } }, WEBHOOK_CHANNEL, SLACK_CHANNEL], next_cursor: null } }),
+      'GET /api/v1/channels': (url) =>
+        url.endsWith('/channels')
+          ? THREE
+          : { status: 200, body: { items: [EMAIL, { ...WEBHOOK_CHANNEL, id: 'ch100000-0000-4000-8000-000000000009', label: 'Ops hook 2 (fictional)', config: { url_set: true, url_host: 'hooks.example.test' } }, WEBHOOK_CHANNEL, SLACK_CHANNEL], next_cursor: null } },
       'POST /api/v1/channels/check-url': { status: 200, body: { host: 'hooks.example.test', port: 443, addresses: ['203.0.113.10'], allowed_by: 'public' } },
       'POST /api/v1/channels': { status: 201, body: { ...WEBHOOK_CHANNEL, id: 'ch100000-0000-4000-8000-000000000009', label: 'Ops hook 2 (fictional)', config: { url_set: true, url_host: 'hooks.example.test' } } },
     });

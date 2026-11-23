@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { strings } from '../../strings';
 import { makeDigestSettings, makeStatus } from '../../test/fixtures';
-import { ADMIN, renderApp, stubFetch } from '../../test/render';
+import { ADMIN, holdFetch, renderApp, stubFetch } from '../../test/render';
 
 const ME = { 'GET /api/v1/auth/me': { status: 200, body: ADMIN } };
 const STATUS = { 'GET /api/v1/system/status': { status: 200, body: makeStatus() } };
@@ -15,6 +15,20 @@ afterEach(() => {
 });
 
 describe('/settings', () => {
+  it('shows a skeleton that announces loading while the settings are held', async () => {
+    stubFetch({ ...ME, ...STATUS, 'GET /api/v1/settings': { status: 200, body: SETTINGS } });
+    const release = holdFetch('/settings');
+    renderApp('/settings');
+    expect(await screen.findByRole('heading', { level: 1, name: strings.settings.title })).toBeTruthy();
+    const skeleton = await screen.findByRole('status', { busy: true });
+    expect(skeleton.textContent).toContain(strings.states.loading);
+    expect(screen.queryByRole('heading', { level: 2, name: strings.settings.digestTitle })).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+    release();
+    expect(await screen.findByRole('heading', { level: 2, name: strings.settings.digestTitle })).toBeTruthy();
+    expect(screen.queryByRole('status', { busy: true })).toBeNull();
+  });
+
   it('shows the digest card with the stored settings', async () => {
     stubFetch({ ...ME, ...STATUS, 'GET /api/v1/settings': { status: 200, body: SETTINGS } });
     renderApp('/settings');

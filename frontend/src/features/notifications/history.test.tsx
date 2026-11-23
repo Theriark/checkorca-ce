@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fill, formatDateTime } from '../../lib/format';
 import { strings } from '../../strings';
 import { SLACK_CHANNEL, WEBHOOK_CHANNEL, makeChannel, makeNotification, makeStatus } from '../../test/fixtures';
-import { ADMIN, TECHNICIAN, renderApp, stubFetch } from '../../test/render';
+import { ADMIN, TECHNICIAN, holdFetch, renderApp, stubFetch } from '../../test/render';
 
 const ME = { 'GET /api/v1/auth/me': { status: 200, body: ADMIN } };
 const STATUS = { 'GET /api/v1/system/status': { status: 200, body: makeStatus() } };
@@ -100,6 +100,18 @@ async function openHistoryTab() {
 }
 
 describe('/notifications history tab', () => {
+  it('shows a loading table while the history is held', async () => {
+    stubFetch(routes());
+    const release = holdFetch('/notifications?');
+    const { tab } = await openHistoryTab();
+    const table = within(tab).getByRole('table', { name: strings.history.tableCaption });
+    await waitFor(() => expect(table.querySelector('tbody[aria-busy="true"]')).toBeTruthy());
+    expect(within(tab).queryByRole('alert')).toBeNull();
+    release();
+    await within(table).findByText(fillTime(strings.history.sentAt, SENT.sent_at));
+    expect(table.querySelector('tbody[aria-busy="true"]')).toBeNull();
+  });
+
   it('lists every notification: status word, subject, channel, attempts, error and the time that matters', async () => {
     stubFetch(routes());
     const { tab } = await openHistoryTab();
@@ -184,9 +196,13 @@ describe('/notifications history tab', () => {
     const { tab } = await openHistoryTab();
     await within(tab).findByText(fillTime(strings.history.sentAt, SENT.sent_at));
     expect(within(tab).getByText(fill(strings.history.countMore, { count: 3 }))).toBeTruthy();
+    // One page loaded: the list is polled, and the note says so.
+    expect(within(tab).getByText(strings.history.polling)).toBeTruthy();
     await user.click(within(tab).getByRole('button', { name: strings.common.loadMore }));
     await waitFor(() => expect(calls.some((call) => call.url.includes('cursor=cursor-1'))).toBe(true));
-    expect(screen.getByText(fill(strings.history.count, { count: 4 }))).toBeTruthy();
+    expect(await screen.findByText(fill(strings.history.count, { count: 4 }))).toBeTruthy();
+    // More than one page loaded: the poll stops, so the note goes too.
+    expect(within(tab).queryByText(strings.history.polling)).toBeNull();
   });
 
   it('renders a hostile error sentence as text', async () => {

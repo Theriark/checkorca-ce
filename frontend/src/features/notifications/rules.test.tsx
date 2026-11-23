@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fill } from '../../lib/format';
 import { strings } from '../../strings';
 import { SLACK_CHANNEL, WEBHOOK_CHANNEL, makeChannel, makeClient, makeJob, makeRule, makeStatus } from '../../test/fixtures';
-import { ADMIN, TECHNICIAN, renderApp, stubFetch } from '../../test/render';
+import { ADMIN, TECHNICIAN, holdFetch, renderApp, stubFetch } from '../../test/render';
 
 const ME = { 'GET /api/v1/auth/me': { status: 200, body: ADMIN } };
 const TECH = { 'GET /api/v1/auth/me': { status: 200, body: TECHNICIAN } };
@@ -49,6 +49,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+function csrfHeader(call: { readonly init: RequestInit | undefined } | undefined): string | null {
+  return new Headers(call?.init?.headers).get('X-CSRF-Token');
+}
+
 async function openRulesTab(user: ReturnType<typeof userEvent.setup>) {
   renderApp('/notifications');
   await screen.findByRole('heading', { level: 1, name: strings.notifications.title });
@@ -57,6 +61,19 @@ async function openRulesTab(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe('/notifications rules tab', () => {
+  it('shows a loading table while the rules are held', async () => {
+    stubFetch(routes());
+    const user = userEvent.setup();
+    const release = holdFetch('/channel-rules?');
+    const tab = await openRulesTab(user);
+    const table = within(tab).getByRole('table', { name: strings.rules.tableCaption });
+    await waitFor(() => expect(table.querySelector('tbody[aria-busy="true"]')).toBeTruthy());
+    expect(within(tab).queryByRole('alert')).toBeNull();
+    release();
+    await within(table).findByText(strings.rules.scopeAll);
+    expect(table.querySelector('tbody[aria-busy="true"]')).toBeNull();
+  });
+
   it('lists the rules: channel with its kind, the scope in words, the events as chips', async () => {
     stubFetch(routes());
     const user = userEvent.setup();
@@ -237,6 +254,7 @@ describe('the rule drawer', () => {
     const patch = calls.find((call) => call.method === 'PATCH' && call.url.includes(`/channel-rules/${EMAIL_RULE.id}`));
     const body = JSON.parse(String(patch?.init?.body)) as { scope: string; scope_id: string; events: string[] };
     expect(body).toEqual({ scope: 'client', scope_id: CLIENT.id, events: ['missed'] });
+    expect(csrfHeader(patch)).toBe(ADMIN.csrf_token);
   });
 
   it('deletes a rule after the confirm', async () => {
@@ -255,5 +273,6 @@ describe('the rule drawer', () => {
     expect(within(dialog).getByText(strings.rules.deleteLead)).toBeTruthy();
     await user.click(within(dialog).getByRole('button', { name: strings.common.delete }));
     await waitFor(() => expect(calls.some((call) => call.method === 'DELETE' && call.url.includes(`/channel-rules/${EMAIL_RULE.id}`))).toBe(true));
+    expect(csrfHeader(calls.find((call) => call.method === 'DELETE'))).toBe(ADMIN.csrf_token);
   });
 });
