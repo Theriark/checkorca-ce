@@ -161,6 +161,91 @@ export function makeStatus(overrides: Partial<SystemStatus> = {}): SystemStatus 
   };
 }
 
+// The notifications (C9-F): channels, rules, the history and the digest
+// settings. The secrets are synthetic markers, never credentials; a URL
+// kind's config answers url_set and url_host only.
+export function makeChannel(overrides: Partial<ChannelOut> = {}): ChannelOut {
+  return {
+    id: 'ch100000-0000-4000-8000-000000000001',
+    kind: 'email',
+    label: 'Night crew (fictional)',
+    enabled: true,
+    config: { host: 'relay.example.com', port: 587, starttls: true, username: 'alerts', from_address: 'checkorca@example.com', to: ['crew@example.com'] },
+    available: true,
+    secret_label: 'Relay password',
+    secret_set: true,
+    secret_hint: '****',
+    last_status: 'sent',
+    last_status_at: '2026-11-20T08:07:00Z',
+    last_error: null,
+    created_at: '2026-11-19T09:00:00Z',
+    updated_at: '2026-11-20T08:07:00Z',
+    ...overrides,
+  };
+}
+
+export const WEBHOOK_CHANNEL = makeChannel({
+  id: 'ch100000-0000-4000-8000-000000000002',
+  kind: 'webhook',
+  label: 'Ops hook (fictional)',
+  config: { url_set: true, url_host: 'hooks.example.com' },
+  secret_label: 'Webhook URL',
+  last_status: null,
+  last_status_at: null,
+});
+
+export const SLACK_CHANNEL = makeChannel({
+  id: 'ch100000-0000-4000-8000-000000000003',
+  kind: 'slack',
+  label: 'MSP Slack (fictional)',
+  config: { url_set: true, url_host: 'hooks.slack.com' },
+  secret_label: 'Slack webhook URL',
+  last_status: 'failed',
+  last_status_at: '2026-11-20T09:31:00Z',
+  last_error: 'The target answered 404 and no 2xx counts as sent.',
+});
+
+export function makeRule(overrides: Partial<RuleOut> = {}): RuleOut {
+  return {
+    id: 'cr100000-0000-4000-8000-000000000001',
+    channel_id: 'ch100000-0000-4000-8000-000000000001',
+    scope: 'all',
+    scope_id: null,
+    scope_name: null,
+    events: ['failing', 'missed'],
+    created_at: '2026-11-19T10:00:00Z',
+    ...overrides,
+  };
+}
+
+export function makeNotification(overrides: Partial<NotificationOut> = {}): NotificationOut {
+  return {
+    id: 'n1000000-0000-4000-8000-000000000001',
+    channel_id: 'ch100000-0000-4000-8000-000000000001',
+    channel_label: 'Night crew (fictional)',
+    channel_kind: 'email',
+    event: 'missed',
+    status: 'sent',
+    attempts: 1,
+    error: null,
+    flip_id: 'f1000000-0000-4000-8000-000000000001',
+    job_id: 'j1000000-0000-4000-8000-000000000001',
+    job_name: 'Veeam nightly',
+    client_id: 'c1000000-0000-4000-8000-000000000001',
+    client_name: 'Harbourside Dental (fictional)',
+    digest_day: null,
+    created_at: '2026-11-20T08:07:00Z',
+    last_attempt_at: '2026-11-20T08:07:04Z',
+    next_attempt_at: null,
+    sent_at: '2026-11-20T08:07:04Z',
+    ...overrides,
+  };
+}
+
+export function makeDigestSettings(overrides: Partial<DigestSettingsOut> = {}): DigestSettingsOut {
+  return { digest_time_local: '07:00', digest_timezone: 'Europe/Lisbon', reminder_24h: false, ...overrides };
+}
+
 export const STALE_STATUS = makeStatus({
   worker: { heartbeat_at: '2026-11-19T11:40:00Z', age_seconds: 1260, stale: true, holder: 'worker-1:42', started_at: '2026-11-19T08:00:00Z' },
 });
@@ -170,6 +255,7 @@ export const STALE_STATUS = makeStatus({
 // is the night of 19 to 20 Nov 2026 in UTC; the hostile names carry a script
 // tag and an img onerror so every page proves it escapes them.
 import type { ActivityItem, DashboardToday, DigestPreview, Ribbon, Stat, TrendDay } from '../api/dashboard';
+import type { ChannelOut, DigestSettingsOut, NotificationOut, RuleOut } from '../api/notifications';
 import type { FlipOut, OccurrenceOut } from '../api/jobs';
 
 export const NOW_FIXTURE = new Date('2026-11-20T08:00:00Z');

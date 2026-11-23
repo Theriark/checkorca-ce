@@ -25,9 +25,10 @@ export function useClientList(query: Pick<ClientListQuery, 'q' | 'archived'>) {
 }
 
 /** The clients a job can belong to (not archived), for selects. */
-export function useClientOptions() {
+export function useClientOptions(enabled = true) {
   return useQuery({
     queryKey: [...CLIENTS_KEY, 'options'],
+    enabled,
     queryFn: async ({ signal }) => {
       const items: ClientOut[] = [];
       let cursor: string | null = null;

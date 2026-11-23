@@ -87,7 +87,15 @@ function StateCard({ job }: { readonly job: JobOut }) {
                   <Check size={14} aria-hidden="true" />
                   {formatDateTime(job.acknowledged_at)}
                 </span>
-                <span className="co-job__ack-note">{copy.acknowledgedBy}</span>
+                {job.acknowledged_by?.email ? (
+                  <span className="co-job__ack-note" data-testid="acknowledged-by">
+                    {fill(copy.acknowledgedBy, { email: job.acknowledged_by.email })}
+                  </span>
+                ) : job.acknowledged_by ? (
+                  <span className="co-job__ack-note" data-testid="acknowledged-by">
+                    {copy.acknowledgedByToken}
+                  </span>
+                ) : null}
               </span>
             ) : (
               <span className="co-summary__muted">{copy.notAcknowledged}</span>

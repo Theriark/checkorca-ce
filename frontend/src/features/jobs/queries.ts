@@ -39,9 +39,10 @@ export function jobKey(jobId: string) {
 }
 
 /** One job; a 404 is an answer (the not-found state), not retried. */
-export function useJob(jobId: string) {
+export function useJob(jobId: string, enabled = true) {
   return useQuery({
     queryKey: jobKey(jobId),
+    enabled,
     queryFn: ({ signal }) => jobsApi.get(jobId, signal),
     retry: (count, error) => !(error instanceof ApiError && error.status === 404) && count < 1,
     refetchInterval: 60_000,

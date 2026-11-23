@@ -2,7 +2,7 @@ import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { formatDateTime } from '../../lib/format';
+import { fill, formatDateTime } from '../../lib/format';
 import { strings } from '../../strings';
 import { HOSTILE_JOB, HOSTILE_NAME, OCCURRENCES, makeClient, makeFlip, makeJob, makeMessageDetail, makeOccurrence, makeStatus } from '../../test/fixtures';
 import { ADMIN, TECHNICIAN, holdFetch, renderApp, stubFetch } from '../../test/render';
@@ -115,14 +115,14 @@ describe('/jobs/:id', () => {
     expect(screen.getByRole('link', { name: strings.jobDetail.rawOpen }).getAttribute('href')).toContain(`/messages/${RESULT.raw_message_id}`);
   });
 
-  it('acknowledges from the header and shows the time only, never a name', async () => {
+  it('acknowledges from the header and shows the time and the acknowledger', async () => {
     const user = userEvent.setup();
     let job = JOB;
     const { calls } = stubFetch({
       ...routes(),
       [`GET /api/v1/jobs/${JOB.id}`]: () => ({ status: 200, body: job }),
       [`POST /api/v1/jobs/${JOB.id}/acknowledge`]: () => {
-        job = { ...job, acknowledged_at: '2026-11-20T08:05:00Z' };
+        job = { ...job, acknowledged_at: '2026-11-20T08:05:00Z', acknowledged_by: { id: ADMIN.id, email: ADMIN.email } };
         return { status: 200, body: job };
       },
     });
@@ -132,10 +132,19 @@ describe('/jobs/:id', () => {
     const ack = await screen.findByTestId('acknowledged-at');
     // The state card formats acknowledged_at with formatDateTime (the icon has no text).
     expect(ack.textContent).toBe(formatDateTime('2026-11-20T08:05:00Z'));
-    expect(screen.getByText(strings.jobDetail.acknowledgedBy)).toBeTruthy();
-    // The shell's account menu shows the signed-in e-mail; the page itself never names anyone.
-    expect(within(screen.getByRole('main')).queryByText(ADMIN.email)).toBeNull();
+    // C9-B carry-over: the acknowledger's address sits next to the time.
+    expect(screen.getByTestId('acknowledged-by').textContent).toBe(fill(strings.jobDetail.acknowledgedBy, { email: ADMIN.email }));
+    expect(screen.getByTestId('acknowledged-by').textContent).toContain(ADMIN.email);
     expect(screen.queryByRole('button', { name: strings.dashboard.acknowledge })).toBeNull();
+  });
+
+  it('says an API token acknowledged, without an address', async () => {
+    const job = { ...JOB, acknowledged_at: '2026-11-20T08:05:00Z', acknowledged_by: { id: 'u1000000-0000-4000-8000-000000000009', email: null } };
+    stubFetch({ ...routes(), [`GET /api/v1/jobs/${JOB.id}`]: { status: 200, body: job } });
+    renderApp(`/jobs/${JOB.id}`);
+    expect(await screen.findByTestId('acknowledged-by')).toBeTruthy();
+    expect(screen.getByTestId('acknowledged-by').textContent).toBe(strings.jobDetail.acknowledgedByToken);
+    expect(within(screen.getByRole('main')).queryByText(ADMIN.email)).toBeNull();
   });
 
   it('shows the not-found state inside the shell, and the empty strip and message for a job without history', async () => {

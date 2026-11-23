@@ -1,14 +1,15 @@
 import { expect, test } from '@playwright/test';
 
-import { installFakeApi, installIngestApi, installParserApi } from './fakeApi';
+import { installFakeApi, installIngestApi, installNotificationsApi, installParserApi } from './fakeApi';
 import { installDashboardApi } from './fakeDashboard';
 import { ADMIN, SCHEMES, TECHNICIAN, WIDTHS, expectAccessible, expectLogo, expectNoHorizontalOverflow, setView, shot, stubApi, watchConsole } from './helpers';
 
 const SECTIONS = ['Morning check', 'Clients', 'Jobs', 'Unmatched', 'Inboxes', 'Parsers', 'Notifications', 'System', 'Settings'];
 // Sections with a built table page (C3, C4, C5); Morning check and System
-// (C8) are built without a table; the others still show their placeholder.
-const BUILT = ['Clients', 'Jobs', 'Unmatched', 'Inboxes', 'Parsers'];
-const BUILT_TEST_IDS: Readonly<Record<string, string>> = { 'Morning check': 'stat-cards', System: 'worker-state' };
+// (C8) are built without a table; the notifications pages (C9-F) carry
+// their own test ids. No section shows a placeholder any more.
+const BUILT = ['Clients', 'Jobs', 'Unmatched', 'Inboxes', 'Parsers', 'Notifications'];
+const BUILT_TEST_IDS: Readonly<Record<string, string>> = { 'Morning check': 'stat-cards', System: 'worker-state', Settings: 'digest-card' };
 
 for (const scheme of SCHEMES) {
   for (const width of WIDTHS) {
@@ -77,6 +78,7 @@ test('shell: every section link opens its page or a designed placeholder, never 
   const ingest = await installIngestApi(page);
   await installParserApi(page, { fake, ingest });
   await installDashboardApi(page, { fake });
+  await installNotificationsApi(page);
   await setView(page, 1440, 'light');
   await page.goto('/');
   const sidebar = page.getByRole('navigation', { name: 'Main navigation' });

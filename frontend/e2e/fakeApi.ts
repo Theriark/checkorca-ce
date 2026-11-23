@@ -1169,3 +1169,310 @@ export async function installParserApi(
 
   return store;
 }
+
+/* ---------- Notifications (C9-F) ---------- */
+
+type ChannelOut = components['schemas']['ChannelOut'];
+type RuleOut = components['schemas']['RuleOut'];
+type NotificationOut = components['schemas']['NotificationOut'];
+type DigestSettingsOut = components['schemas']['DigestSettingsOut'];
+
+function channel(id: string, kind: ChannelOut['kind'], label: string, extra: Partial<ChannelOut> = {}): ChannelOut {
+  return {
+    id,
+    kind,
+    label,
+    enabled: true,
+    config: kind === 'email' ? { host: 'relay.example.test', port: 587, starttls: true, username: 'alerts', from_address: 'checkorca@example.test', to: ['crew@example.test'] } : { url_set: true, url_host: 'hooks.example.test' },
+    available: true,
+    secret_label: kind === 'email' ? 'Relay password' : `${label} URL`,
+    secret_set: true,
+    secret_hint: '****',
+    last_status: null,
+    last_status_at: null,
+    last_error: null,
+    created_at: '2026-11-18T09:00:00Z',
+    updated_at: '2026-11-18T09:00:00Z',
+    ...extra,
+  };
+}
+
+export const EMAIL_CHANNEL = channel('ch100000-0000-4000-8000-000000000001', 'email', 'Night crew (fictional)', { last_status: 'sent', last_status_at: '2026-11-20T08:07:00Z' });
+export const WEBHOOK_CHANNEL = channel('ch100000-0000-4000-8000-000000000002', 'webhook', 'Ops hook (fictional)');
+export const SLACK_CHANNEL = channel('ch100000-0000-4000-8000-000000000003', 'slack', 'MSP Slack (fictional)', { last_status: 'failed', last_status_at: '2026-11-20T09:31:00Z', last_error: 'The target answered 404 and no 2xx counts as sent.' });
+
+function rule(id: string, channelId: string, extra: Partial<RuleOut> = {}): RuleOut {
+  return { id, channel_id: channelId, scope: 'all', scope_id: null, scope_name: null, events: ['failing', 'missed'], created_at: '2026-11-18T10:00:00Z', ...extra };
+}
+
+export const EMAIL_RULE = rule('cr100000-0000-4000-8000-000000000001', EMAIL_CHANNEL.id);
+export const WEBHOOK_RULE = rule('cr100000-0000-4000-8000-000000000002', WEBHOOK_CHANNEL.id, {
+  scope: 'client',
+  scope_id: HARBOURSIDE.id,
+  scope_name: 'Harbourside Dental (fictional)',
+  events: ['missed', 'recovered'],
+});
+
+function notification(id: string, extra: Partial<NotificationOut> = {}): NotificationOut {
+  return {
+    id,
+    channel_id: EMAIL_CHANNEL.id,
+    channel_label: EMAIL_CHANNEL.label,
+    channel_kind: 'email',
+    event: 'missed',
+    status: 'sent',
+    attempts: 1,
+    error: null,
+    flip_id: 'f1000000-0000-4000-8000-000000000001',
+    job_id: 'j1000000-0000-4000-8000-000000000001',
+    job_name: 'Veeam nightly',
+    client_id: 'c1000000-0000-4000-8000-000000000001',
+    client_name: 'Harbourside Dental (fictional)',
+    digest_day: null,
+    created_at: '2026-11-20T08:07:00Z',
+    last_attempt_at: '2026-11-20T08:07:04Z',
+    next_attempt_at: null,
+    sent_at: '2026-11-20T08:07:04Z',
+    ...extra,
+  };
+}
+
+export const SEED_NOTIFICATIONS: readonly NotificationOut[] = [
+  notification('n1000000-0000-4000-8000-000000000001'),
+  notification('n1000000-0000-4000-8000-000000000002', {
+    id: 'n1000000-0000-4000-8000-000000000002',
+    channel_id: WEBHOOK_CHANNEL.id,
+    channel_label: WEBHOOK_CHANNEL.label,
+    channel_kind: 'webhook',
+    event: 'failing',
+    status: 'retrying',
+    attempts: 2,
+    error: 'The connection to the target dropped (hooks.example.test:443).',
+    sent_at: null,
+    next_attempt_at: '2026-11-20T09:10:00Z',
+    last_attempt_at: '2026-11-20T09:05:00Z',
+    created_at: '2026-11-20T09:00:00Z',
+  }),
+  notification('n1000000-0000-4000-8000-000000000003', {
+    id: 'n1000000-0000-4000-8000-000000000003',
+    channel_id: SLACK_CHANNEL.id,
+    channel_label: SLACK_CHANNEL.label,
+    channel_kind: 'slack',
+    event: 'recovered',
+    status: 'failed',
+    attempts: 4,
+    error: 'The target answered 404 and no 2xx counts as sent.',
+    sent_at: null,
+    next_attempt_at: null,
+    last_attempt_at: '2026-11-20T09:40:00Z',
+    created_at: '2026-11-20T08:20:00Z',
+  }),
+  notification('n1000000-0000-4000-8000-000000000004', {
+    id: 'n1000000-0000-4000-8000-000000000004',
+    event: 'digest',
+    status: 'sent',
+    flip_id: null,
+    job_id: null,
+    job_name: null,
+    client_id: null,
+    client_name: null,
+    digest_day: '2026-11-20',
+    sent_at: '2026-11-20T07:05:00Z',
+    last_attempt_at: '2026-11-20T07:05:00Z',
+    created_at: '2026-11-20T07:00:00Z',
+  }),
+];
+
+export const DIGEST_SETTINGS: DigestSettingsOut = { digest_time_local: '07:00', digest_timezone: 'Europe/Lisbon', reminder_24h: false };
+
+export interface NotificationStore {
+  channels: ChannelOut[];
+  rules: RuleOut[];
+  notifications: NotificationOut[];
+  settings: DigestSettingsOut;
+  readonly calls: { readonly method: string; readonly url: string; readonly body: string | null; readonly headers: Record<string, string> }[];
+}
+
+/** A private IPv4 literal, so the refusal path can be exercised against the
+ *  same sentence shape the SSRF guard answers with. */
+const PRIVATE_HOST = '10.0.0.5';
+const REFUSAL = `${PRIVATE_HOST} is a private address. Outbound requests go to public addresses only. An admin can allow this host with OUTBOUND_ALLOWED_HOSTS.`;
+
+/** Routes the notification API to an in-memory store: channels (with the
+ *  check-url and test answers), rules, the history with cursor pages, and
+ *  the digest settings. */
+export async function installNotificationsApi(page: Page, seed: Partial<NotificationStore> = {}): Promise<NotificationStore> {
+  const store: NotificationStore = {
+    channels: structuredClone([...(seed.channels ?? [EMAIL_CHANNEL, WEBHOOK_CHANNEL, SLACK_CHANNEL])]),
+    rules: structuredClone([...(seed.rules ?? [EMAIL_RULE, WEBHOOK_RULE])]),
+    notifications: structuredClone([...(seed.notifications ?? SEED_NOTIFICATIONS)]),
+    settings: structuredClone(seed.settings ?? DIGEST_SETTINGS),
+    calls: [],
+  };
+  let next = 1;
+  const id = (prefix: string): string => `${prefix}e2e-0000-4000-8000-${String(next++).padStart(12, '0')}`;
+
+  const remember = (route: Route) => {
+    const request = route.request();
+    store.calls.push({ method: request.method(), url: new URL(request.url()).pathname + new URL(request.url()).search, body: request.postData(), headers: request.headers() });
+  };
+
+  const isPrivate = (url: string): boolean => /^https?:\/\/(10\.|127\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/.test(url);
+
+  await page.route(/\/api\/v1\/channels(\/[^?]*)?(\?.*)?$/, async (route) => {
+    remember(route);
+    const url = new URL(route.request().url());
+    // ["api", "v1", "channels", "{id}", "test"] for an item route.
+    const parts = url.pathname.split('/').filter(Boolean);
+    const channelId = parts[3];
+    const action = parts[4];
+    const method = route.request().method();
+
+    if (url.pathname.endsWith('/check-url')) {
+      const body = jsonBody(route);
+      const target = String(body.url ?? '');
+      if (isPrivate(target)) {
+        return problem(route, 422, 'Target refused', REFUSAL, [{ field: 'body.url', message: REFUSAL }]);
+      }
+      const host = new URL(target).host.replace(/:\d+$/, '');
+      return ok(route, { host, port: Number(new URL(target).port || (target.startsWith('https') ? 443 : 80)), addresses: ['203.0.113.9'], allowed_by: 'public' });
+    }
+
+    const found = channelId ? store.channels.find((item) => item.id === channelId) : undefined;
+    if (channelId && !found && !method.startsWith('POST')) {
+      return problem(route, 404, 'Channel not found');
+    }
+
+    if (method === 'GET' && !channelId) {
+      return ok(route, { items: store.channels, next_cursor: null });
+    }
+    if (method === 'GET' && found) {
+      return ok(route, found);
+    }
+    if (method === 'POST' && !channelId) {
+      const body = jsonBody(route);
+      const kind = String(body.kind ?? 'email') as ChannelOut['kind'];
+      const created = channel(id('ch'), kind, String(body.label ?? 'Channel'), { enabled: body.enabled !== false });
+      if (kind === 'email') {
+        created.config = { ...(body.config as Record<string, unknown>) };
+        created.secret_set = Boolean(body.secret);
+      } else {
+        const url = String((body.config as Record<string, unknown>)?.url ?? '');
+        if (isPrivate(url)) {
+          return problem(route, 422, 'Target refused', REFUSAL, [{ field: 'body.config.url', message: REFUSAL }]);
+        }
+        created.config = { url_set: true, url_host: new URL(url).host.replace(/:\d+$/, '') };
+      }
+      store.channels.push(created);
+      return ok(route, created, 201);
+    }
+    if (method === 'PATCH' && found) {
+      const body = jsonBody(route);
+      if (typeof body.label === 'string') {
+        found.label = body.label;
+      }
+      if (typeof body.enabled === 'boolean') {
+        found.enabled = body.enabled;
+      }
+      if (body.config && typeof body.config === 'object') {
+        const config = body.config as Record<string, unknown>;
+        if (found.kind === 'email') {
+          found.config = { ...found.config, ...config };
+        } else if (typeof config.url === 'string') {
+          if (isPrivate(config.url)) {
+            return problem(route, 422, 'Target refused', REFUSAL, [{ field: 'body.config.url', message: REFUSAL }]);
+          }
+          found.config = { url_set: true, url_host: new URL(config.url).host.replace(/:\d+$/, '') };
+        }
+      }
+      if (typeof body.secret === 'string') {
+        found.secret_set = body.secret !== '';
+      }
+      return ok(route, found);
+    }
+    if (method === 'DELETE' && found) {
+      store.channels = store.channels.filter((item) => item.id !== found.id);
+      store.rules = store.rules.filter((item) => item.channel_id !== found.id);
+      return route.fulfill({ status: 204 });
+    }
+    if (method === 'POST' && action === 'test') {
+      // The Mock Platform answers an unknown key with 404: the readable
+      // failure, never the URL.
+      return ok(route, { ok: found?.kind === 'email', detail: found?.kind === 'email' ? 'The relay accepted the test message.' : 'The target answered 404 and no 2xx counts as sent.' });
+    }
+    return problem(route, 405, 'Method Not Allowed');
+  });
+
+  await page.route(/\/api\/v1\/channel-rules(\/[^?]*)?(\?.*)?$/, async (route) => {
+    remember(route);
+    const url = new URL(route.request().url());
+    const ruleId = url.pathname.split('/').filter(Boolean)[3];
+    const method = route.request().method();
+    const found = ruleId ? store.rules.find((item) => item.id === ruleId) : undefined;
+    if (ruleId && !found) {
+      return problem(route, 404, 'Rule not found');
+    }
+    if (method === 'GET' && !ruleId) {
+      const channelId = url.searchParams.get('channel_id');
+      return ok(route, { items: channelId ? store.rules.filter((item) => item.channel_id === channelId) : store.rules, next_cursor: null });
+    }
+    if (method === 'POST' && !ruleId) {
+      const body = jsonBody(route);
+      const created = rule(id('cr'), String(body.channel_id), { scope: (body.scope ?? 'all') as RuleOut['scope'], scope_id: (body.scope_id ?? null) as string | null, events: (body.events ?? []) as RuleOut['events'] });
+      store.rules.push(created);
+      return ok(route, created, 201);
+    }
+    if (method === 'PATCH' && found) {
+      const body = jsonBody(route);
+      if (body.scope) {
+        found.scope = body.scope as RuleOut['scope'];
+        found.scope_id = (body.scope_id ?? null) as string | null;
+      }
+      if (Array.isArray(body.events)) {
+        found.events = body.events as RuleOut['events'];
+      }
+      return ok(route, found);
+    }
+    if (method === 'DELETE' && found) {
+      store.rules = store.rules.filter((item) => item.id !== found.id);
+      return route.fulfill({ status: 204 });
+    }
+    return problem(route, 405, 'Method Not Allowed');
+  });
+
+  // Two pages of two: the specs exercise the cursor.
+  await page.route('**/api/v1/notifications?**', async (route) => {
+    remember(route);
+    const url = new URL(route.request().url());
+    const status = url.searchParams.get('status');
+    const channelId = url.searchParams.get('channel_id');
+    const cursor = url.searchParams.get('cursor');
+    const rows = store.notifications.filter((item) => (!status || item.status === status) && (!channelId || item.channel_id === channelId));
+    const start = cursor ? rows.findIndex((item) => item.id === cursor) + 1 : 0;
+    const page = rows.slice(start, start + 2);
+    // The cursor is the last row of the page, as the real API encodes it.
+    const last = page[page.length - 1];
+    return ok(route, { items: page, next_cursor: last && rows.length > start + page.length ? last.id : null });
+  });
+
+  await page.route('**/api/v1/settings', async (route) => {
+    remember(route);
+    const method = route.request().method();
+    if (method === 'GET') {
+      return ok(route, store.settings);
+    }
+    const body = jsonBody(route);
+    if (typeof body.digest_time_local === 'string') {
+      store.settings.digest_time_local = body.digest_time_local;
+    }
+    if (typeof body.digest_timezone === 'string') {
+      store.settings.digest_timezone = body.digest_timezone;
+    }
+    if (typeof body.reminder_24h === 'boolean') {
+      store.settings.reminder_24h = body.reminder_24h;
+    }
+    return ok(route, store.settings);
+  });
+
+  return store;
+}
