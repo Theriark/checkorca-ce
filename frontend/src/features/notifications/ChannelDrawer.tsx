@@ -136,6 +136,10 @@ export function ChannelDrawer({ open, onOpenChange, channel, onSaved }: ChannelD
   const [formError, setFormError] = useState<string | null>(null);
   const [checked, setChecked] = useState<TargetCheckResult | null>(null);
   const labelRef = useRef<HTMLInputElement>(null);
+  /** True from the submit until it has settled: the URL check runs before
+   *  the create, and a second activation in that window must not create
+   *  the channel twice. */
+  const submitting = useRef(false);
   const formId = 'channel-drawer-form';
 
   // A fresh form for every open (another channel, or create after edit).
@@ -182,14 +186,8 @@ export function ChannelDrawer({ open, onOpenChange, channel, onSaved }: ChannelD
     }
   };
 
-  const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const found = validate(state, channel);
-    setErrors(found);
-    setFormError(null);
-    if (Object.keys(found).length > 0) {
-      return;
-    }
+  /** The validated form: the URL check first, then the create or update. */
+  const submit = async () => {
     // A URL that was typed is checked first; a refused target never reaches
     // the create or update request.
     if (urlKind && state.url.trim() && !checked && !(await checkUrl())) {
@@ -219,6 +217,25 @@ export function ChannelDrawer({ open, onOpenChange, channel, onSaved }: ChannelD
     }
   };
 
+  const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (submitting.current) {
+      return;
+    }
+    const found = validate(state, channel);
+    setErrors(found);
+    setFormError(null);
+    if (Object.keys(found).length > 0) {
+      return;
+    }
+    submitting.current = true;
+    try {
+      await submit();
+    } finally {
+      submitting.current = false;
+    }
+  };
+
   const passwordHint = editing && channel.secret_set ? `${fill(copy.passwordStored, { hint: channel.secret_hint ?? '****' })} ${copy.passwordKeep}` : copy.passwordHint;
 
   return (
@@ -237,7 +254,7 @@ export function ChannelDrawer({ open, onOpenChange, channel, onSaved }: ChannelD
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={busy}>
             {strings.common.cancel}
           </Button>
-          <Button type="submit" form={formId} variant="primary" loading={create.isPending || update.isPending} loadingLabel={strings.common.saving}>
+          <Button type="submit" form={formId} variant="primary" loading={busy} loadingLabel={check.isPending ? copy.checkingUrl : strings.common.saving}>
             {editing ? copy.save : copy.create}
           </Button>
         </>
