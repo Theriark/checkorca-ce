@@ -196,7 +196,9 @@ def url_credential(kind: ChannelKind, config: dict[str, Any]) -> str | None:
     if kind.url_key is None:
         return None
     sent = config.get(kind.url_key)
-    return sent if isinstance(sent, str) and sent.strip() else None
+    # Stripped as check_config reads it, so the guard and the send see the
+    # same URL the host was taken from.
+    return sent.strip() if isinstance(sent, str) and sent.strip() else None
 
 
 @router.post("", status_code=201)
@@ -207,9 +209,10 @@ async def create_channel(
     services: ServicesDep,
     db: DbDep,
 ) -> ChannelOut:
-    """Create a channel; 422 names an unusable setting. A kind with a URL
-    credential (slack, teams, webhook) takes the URL in config.url, stores it
-    as its secret and checks the target before the channel exists."""
+    """Create a channel; 422 names an unusable setting."""
+    # A kind with a URL credential (slack, teams, webhook) takes the URL in
+    # config.url, stores it as its secret and checks the target before the
+    # channel exists (docs/notifications.md).
     kind = services.channel_kinds.get(body.kind)
     if kind is None:
         raise kind_unavailable(body.kind)
@@ -292,9 +295,10 @@ async def update_channel(
     db: DbDep,
 ) -> ChannelOut:
     """Change the label, enabled, the settings or the secret (see
-    ChannelPatch). A kind with a URL credential takes the new URL in
-    config.url, checks its target and stores it as the secret; removing it is
-    refused as an e-mail channel without its relay host."""
+    ChannelPatch)."""
+    # A kind with a URL credential takes the new URL in config.url, checks
+    # its target and stores it as the secret; removing it is refused, as an
+    # e-mail channel without its relay host.
     channel = await load_channel(services, db, context, channel_id)
     changes: dict[str, Any] = {}
     if body.label is not None and body.label != channel.label:
@@ -405,6 +409,9 @@ async def test_channel(
     """Send a test message now, from this request (up to 90 seconds); ok and
     a readable detail. A failed test is not retried and does not change the
     channel's last status."""
+    # A URL kind whose stored target the SSRF guard now refuses answers 422
+    # Target refused with the guard's sentence (the Outbound rules or the DNS
+    # answer changed since the URL was stored).
     channels = ChannelRepository(db, services.policy)
     channel = await channels.get(context.principal, channel_id)
     if channel is None:
@@ -412,19 +419,27 @@ async def test_channel(
     kind = services.channel_kinds.get(channel.kind)
     if kind is None:
         raise channel_locked(channel)
-    error: str | None
+    error: str | None = None
     secret = None
     try:
         if channel.secret_enc is not None:
             secret = services.secret_box.decrypt(channel.secret_enc)
     except SecretBoxError:
         error = "The stored secret cannot be decrypted with FERNET_KEY; set it again."
-    else:
+    refused: ProblemError | None = None
+    if error is None and kind.url_key is not None and secret is not None:
+        try:
+            await refuse_target(secret, services, f"config.{kind.url_key}")
+        except ProblemError as problem:
+            refused = problem
+    if error is None and refused is None:
         message = channel_test_message(
             channel.label, f"{services.settings.base_url}/", services.clock.now()
         )
         outbound = outbound_of(services.settings)
         error = await send_message(kind, channel.config, secret, message, outbound)
+    # A refused target is recorded like any failed test, then answered as a
+    # problem (the kind's send would refuse with the same sentence).
     await record_audit(
         services,
         db,
@@ -433,9 +448,11 @@ async def test_channel(
         "channel.test",
         target_kind="channel",
         target_id=channel.id,
-        ok=error is None,
+        ok=error is None and refused is None,
     )
     await db.commit()
+    if refused is not None:
+        raise refused
     if error is None:
         return ChannelTestResult(ok=True, detail="The test message was delivered.")
     return ChannelTestResult(ok=False, detail=error)

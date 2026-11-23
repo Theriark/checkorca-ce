@@ -1,10 +1,11 @@
 """Request and response bodies of the notification routes (phase C9-B):
 channels, channel rules, notifications and the digest settings.
 
-docs/notifications.md is the contract for C9-F (the /notifications pages) and
-C9-I (the slack, teams and webhook kinds). A channel's config is the kind's
-settings, checked by the kind; its secret is write-only (D-6): answers carry
-secret_set and a masked hint, never the secret.
+docs/notifications.md is the contract for C9-F (the /notifications pages);
+C9-I added the slack, teams and webhook kinds. A channel's config is the
+kind's settings, checked by the kind; its secret is write-only (D-6):
+answers carry secret_set and a masked hint, never the secret (for a URL kind
+the URL is the secret, answered as config url_set and url_host).
 """
 
 import json
@@ -72,6 +73,10 @@ class NewChannel(Body):
     """A channel. config is the kind's settings (docs/notifications.md);
     secret is its credential (the relay password), stored encrypted."""
 
+    # The slack, teams and webhook kinds take their URL in config.url instead
+    # and send no secret; it is stored encrypted and answered as url_set and
+    # url_host only (docs/notifications.md).
+
     kind: ChannelKindName
     label: Label
     enabled: bool = True
@@ -97,8 +102,9 @@ class ChannelOut(BaseModel):
     label: str
     enabled: bool
     config: dict[str, Any]
-    # False while the kind is not registered (C9-I adds slack, teams, webhook):
-    # such a channel can only be listed and deleted.
+    # False while the kind is not registered (CE registers all four; a plugin
+    # kind of a later edition may be missing): such a channel can only be
+    # listed and deleted.
     available: bool
     # What the secret is for (Relay password); null for an unknown kind.
     secret_label: str | None

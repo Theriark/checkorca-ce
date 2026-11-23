@@ -696,8 +696,8 @@ async def test_creating_a_channel_refuses_what_the_guard_refuses(
         assert refused.json()["title"] == title
         assert words in refused.json()["detail"]
         assert refused.json()["errors"][0]["field"] == "body.config.url"
-    async with client.get("/api/v1/channels") as none_left:
-        assert none_left.json()["items"] == []
+    none_left = await client.get("/api/v1/channels")
+    assert none_left.json()["items"] == []
 
 
 async def test_a_public_target_and_an_allowed_host_can_be_stored(
@@ -721,3 +721,38 @@ async def test_a_public_target_and_an_allowed_host_can_be_stored(
                 f"/api/v1/channels/{created.json()['id']}", headers=headers(csrf)
             )
             assert deleted.status_code == 204
+
+
+async def test_a_stored_target_the_guard_now_refuses_fails_the_test_readably(
+    db_engine: AsyncEngine, clock: FakeClock
+) -> None:
+    """A URL stored while private targets were allowed, tested after the
+    operator turned that off: 422 Target refused with the guard's sentence,
+    recorded as a failed test, nothing sent and no part of the path shown."""
+    allowed = create_app(
+        load_settings(allow_private_targets=True), static_dir=None, clock=clock
+    )
+    async with running(allowed) as api:
+        csrf = await sign_in(api, ADMIN_EMAIL, ADMIN_PASSWORD)
+        created = await make_url_channel(
+            api, csrf, "webhook", "http://10.0.0.5/hook-canary-path"
+        )
+        assert created.status_code == 201, created.text
+    path = f"/api/v1/channels/{created.json()['id']}"
+    strict = create_app(load_settings(), static_dir=None, clock=clock)
+    async with running(strict) as api:
+        csrf = await sign_in(api, ADMIN_EMAIL, ADMIN_PASSWORD)
+        tested = await api.post(f"{path}/test", headers=headers(csrf))
+        assert (await api.get(path)).json()["last_status"] is None
+    assert tested.status_code == 422
+    problem = tested.json()
+    assert problem["title"] == "Target refused"
+    assert "10.0.0.5 is a private address" in problem["detail"]
+    assert problem["errors"] == [
+        {"field": "config.url", "message": problem["detail"]}
+    ]
+    assert "hook-canary-path" not in tested.text
+    async with db_engine.connect() as connection:
+        query = select(AuditEvent.details).where(AuditEvent.action == "channel.test")
+        tests = (await connection.execute(query)).scalars().all()
+    assert [item["ok"] for item in tests] == [False]
