@@ -8,9 +8,11 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import httpx
+import jsonschema
 from aiosmtpd.smtp import SMTP, AuthResult, Envelope, LoginPassword, Session
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
@@ -358,6 +360,18 @@ def http_answer(status: int = 200) -> bytes:
     ).encode()
 
 
+# The secret part of a webhook URL: its path. url_host (the host) is shown,
+# so a leak check looks for this path, never for the whole URL.
+URL_CANARY = "/services/T000/B000/secret-secret"
+WEBHOOK_SCHEMA = Path(__file__).parents[1] / "docs" / "webhook-payload.schema.json"
+
+
+def validate_webhook_payload(body: dict[str, Any]) -> None:
+    """A webhook body as sent follows the published contract (payload v1)."""
+    schema = json.loads(WEBHOOK_SCHEMA.read_text())
+    jsonschema.Draft202012Validator(schema).validate(body)
+
+
 @dataclass(slots=True)
 class HttpRequest:
     """One request the HTTP capture server saw."""
@@ -392,7 +406,7 @@ class HttpCapture:
     @property
     def url(self) -> str:
         """A URL with a secret-looking path, as a webhook channel stores it."""
-        return f"http://127.0.0.1:{self.port}/services/T000/B000/secret-secret"
+        return f"http://127.0.0.1:{self.port}{URL_CANARY}"
 
     async def _handle(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter

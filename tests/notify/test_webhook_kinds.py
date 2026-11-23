@@ -8,9 +8,12 @@ of a channel is its secret, so its path (a canary) must never reach an error,
 a stored sentence or a log. Every name and address is synthetic (legal R-11).
 """
 
+import asyncio
 import json
 import logging
+import re
 import socket
+import struct
 from collections.abc import AsyncIterator
 from dataclasses import replace
 from datetime import UTC, date, datetime
@@ -33,12 +36,19 @@ from app.ext.notifications import (
 from app.ext.reports import Digest, DigestItem, RenderedReport
 from app.notify.messages import channel_test_message, digest_message, flip_message
 from app.notify.payloads import escape_markup, escape_teams, fit, payload_of
-from app.notify.webhook import SlackKind, TeamsKind, WebhookKind, host_of
-from app.security.ssrf import check_target
-from helpers import HttpCapture, http_answer
+from app.notify.webhook import (
+    SlackKind,
+    TeamsKind,
+    WebhookKind,
+    build_request,
+    deliver,
+    host_of,
+)
+from app.security.ssrf import Target, check_target
+from helpers import URL_CANARY, HttpCapture, http_answer
 
 # A secret-looking webhook path that must never show in an error or a log.
-CANARY = "/services/T000/B000/secret-secret"
+CANARY = URL_CANARY
 BASE_URL = "https://ce-dev-checkorca.theriark.dev"
 ZONE = ZoneInfo("Europe/Lisbon")
 GOLDEN = Path(__file__).parents[2] / "docs" / "webhook-payload.schema.json"
@@ -101,8 +111,8 @@ KINDS = {"webhook": WebhookKind(), "slack": SlackKind(), "teams": TeamsKind()}
 def facts_of(event: str) -> FlipFacts:
     """The flip of the event: ok to the problem, or the problem to ok."""
     changes: dict[str, Any] = {}
-    if event == "warning":
-        changes = {"to_state": "warning"}
+    if event in ("failing", "warning"):
+        changes = {"to_state": event}
     elif event == "recovered":
         changes = {"from_state": "missed", "to_state": "ok"}
     return replace(FACTS, **changes)
@@ -123,6 +133,7 @@ def messages() -> dict[str, Message]:
         text="Morning check, 2027-01-05.\n",
     )
     return {
+        "failing": flip_of("failing"),
         "missed": flip_of("missed"),
         "warning": flip_of("warning"),
         "recovered": flip_of("recovered"),
@@ -175,6 +186,11 @@ def test_the_settings_keep_only_the_http_answer() -> None:
         ({"url": "https://user:pass@hooks.example.com/"}, "user name or password"),
         ({"url": "https:///hook"}, "has no host"),
         ({"url": "https://hooks.example.com/a b"}, "spaces or control characters"),
+        ({"url": "https://hooks.example.com/a\x00b"}, "spaces or control characters"),
+        ({"url": "https://hooks.example.com/a\x7fb"}, "spaces or control characters"),
+        # Accepted here, a Unicode URL would fail at every send.
+        ({"url": "https://hööks.example.com/"}, "punycode"),
+        ({"url": "https://hooks.example.com/café"}, "percent-encoded"),
         ({"url": "https://hooks.example.com:99999/"}, "cannot be read"),
         ({"url": "https://" + "h" * 2000}, "at most 2000 characters"),
     ],
@@ -201,7 +217,8 @@ def test_escape_markup_keeps_user_content_text() -> None:
 
 @pytest.mark.parametrize("kind_name", list(KINDS))
 @pytest.mark.parametrize(
-    "event", ["missed", "warning", "recovered", "reminder", "digest", "test"]
+    "event",
+    ["failing", "missed", "warning", "recovered", "reminder", "digest", "test"],
 )
 def test_bodies_match_the_golden_files(kind_name: str, event: str) -> None:
     """Every kind's body for every event is the committed golden file."""
@@ -210,6 +227,32 @@ def test_bodies_match_the_golden_files(kind_name: str, event: str) -> None:
         Path(__file__).parent / "golden" / f"{kind_name}-{event}.json"
     ).read_text()
     assert body == json.loads(golden)
+
+
+@pytest.mark.parametrize(
+    ("listed", "more_items", "left_over"),
+    [(10, 0, 0), (12, 0, 2), (3, 4, 4), (100, 7, 97)],
+)
+def test_a_long_digest_names_the_jobs_it_leaves_out(
+    listed: int, more_items: int, left_over: int
+) -> None:
+    """Slack and Teams list the first 10 jobs of a digest; the jobs past them
+    and the ones the digest left out are one line."""
+    first = DIGEST.items[0]
+    digest = replace(
+        DIGEST,
+        items=tuple(replace(first, job=f"Job {n}") for n in range(listed)),
+        more_items=more_items,
+    )
+    report = RenderedReport(subject="Morning check", html="<p>x</p>", text="x\n")
+    message = digest_message(report, f"{BASE_URL}/", digest.day, digest)
+    shown = min(listed, 10)
+    for kind in (SlackKind(), TeamsKind()):
+        body = json.dumps(kind.body_of(message))
+        assert re.search(rf"Job {shown - 1}\b", body)
+        assert not re.search(rf"Job {shown}\b", body)
+        assert (f"And {left_over} more jobs" in body) is (left_over > 0)
+        assert ("more jobs on the Morning check" in body) is (left_over > 0)
 
 
 def test_every_payload_validates_against_the_schema() -> None:
@@ -222,6 +265,11 @@ def test_every_payload_validates_against_the_schema() -> None:
         validator.validate({"event": "missed", "schema_version": 1})
     with pytest.raises(jsonschema.ValidationError):
         validator.validate({"event": "digest", "schema_version": 1})
+    # A flip always carries occurrence (null when it names no run).
+    without_occurrence = payload_of(messages()["failing"])
+    del without_occurrence["occurrence"]
+    with pytest.raises(jsonschema.ValidationError):
+        validator.validate(without_occurrence)
     with pytest.raises(jsonschema.ValidationError):
         validator.validate(
             {
@@ -450,3 +498,75 @@ async def test_link_local_stays_refused_under_allow_private() -> None:
     for url in ("http://169.254.0.1/", "http://[fe80::1]/"):
         error = await refused("webhook", url, Outbound(allow_private=True))
         assert "never called" in str(error)
+
+
+@pytest.mark.parametrize("kind_name", list(KINDS))
+async def test_a_zone_or_a_metadata_range_stays_refused_per_kind(
+    kind_name: str,
+) -> None:
+    """A zone-scoped IPv6 literal, the Azure WireServer and fd00:ec2::/32
+    stay refused with private targets and the host allowed."""
+    outbound = Outbound(allow_private=True, allowed_hosts=frozenset({"168.63.129.16"}))
+    error = await refused(kind_name, "http://[fd00:ec2::254%251]/", outbound)
+    assert "may not name an IPv6 zone" in str(error)
+    for url in ("http://168.63.129.16/machine", "http://[fd00:ec2::23]/"):
+        error = await refused(kind_name, url, outbound)
+        assert "never called" in str(error)
+
+
+def test_the_request_timeout_is_10_seconds() -> None:
+    """The documented contract: 10 s per request, inside the 90 s limit of a
+    delivery."""
+    assert webhook_module.REQUEST_TIMEOUT == 10.0
+
+
+def test_an_ipv6_literal_keeps_its_brackets_in_host() -> None:
+    body = b"{}"
+    for port, header in (
+        (8443, "Host: [2001:db8::10]:8443"),
+        (443, "Host: [2001:db8::10]"),
+    ):
+        target = Target(
+            scheme="https",
+            host="2001:db8::10",
+            port=port,
+            addresses=("2001:db8::10",),
+            allowed_by="public",
+        )
+        request = build_request(target, f"https://[2001:db8::10]:{port}/hook", body)
+        assert header in request.decode().split("\r\n")
+
+
+async def test_a_dropped_connection_goes_to_no_second_address() -> None:
+    """Once the request was written the receiver may have it: a reset then
+    ends the delivery instead of sending the same body to the next address
+    (one notification per flip)."""
+    seen: list[bytes] = []
+
+    async def reset(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        seen.append(await reader.readuntil(b"\r\n\r\n"))
+        # SO_LINGER 0: closing sends a reset, not an orderly end.
+        linger = struct.pack("ii", 1, 0)
+        writer.get_extra_info("socket").setsockopt(
+            socket.SOL_SOCKET, socket.SO_LINGER, linger
+        )
+        writer.transport.abort()
+
+    server = await asyncio.start_server(reset, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    target = Target(
+        scheme="http",
+        host="127.0.0.1",
+        port=port,
+        addresses=("127.0.0.1", "127.0.0.1"),
+        allowed_by="allow_private",
+    )
+    try:
+        with pytest.raises(DeliveryError) as failure:
+            await deliver(target, f"http://127.0.0.1:{port}{CANARY}", b"{}")
+    finally:
+        server.close()
+        await server.wait_closed()
+    assert len(seen) == 1
+    assert str(failure.value).startswith("The connection to the target dropped (")
+    assert CANARY not in str(failure.value)
