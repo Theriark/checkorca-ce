@@ -1,6 +1,6 @@
 # Notifications
 
-Phase C9-B (dev-work-plan rev 35, section C9 and the Interfaces chapter: Notifications, Settings, In-process events). This page is the contract for C9-I (the kinds slack, teams and webhook) and C9-F (the `/notifications` pages and the digest settings).
+Phases C9-B and C9-I (dev-work-plan rev 35, section C9 and the Interfaces chapter: Notifications, Settings, In-process events). C9-B built the model, the dispatcher and the e-mail kind; C9-I added the kinds slack, teams and webhook and the webhook payload v1 (`docs/webhook-payload.schema.json`). This page is the contract for C9-F (the `/notifications` pages and the digest settings).
 
 Flips are the single source of alerts (`docs/evaluator.md`): a change of a job's state becomes at most one notification per channel and event. The daily digest and the 24-hour reminder are the only other notifications.
 
@@ -10,7 +10,7 @@ Revision `c9_notify` adds three tables and changes none, so the previous release
 
 | Table | Fields | Notes |
 | --- | --- | --- |
-| `channel` | `id`, `kind` (`email`, `slack`, `teams`, `webhook`), `label`, `enabled`, `config` (JSON), `secret_enc`, `last_status` (`sent`, `failed` or null), `last_status_at`, `last_error`, `created_at`, `updated_at` | `config` holds the kind's settings without secrets. `secret_enc` is the channel's one credential (the relay password; for C9-I a webhook URL or signing key), Fernet ciphertext made with `FERNET_KEY`. `last_*` describe the newest real delivery, never a test. No client data. |
+| `channel` | `id`, `kind` (`email`, `slack`, `teams`, `webhook`), `label`, `enabled`, `config` (JSON), `secret_enc`, `last_status` (`sent`, `failed` or null), `last_status_at`, `last_error`, `created_at`, `updated_at` | `config` holds the kind's settings without secrets. `secret_enc` is the channel's one credential (the relay password; for slack, teams and webhook the URL), Fernet ciphertext made with `FERNET_KEY`. `last_*` describe the newest real delivery, never a test. No client data. |
 | `channel_rule` | `id`, `channel_id`, `scope` (`all`, `client`, `job`), `scope_id`, `events` (one or more of `failing`, `missed`, `warning`, `recovered`, `digest`), `created_at` | `scope_id` is null for `all`, else the client's or the job's id (no foreign key: it points at either table). `digest` needs scope `all`. Deleting the channel deletes its rules. |
 | `notification` | `id`, `channel_id`, `flip_id`, `event` (`failing`, `missed`, `warning`, `recovered`, `reminder`, `digest`), `digest_day`, `status` (`queued`, `retrying`, `sent`, `failed`), `attempts`, `error`, `created_at`, `next_attempt_at`, `last_attempt_at`, `sent_at` | About a flip (`flip_id` set) or the digest of `digest_day` (`flip_id` null). Unique per (`flip_id`, `channel_id`, `event`) and per (`channel_id`, `digest_day`). Deleting the channel deletes its history; deleting a flip deletes its notifications (so the previous release, which does not know this table, can still delete a client). |
 
@@ -67,9 +67,9 @@ The digest names clients and jobs only inside the body (escaped in the HTML), ne
 
 ## Channel kinds
 
-`app/ext/notifications.py` `ChannelKind`: `name`, `secret_label`, `secret_targets`, `check_config(config, has_secret)` and `async send(config, secret, message, outbound)`. `app/notify/registry.py` holds the registered kinds; CE registers `email`. A channel whose kind is not registered is listed with `available: false` and can only be deleted.
+`app/ext/notifications.py` `ChannelKind`: `name`, `secret_label`, `secret_targets`, `url_key`, `check_config(config, has_secret)` and `async send(config, secret, message, outbound)`. `url_key` names the config key that carries a URL credential (`url` for slack, teams and webhook; null for email). `app/notify/registry.py` holds the registered kinds; CE registers `email`, `slack`, `teams` and `webhook`, every value of `channel.kind`. A channel whose kind is not registered (a plugin kind of a later edition) is listed with `available: false` and can only be deleted.
 
-`Message` carries `event`, `subject`, `text`, `url` and, for the digest, `html` and `digest_day`; for a flip or a reminder, `flip` (`FlipFacts`: flip, job and client ids and names, `from_state`, `to_state`, `reason`, `at`, `scheduled_for`, `url` of the job page). Webhook kinds should build their payload from `flip`, not from the text.
+`Message` carries `event`, `subject`, `text`, `url`, `at` (the flip's time, the digest's `generated_at`, the test's now) and, for the digest, `html`, `digest_day` and `digest` (the `Digest` with its counts and items); for a flip or a reminder, `flip` (`FlipFacts`: flip, job and client ids and names, the job's `kind`, `from_state`, `to_state`, `reason`, `at`, `scheduled_for`, the occurrence's `deadline`, `url` of the job page). The slack, teams and webhook kinds build their bodies from `flip` and `digest`, never by parsing the text.
 
 ### email (CE)
 
@@ -86,12 +86,60 @@ Changing `host`, `port`, `starttls` or `username` needs the password again (422)
 
 ### slack, teams, webhook (C9-I)
 
-Register a kind per name in `default_kinds()`; no schema change. Rules for an HTTP kind:
+`app/notify/webhook.py`, registered in `default_kinds()` without a schema change. All three POST one JSON body to one URL the admin chose; they differ only in the body (`app/notify/payloads.py`).
 
-- Call `check_target` (`app/security/ssrf.py`) with the `Outbound` rules passed to `send` before every request, connect to one of `Target.addresses` (keep the host name for TLS and the Host header) and follow no redirect.
-- Put the secret part (a Slack or Teams webhook URL, a signing key) in the channel secret, never in `config`; list the config keys that decide where the secret goes in `secret_targets`.
-- Raise `DeliveryError` with one sentence that names no secret and no URL path; a timeout of your own must stay under 90 seconds.
-- Development: the Mock Platform runs on the private Docker network, so testing a webhook kind there needs `OUTBOUND_ALLOWED_HOSTS=mock-platform` (Delivery sets Dokploy environment values).
+| config key | Sent | Stored and answered |
+| --- | --- | --- |
+| `url` | required on create: `http://` or `https://`, a host, no user name or password, no spaces or control characters, at most 2,000 characters | never stored in `config`: the URL is the channel's secret (`secret_enc`, Fernet), write-only |
+| `url_set` | ignored | `true` once a URL is stored |
+| `url_host` | ignored | the URL's host in lower case (no port, path or query) |
+
+- The URL is sent as `config.url`, never as `secret` (422 on `body.secret`). Its path often is the credential (a Slack or Teams incoming webhook token), so `ChannelOut` answers `config: {url_set, url_host}`, `secret_set` and the `****` hint only. Any other config key is refused (422 `Unknown setting.`).
+- The target is checked by the SSRF guard before the URL is stored, on create and on a PATCH that sends a new `config.url`, and again before every send and test. A refusal is 422 `Target refused` with the guard's sentence (`errors[0].field` `body.config.url`). PATCH with `config.url` null or empty is refused: a channel cannot lose its target. A new URL replaces the stored one; `secret_targets` is empty, since the URL always arrives with its own value.
+- Delivery: `check_target`, then HTTP/1.1 `POST` to one of the checked addresses (the host name stays in TLS and `Host`; certificates are verified), `Content-Type: application/json`, `Accept: application/json`, `User-Agent: Checkorca-CE/<version>`, `Connection: close`. The first address that accepts the connection is used; a refused connection tries the next one. 10 seconds for the whole request, after up to 5 seconds of DNS.
+- Answer: any `2xx` is `sent`. A `3xx` is a failure and is **not** followed (`The target answered 302 and redirects are not followed.`), so a redirect to a private address is never reached. Any other status, a timeout, a TLS failure, a refused or unreachable connection or a non-HTTP answer is a failure. Every failure is a `DeliveryError` sentence that names the status or the cause and the port, never the path or query of the URL, and follows the retry ladder like an e-mail failure; one notification per flip, channel and event stays the rule, and `NotificationSent` fires as for e-mail.
+- No signature header in version 1: the URL itself is the credential, as with Slack and Teams incoming webhooks. Receivers should use an unguessable path and HTTPS.
+
+#### Webhook payload v1
+
+`docs/webhook-payload.schema.json` (JSON Schema 2020-12) is the published contract; `tests/notify/test_webhook_kinds.py` validates every payload against it and compares each event with a golden file (`tests/notify/golden/webhook-<event>.json`). Times are ISO 8601 UTC with `Z` at second precision; ids are UUID strings. `schema_version` is 1; a later version adds fields and raises the number.
+
+| Field | Events | Value |
+| --- | --- | --- |
+| `event` | all | `failing`, `missed`, `warning`, `recovered`, `reminder`, `digest` or `test` |
+| `at` | all | the flip's time; the digest's `generated_at`; the test's now |
+| `url` | all | the job page; the Morning check for the digest and the test |
+| `product` | all | `Checkorca-CE` |
+| `schema_version` | all | `1` |
+| `job` | flip events | `{id, name, kind}` |
+| `client` | flip events | `{id, name}` |
+| `state`, `previous_state` | flip events | the job's state after and before the flip (`ok`, `failing`, `missed`, `warning`, ...) |
+| `reason` | flip events | the flip's reason, plain text |
+| `occurrence` | flip events | `{scheduled_for, deadline}` of the run that caused the flip (`deadline` null when the occurrence is gone), or null for a flip without a due run |
+| `date` | digest | the local day `D`, `YYYY-MM-DD` |
+| `counts` | digest | `{verified, failed, silent, warning}`, the complete numbers |
+| `items` | digest | `[{client, job, state}]`, the jobs that need attention, silent first, then failed, then warning; at most 100 (the rest is in `counts`) |
+
+A `reminder` carries the facts of the flip it reminds of. A `test` carries the five common fields only.
+
+```json
+{"event": "missed", "at": "2027-01-05T07:30:00Z", "url": "https://ce-dev-checkorca.theriark.dev/jobs/2222...", "product": "Checkorca-CE", "schema_version": 1,
+ "job": {"id": "2222...", "name": "Nightly server backup", "kind": "backup"}, "client": {"id": "3333...", "name": "Fictional Dental Clinic"},
+ "state": "missed", "previous_state": "ok", "reason": "The run was due at 23:00 and nothing reported by 01:00.",
+ "occurrence": {"scheduled_for": "2027-01-04T23:00:00Z", "deadline": "2027-01-05T01:00:00Z"}}
+```
+
+#### Slack and Teams bodies
+
+Built from the same `Message` (golden files `slack-<event>.json`, `teams-<event>.json`):
+
+- **slack**: an incoming-webhook body: `text` (the message on one line, what Slack shows in a notification), a `header` block (the subject, `plain_text`, at most 150 characters) and `section` blocks (the change, reason and due time; a link to the job; for the digest the counts, up to 10 jobs, how many more, and a link to the Morning check).
+- **teams**: a `MessageCard`: `themeColor` from the status colours, `summary` and `title` (the subject), `text` (the plain message) and, for the digest, the counts and up to 10 jobs as `facts`.
+- No user content is rendered as markup: every field that carries a client or job name, a reason or a label is escaped (`&`, `<`, `>` as entities, so a name cannot mention `@channel` or inject a link in Slack; for Teams `[` and `]` as numeric references too, so a Markdown link or image in a name stays text). Fields are cut to their limits between whole characters, never inside an entity.
+
+#### Development
+
+The Mock Platform (`http://mock-platform:8080/` plus a capture path) runs on the private Docker network, so a live check there needs `OUTBOUND_ALLOWED_HOSTS=mock-platform` on Development only (a Platform and Release Engineer task sets it in Dokploy). Everything it receives is simulated.
 
 ## SSRF rules
 
@@ -100,9 +148,13 @@ Register a kind per name in `default_kinds()`; no schema change. Rules for an HT
 1. `http` or `https` only, with a host, no user name or password, at most 2,000 characters.
 2. The host is resolved (every IPv4 and IPv6 address, 5 seconds at most); a literal address is taken as it is.
 3. Every address must be public. Refused: loopback, private (RFC 1918, `fc00::/7`), link-local (`169.254.0.0/16`, `fe80::/10`), shared (`100.64.0.0/10`), multicast, reserved (site-local `fec0::/10` too), unspecified, the cloud metadata addresses (`169.254.169.254`, `169.254.170.2`, `fd00:ec2::254`, `100.100.100.200`), and IPv6 addresses carrying one of them (IPv4-mapped, SIIT `::ffff:0:a.b.c.d`, IPv4-compatible `::a.b.c.d`, 6to4, NAT64).
-4. `ALLOW_PRIVATE_TARGETS=true` allows every other address; a host exactly equal to an entry of `OUTBOUND_ALLOWED_HOSTS` (comma-separated, case-insensitive, no wildcard, no subdomain) is allowed whatever else it resolves to. Neither allows a cloud metadata address.
+4. `ALLOW_PRIVATE_TARGETS=true` allows every other address; a host exactly equal to an entry of `OUTBOUND_ALLOWED_HOSTS` (comma-separated, case-insensitive, no wildcard, no subdomain) is allowed whatever else it resolves to. Neither allows a link-local address (`169.254.0.0/16`, `fe80::/10`, also inside an IPv6 address) or a cloud metadata address: the never set.
 
-A refusal is `TargetRefused` with one readable sentence, for example `10.0.0.5 is a private address. Outbound requests go to public addresses only. An admin can allow this host with OUTBOUND_ALLOWED_HOSTS, or private targets with ALLOW_PRIVATE_TARGETS.` The API answers it as a 422 problem document (`title` `Target refused`, `detail` the sentence, `errors[0].field` `body.url`).
+Phase C9-I decided the C9-B security review note: link-local joined the never set. Cloud metadata services answer on link-local addresses beyond the four listed ones, and no webhook receiver of an MSP lives there, so `ALLOW_PRIVATE_TARGETS=true` on a cloud server no longer opens that range.
+
+A refusal is `TargetRefused` with one readable sentence that names the host and the address, never the path, for example `10.0.0.5 is a private address. Outbound requests go to public addresses only. An admin can allow this host with OUTBOUND_ALLOWED_HOSTS, or private targets with ALLOW_PRIVATE_TARGETS.`; a never-set address ends `Link-local and metadata addresses are never called, whatever OUTBOUND_ALLOWED_HOSTS and ALLOW_PRIVATE_TARGETS say.` The API answers it as a 422 problem document (`title` `Target refused`, `detail` the sentence) whose `errors[0].field` is `body.url` for `check-url`, `body.config.url` for channel create and update, and `config.url` for `channels/{id}/test`. During a send it is the notification's error and follows the retry ladder.
+
+`tests/notify/test_webhook_kinds.py` runs the SSRF table per kind (`10.0.0.5`, `127.0.0.1`, `169.254.169.254`, `::1`, `fd00::`, a name resolving to a private address, a non-HTTP scheme, a redirect to a private address) and the timeout; `tests/security/test_ssrf.py` covers the guard itself.
 
 ## API (for C9-F)
 
@@ -111,11 +163,11 @@ Every change needs an admin session and `X-CSRF-Token`; lists and reads take an 
 | Route | Answer |
 | --- | --- |
 | `GET /api/v1/channels` | `ChannelPage` (oldest first, cursor) |
-| `POST /api/v1/channels` | `ChannelOut` 201; body `kind`, `label`, `enabled`, `config`, `secret`; 422 names the field (`body.config.<key>`, `body.secret`, `body.kind`) |
+| `POST /api/v1/channels` | `ChannelOut` 201; body `kind`, `label`, `enabled`, `config`, `secret` (slack, teams, webhook: the URL in `config.url`, no `secret`); 422 names the field (`body.config.<key>`, `body.secret`, `body.kind`); 422 `Target refused` for a URL the SSRF guard refuses |
 | `GET /api/v1/channels/{id}` | `ChannelOut` |
-| `PATCH /api/v1/channels/{id}` | `ChannelOut`; config keys sent replace the stored ones (null removes one); `secret` replaces, `""` removes; 422 `Secret required` when a target key changes without the secret; 409 for a kind not registered |
+| `PATCH /api/v1/channels/{id}` | `ChannelOut`; config keys sent replace the stored ones (null removes one); `secret` replaces, `""` removes; 422 `Secret required` when a target key changes without the secret; a URL kind takes a new `config.url` (checked first, 422 `Target refused`) and refuses a null or empty one; 409 for a kind not registered |
 | `DELETE /api/v1/channels/{id}` | 204, with its rules and history |
-| `POST /api/v1/channels/{id}/test` | `ChannelTestResult` `{ok, detail}`: sends a test message now (up to 90 seconds); not retried, does not change `last_status` |
+| `POST /api/v1/channels/{id}/test` | `ChannelTestResult` `{ok, detail}`: sends a test message now (up to 90 seconds); not retried, does not change `last_status`; 422 `Target refused` when the guard now refuses a URL kind's stored target (recorded as a failed `channel.test`) |
 | `POST /api/v1/channels/check-url` | `TargetCheckResult` (`host`, `port`, `addresses`, `allowed_by`) or 422 `Target refused`; resolves only, sends nothing |
 | `GET /api/v1/channel-rules?channel_id=` | `RulePage` with `scope_name` (`Client` or `Client / Job`) |
 | `POST /api/v1/channel-rules` | `RuleOut` 201; 422 for an unknown channel, client or job, a scope that does not fit `scope_id`, or `digest` outside scope `all` |
@@ -125,7 +177,7 @@ Every change needs an admin session and `X-CSRF-Token`; lists and reads take an 
 | `GET /api/v1/settings` | `DigestSettingsOut` `{digest_time_local: "HH:MM", digest_timezone, reminder_24h}` (admin only) |
 | `PATCH /api/v1/settings` | the same; at least one field; `digest_timezone` must be an IANA zone (admin only) |
 
-`ChannelOut` never carries the secret: `secret_set`, `secret_hint` (`****` when a secret is set, else null; never characters of a password a person chose) and `secret_label`. Jobs (`JobOut`) carry `acknowledged_by` (`{id, email}`, `email` null for an API token) next to `acknowledged_at`.
+`ChannelOut` never carries the secret: `secret_set`, `secret_hint` (`****` when a secret is set, else null; never characters of a password a person chose) and `secret_label` (`Relay password`, `Slack webhook URL`, `Teams webhook URL`, `Webhook URL`). A URL kind's `config` is `{url_set, url_host}` only. Jobs (`JobOut`) carry `acknowledged_by` (`{id, email}`, `email` null for an API token) next to `acknowledged_at`.
 
 Audit events: `channel.create`, `channel.update` (field names only; the secret as `secret`), `channel.delete`, `channel.test` (`ok`), `channel_rule.create`, `channel_rule.update`, `channel_rule.delete`, `settings.update`. They show in the activity timeline as configuration changes.
 
