@@ -188,7 +188,7 @@
         "required": ["event"]
       },
       "then": {
-        "required": ["job", "client", "state", "previous_state", "reason"]
+        "required": ["job", "client", "state", "previous_state", "reason", "occurrence"]
       }
     },
     {

@@ -155,8 +155,9 @@ def _one_line(text: str) -> str:
 
 
 def _left_over(digest: Digest) -> int:
-    """How many jobs of the digest no card body lists."""
-    return len(digest.items) - MAX_DIGEST_ITEMS + digest.more_items
+    """How many jobs of the digest no card body lists: the items past the
+    first MAX_DIGEST_ITEMS, plus the ones the digest itself left out."""
+    return max(0, len(digest.items) - MAX_DIGEST_ITEMS) + digest.more_items
 
 
 def _slack_sections(message: Message) -> list[dict[str, Any]]:

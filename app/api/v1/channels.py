@@ -43,6 +43,7 @@ from app.db.models import Channel
 from app.ext.notifications import ChannelConfigError, ChannelKind
 from app.notify.delivery import outbound_of, send_message
 from app.notify.messages import channel_test_message
+from app.notify.webhook import ANSWER_KEYS
 from app.repos.notifications import ChannelRepository
 from app.security.crypto import MASK, SecretBoxError
 from app.security.ssrf import TargetRefused, check_target
@@ -313,7 +314,13 @@ async def update_channel(
             raise secret_conflict(kind)
         stored = dict(channel.config)
         merged = dict(stored)
-        for key, value in (body.config or {}).items():
+        sent_config = dict(body.config or {})
+        if kind.url_key is not None:
+            # url_set and url_host are the stored answer, never input: a sent
+            # value is ignored, so url_host always names the stored URL's host.
+            for key in ANSWER_KEYS:
+                sent_config.pop(key, None)
+        for key, value in sent_config.items():
             if value is None:
                 merged.pop(key, None)
             else:

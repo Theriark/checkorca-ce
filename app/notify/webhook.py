@@ -56,9 +56,16 @@ def host_of(url: str) -> str:
         raise ChannelConfigError(
             "url", f"Use a URL of at most {MAX_URL_LENGTH} characters."
         )
-    if text.split() != [text]:
+    if text.split() != [text] or not text.isprintable():
         raise ChannelConfigError(
             "url", "The URL may not contain spaces or control characters."
+        )
+    if not text.isascii():
+        # The request line is ASCII: a Unicode host or path would be
+        # accepted here and then fail at every send.
+        raise ChannelConfigError(
+            "url",
+            "Use the URL with its host in punycode and its path percent-encoded.",
         )
     try:
         parts = urlsplit(text)
@@ -94,10 +101,10 @@ def build_request(target: Target, url: str, body: bytes) -> bytes:
     if parts.query:
         path = f"{path}?{parts.query}"
     default = 443 if target.scheme == "https" else 80
-    if target.port == default:
-        host_header = target.host
-    else:
-        host_header = f"{target.host}:{target.port}"
+    # An IPv6 literal keeps its brackets in Host (RFC 9110, 7.2).
+    host_header = f"[{target.host}]" if ":" in target.host else target.host
+    if target.port != default:
+        host_header = f"{host_header}:{target.port}"
     head = (
         f"POST {path} HTTP/1.1\r\n"
         f"Host: {host_header}\r\n"
@@ -129,10 +136,15 @@ async def exchange(address: str, target: Target, request: bytes) -> int:
     try:
         writer.write(request)
         await writer.drain()
-        try:
-            line = await reader.readline()
-        except (EOFError, ValueError):
-            raise DeliveryError("The target did not answer with HTTP.") from None
+        line = await reader.readline()
+    except (EOFError, ValueError):
+        raise DeliveryError("The target did not answer with HTTP.") from None
+    except OSError as error:
+        # The request may have arrived, so no other address gets it: only a
+        # failed connection moves on (one notification per flip).
+        raise DeliveryError(
+            f"The connection to the target dropped ({type(error).__name__})."
+        ) from None
     finally:
         # close() starts the transport's close; the request is done once the
         # status line is read, and the server was told Connection: close.
