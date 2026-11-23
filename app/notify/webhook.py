@@ -36,7 +36,7 @@ from app.notify.payloads import payload_of, slack_body, teams_body
 from app.security.ssrf import SCHEMES, Target, TargetRefused, check_target
 
 # Seconds for the whole request (connection, write, status line), after the
-guard's own DNS step of 5 seconds.
+# guard's own DNS step of 5 seconds.
 REQUEST_TIMEOUT: Final = 10.0
 MAX_URL_LENGTH: Final = 2000
 # The config keys seen in check_config: url is what the admin sends;
