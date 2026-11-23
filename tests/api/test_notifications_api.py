@@ -32,6 +32,7 @@ from helpers import (
     CSRF_HEADER,
     TECHNICIAN_EMAIL,
     TECHNICIAN_PASSWORD,
+    URL_CANARY,
     FakeClock,
     HttpCapture,
     RelayCapture,
@@ -42,6 +43,7 @@ from helpers import (
     running,
     sign_in,
     smtp_relay,
+    validate_webhook_payload,
 )
 
 DENTAL, FREIGHT, _ = CLIENT_NAMES
@@ -580,7 +582,7 @@ async def test_http_channels_take_the_url_in_config_and_store_it_as_the_secret(
             assert channel["config"] == {"url_set": True, "url_host": "127.0.0.1"}
             assert channel["secret_label"] == "Webhook URL"
             assert channel["secret_set"] is True and channel["secret_hint"] == MASK
-            assert capture.url not in created.text
+            assert URL_CANARY not in created.text
             # Nor in the exports, the digest, the activity or the history.
             for shown in (
                 "/api/v1/channels",
@@ -591,7 +593,7 @@ async def test_http_channels_take_the_url_in_config_and_store_it_as_the_secret(
                 "/api/v1/notifications",
             ):
                 answer = await api.get(shown)
-                assert answer.status_code == 200 and capture.url not in answer.text
+                assert answer.status_code == 200 and URL_CANARY not in answer.text
             async with db_engine.connect() as connection:
                 stored = (
                     await connection.execute(select(Channel.secret_enc))
@@ -601,8 +603,8 @@ async def test_http_channels_take_the_url_in_config_and_store_it_as_the_secret(
                     .scalars()
                     .all()
                 )
-            assert stored is not None and capture.url not in stored
-            assert all(capture.url not in str(details) for details in audit)
+            assert stored is not None and URL_CANARY not in stored
+            assert all(URL_CANARY not in str(details) for details in audit)
 
             # The test send reaches the capture with the test payload, and
             # does not change last_status (a test is not a delivery).
@@ -615,6 +617,7 @@ async def test_http_channels_take_the_url_in_config_and_store_it_as_the_secret(
             (request,) = capture.requests
             assert request.body["event"] == "test"
             assert request.body["schema_version"] == 1
+            validate_webhook_payload(request.body)
             assert (await api.get(path)).json()["last_status"] is None
 
             # The label changes; the URL stays.
@@ -627,6 +630,20 @@ async def test_http_channels_take_the_url_in_config_and_store_it_as_the_secret(
                 "url_host": "127.0.0.1",
             }
             assert renamed.json()["secret_set"] is True
+            # url_set and url_host are answers, never input: a sent value is
+            # ignored, so the host shown is always the stored URL's.
+            for config in (
+                {"url_host": "hooks.slack.com"},
+                {"url_host": None, "url_set": False},
+            ):
+                kept = await api.patch(
+                    path, json={"config": config}, headers=headers(csrf)
+                )
+                assert kept.status_code == 200, kept.text
+                assert kept.json()["config"] == {
+                    "url_set": True,
+                    "url_host": "127.0.0.1",
+                }
             # Removing the URL is refused, as an e-mail channel without its
             # relay host; so is an empty one, and a separate secret.
             for body, field in (
@@ -663,7 +680,7 @@ async def test_http_channels_take_the_url_in_config_and_store_it_as_the_secret(
                 again = (
                     await connection.execute(select(Channel.secret_enc))
                 ).scalar_one()
-            assert again != stored and moved.url not in again
+            assert again != stored and URL_CANARY not in again
             tested_again = await api.post(f"{path}/test", headers=headers(csrf))
             assert tested_again.json()["ok"] is True
             assert len(capture.requests) == 1 and len(moved.requests) == 1
@@ -672,7 +689,7 @@ async def test_http_channels_take_the_url_in_config_and_store_it_as_the_secret(
             assert deleted.status_code == 204
     finally:
         await capture.stop()
-    assert capture.url not in caplog.text and moved.url not in caplog.text
+    assert URL_CANARY not in caplog.text
 
 
 @pytest.mark.parametrize(
@@ -759,3 +776,4 @@ async def test_a_stored_target_the_guard_now_refuses_fails_the_test_readably(
         query = select(AuditEvent.details).where(AuditEvent.action == "channel.test")
         tests = (await connection.execute(query)).scalars().all()
     assert [item["ok"] for item in tests] == [False]
+    assert all("hook-canary-path" not in str(item) for item in tests)

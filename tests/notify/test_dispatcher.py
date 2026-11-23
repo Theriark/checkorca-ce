@@ -51,7 +51,14 @@ from app.security.crypto import MASK
 from app.security.tokens import new_ping_token
 from app.settings import load_settings
 from app.worker.loop import WorkerContext, build_context
-from helpers import CLIENT_NAMES, FakeClock, HttpCapture, http_answer
+from helpers import (
+    CLIENT_NAMES,
+    URL_CANARY,
+    FakeClock,
+    HttpCapture,
+    http_answer,
+    validate_webhook_payload,
+)
 
 DENTAL, FREIGHT, _ = CLIENT_NAMES
 NIGHTLY = "Nightly server backup"
@@ -728,6 +735,7 @@ async def test_the_http_kinds_deliver_one_notification_each(
         (slack,) = [body for body in payloads if "blocks" in body]
         (teams,) = [body for body in payloads if "@type" in body]
         assert webhook["event"] == "missed" and webhook["schema_version"] == 1
+        validate_webhook_payload(webhook)
         assert webhook["product"] == "Checkorca-CE"
         assert webhook["state"] == "missed" and webhook["previous_state"] == "unknown"
         assert webhook["job"] == {
@@ -756,8 +764,8 @@ async def test_the_http_kinds_deliver_one_notification_each(
         assert stored.last_status == "sent" and stored.last_error is None
         # The stored secret is the ciphertext of the URL, and neither the
         # worker's log nor a stored sentence carries its path (D-6).
-        assert capture.url not in (stored.secret_enc or "")
-        assert capture.url not in caplog.text
+        assert URL_CANARY not in (stored.secret_enc or "")
+        assert URL_CANARY not in caplog.text
     finally:
         await capture.stop()
 
