@@ -45,14 +45,18 @@ MAX_URL_LENGTH: Final = 2000
 # Seconds one DNS lookup may take.
 RESOLVE_TIMEOUT: Final = 5.0
 # Metadata services of the big clouds: refused even where ALLOW_PRIVATE_TARGETS
-# or OUTBOUND_ALLOWED_HOSTS allow private addresses.
+# or OUTBOUND_ALLOWED_HOSTS allow private addresses. 168.63.129.16 is the
+# Azure WireServer (a public address); fd00:ec2::/32 holds the AWS IPv6
+# metadata endpoint and the EKS Pod Identity agent.
 _METADATA = (
     "169.254.169.254",
     "169.254.170.2",
     "fd00:ec2::254",
     "100.100.100.200",
+    "168.63.129.16",
 )
 METADATA_ADDRESSES: Final = frozenset(map(ipaddress.ip_address, _METADATA))
+METADATA_NETWORKS: Final = (ipaddress.IPv6Network("fd00:ec2::/32"),)
 # IPv6 prefixes whose last 32 bits are an IPv4 address: NAT64 and SIIT.
 CARRIER_PREFIXES: Final = (
     ipaddress.IPv6Network("64:ff9b::/96"),
@@ -114,10 +118,15 @@ def embedded_ipv4(address: ipaddress.IPv6Address) -> ipaddress.IPv4Address | Non
 
 
 def is_metadata(address: IpAddress) -> bool:
-    """A cloud metadata address, also inside an IPv6 address."""
+    """A cloud metadata address, also inside an IPv6 address. A zone id is
+    ignored: IPv6Address equality includes it, so fd00:ec2::254%1 would
+    otherwise not match."""
     if isinstance(address, ipaddress.IPv6Address):
+        address = ipaddress.IPv6Address(int(address))
         inner = embedded_ipv4(address)
         if inner is not None and inner in METADATA_ADDRESSES:
+            return True
+        if any(address in network for network in METADATA_NETWORKS):
             return True
     return address in METADATA_ADDRESSES
 
@@ -146,7 +155,7 @@ def refusal(address: IpAddress) -> str | None:
             reason = refusal(inner)
             if reason is not None:
                 return f"{reason} inside an IPv6 address"
-    if address in METADATA_ADDRESSES:
+    if is_metadata(address):
         return "a cloud metadata address"
     if address.is_unspecified:
         return "the unspecified address"
@@ -177,10 +186,14 @@ def refused_text(
 
 
 def parse_address(value: str) -> IpAddress | None:
+    """The address in value without a zone id, or None when it is a name."""
     try:
-        return ipaddress.ip_address(value)
+        address = ipaddress.ip_address(value)
     except ValueError:
         return None
+    if isinstance(address, ipaddress.IPv6Address) and address.scope_id:
+        return ipaddress.IPv6Address(int(address))
+    return address
 
 
 async def check_target(
@@ -206,6 +219,10 @@ async def check_target(
     host = (parts.hostname or "").rstrip(".")
     if not host:
         raise TargetRefused("The URL has no host.")
+    if "%" in host:
+        # An IPv6 zone ([fd00:ec2::254%1]) names an interface, never a
+        # webhook receiver, and would slip past the exact address checks.
+        raise TargetRefused("A URL may not name an IPv6 zone.")
     port = port or DEFAULT_PORTS[scheme]
     literal = parse_address(host)
     if literal is not None:

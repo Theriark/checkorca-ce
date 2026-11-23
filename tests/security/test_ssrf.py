@@ -172,6 +172,30 @@ async def test_link_local_and_metadata_are_never_allowed() -> None:
         await check("http://metadata.example.com/", allow_private=True, allowed=allowed)
 
 
+async def test_the_azure_and_aws_v6_metadata_services_are_never_allowed() -> None:
+    """The Azure WireServer is a public address and fd00:ec2::/32 a private
+    range; both stay refused under either setting."""
+    allowed = frozenset({"168.63.129.16"})
+    for url in (
+        "http://168.63.129.16/machine",
+        "http://[::ffff:168.63.129.16]/",
+        "http://[fd00:ec2::254]/",
+        "http://[fd00:ec2::23]/",
+    ):
+        with pytest.raises(TargetRefused, match="never called"):
+            await check(url, allow_private=True, allowed=allowed)
+
+
+async def test_an_ipv6_zone_is_refused() -> None:
+    """IPv6Address equality includes the zone, so fd00:ec2::254%1 would not
+    match the metadata set; a URL naming a zone is refused outright."""
+    for url in ("http://[fd00:ec2::254%1]/", "http://[fd00:ec2::254%251]/"):
+        with pytest.raises(TargetRefused, match="may not name an IPv6 zone"):
+            await check(url, allow_private=True, allowed=frozenset())
+    zoned = ipaddress.ip_address("fd00:ec2::254%1")
+    assert refusal(zoned) == "a cloud metadata address"
+
+
 async def test_a_slow_or_empty_resolver_is_a_refusal() -> None:
     async def empty(host: str, port: int) -> Sequence[str]:
         return ["not-an-address"]
