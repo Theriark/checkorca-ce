@@ -19,3 +19,18 @@ export function browserTimeZone(): string {
     return 'UTC';
   }
 }
+
+/** Whether the zone is one this runtime can format: the same rule the
+ *  server's IANA check follows, so UTC and the aliases pass here too (the
+ *  suggestion list above is only a list, not the rule). */
+export function isKnownTimeZone(zone: string): boolean {
+  if (!zone.trim()) {
+    return false;
+  }
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: zone });
+    return true;
+  } catch {
+    return false;
+  }
+}
