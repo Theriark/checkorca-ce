@@ -174,7 +174,7 @@ async def test_channels_keep_the_secret_write_only(
 @pytest.mark.parametrize(
     ("body", "field"),
     [
-        ({"kind": "slack"}, "body.config.url"),
+        ({"kind": "slack", "config": {}}, "body.config.url"),
         ({"config": EMAIL_CONFIG | {"port": "25"}}, "body.config.port"),
         ({"config": EMAIL_CONFIG | {"bcc": "x@example.com"}}, "body.config.bcc"),
         ({"config": EMAIL_CONFIG | {"username": RELAY_USER}}, "body.secret"),
@@ -556,7 +556,10 @@ async def make_url_channel(
 
 
 async def test_http_channels_take_the_url_in_config_and_store_it_as_the_secret(
-    db_engine: AsyncEngine, clock: FakeClock, caplog: pytest.LogCaptureFixture
+    db_engine: AsyncEngine,
+    clock: FakeClock,
+    admin: AppUser,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """The URL of a slack, teams or webhook channel is its secret: write-only
     (D-6), answered as url_set and url_host only, checked by the SSRF guard
@@ -703,7 +706,7 @@ async def test_creating_a_channel_refuses_what_the_guard_refuses(
 
 
 async def test_a_public_target_and_an_allowed_host_can_be_stored(
-    db_engine: AsyncEngine, clock: FakeClock
+    db_engine: AsyncEngine, clock: FakeClock, admin: AppUser
 ) -> None:
     """A public literal address stores (never sent to); OUTBOUND_ALLOWED_HOSTS
     is the narrow way to a private one."""
@@ -726,7 +729,7 @@ async def test_a_public_target_and_an_allowed_host_can_be_stored(
 
 
 async def test_a_stored_target_the_guard_now_refuses_fails_the_test_readably(
-    db_engine: AsyncEngine, clock: FakeClock
+    db_engine: AsyncEngine, clock: FakeClock, admin: AppUser
 ) -> None:
     """A URL stored while private targets were allowed, tested after the
     operator turned that off: 422 Target refused with the guard's sentence,

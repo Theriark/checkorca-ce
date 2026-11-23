@@ -184,7 +184,8 @@ def test_unusable_settings_name_their_field(
 ) -> None:
     with pytest.raises(ChannelConfigError) as failure:
         WebhookKind().check_config(config, has_secret=False)
-    assert failure.value.field == "url"
+    # An unknown key is named itself; every other problem is the URL's.
+    assert failure.value.field == ("webhook" if "webhook" in config else "url")
     assert message in failure.value.message
 
 
