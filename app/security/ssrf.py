@@ -13,10 +13,13 @@ check_target first:
    address that carries one of them (IPv4-mapped, SIIT, IPv4-compatible,
    6to4, NAT64).
 
-Two settings relax the rule: ALLOW_PRIVATE_TARGETS=true allows every address,
-and a host that is exactly one of OUTBOUND_ALLOWED_HOSTS (no wildcard, no
-subdomain) is allowed whatever it resolves to. Neither allows a cloud
-metadata address (METADATA_ADDRESSES).
+Two settings relax the rule: ALLOW_PRIVATE_TARGETS=true allows every other
+address, and a host that is exactly one of OUTBOUND_ALLOWED_HOSTS (no
+wildcard, no subdomain) is allowed whatever it resolves to. Neither allows a
+link-local or a cloud metadata address (phase C9-I decided the security
+review note of C9-B: link-local has no legitimate webhook receiver, and it
+is where metadata services answer, so it joined METADATA_ADDRESSES in the
+never set).
 
 The caller connects to one of Target.addresses, not to the name again, so the
 DNS answer cannot change between the check and the connection (DNS
@@ -42,14 +45,18 @@ MAX_URL_LENGTH: Final = 2000
 # Seconds one DNS lookup may take.
 RESOLVE_TIMEOUT: Final = 5.0
 # Metadata services of the big clouds: refused even where ALLOW_PRIVATE_TARGETS
-# or OUTBOUND_ALLOWED_HOSTS allow private addresses.
+# or OUTBOUND_ALLOWED_HOSTS allow private addresses. 168.63.129.16 is the
+# Azure WireServer (a public address); fd00:ec2::/32 holds the AWS IPv6
+# metadata endpoint and the EKS Pod Identity agent.
 _METADATA = (
     "169.254.169.254",
     "169.254.170.2",
     "fd00:ec2::254",
     "100.100.100.200",
+    "168.63.129.16",
 )
 METADATA_ADDRESSES: Final = frozenset(map(ipaddress.ip_address, _METADATA))
+METADATA_NETWORKS: Final = (ipaddress.IPv6Network("fd00:ec2::/32"),)
 # IPv6 prefixes whose last 32 bits are an IPv4 address: NAT64 and SIIT.
 CARRIER_PREFIXES: Final = (
     ipaddress.IPv6Network("64:ff9b::/96"),
@@ -61,8 +68,8 @@ ADVICE: Final = (
     "ALLOW_PRIVATE_TARGETS."
 )
 NEVER: Final = (
-    "Metadata addresses are never called, whatever OUTBOUND_ALLOWED_HOSTS and "
-    "ALLOW_PRIVATE_TARGETS say."
+    "Link-local and metadata addresses are never called, whatever "
+    "OUTBOUND_ALLOWED_HOSTS and ALLOW_PRIVATE_TARGETS say."
 )
 
 type IpAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
@@ -111,12 +118,32 @@ def embedded_ipv4(address: ipaddress.IPv6Address) -> ipaddress.IPv4Address | Non
 
 
 def is_metadata(address: IpAddress) -> bool:
-    """A cloud metadata address, also inside an IPv6 address."""
+    """A cloud metadata address, also inside an IPv6 address. A zone id is
+    ignored: IPv6Address equality includes it, so fd00:ec2::254%1 would
+    otherwise not match."""
     if isinstance(address, ipaddress.IPv6Address):
+        address = ipaddress.IPv6Address(int(address))
         inner = embedded_ipv4(address)
         if inner is not None and inner in METADATA_ADDRESSES:
             return True
+        if any(address in network for network in METADATA_NETWORKS):
+            return True
     return address in METADATA_ADDRESSES
+
+
+def is_never(address: IpAddress) -> bool:
+    """An address no setting ever allows: a cloud metadata or a link-local
+    address (fe80::/10, 169.254.0.0/16, and either inside an IPv6 address).
+    Link-local is where the metadata services answer, and no webhook receiver
+    lives there, so phase C9-I refused it under ALLOW_PRIVATE_TARGETS and
+    OUTBOUND_ALLOWED_HOSTS too."""
+    if address.is_link_local:
+        return True
+    if isinstance(address, ipaddress.IPv6Address):
+        inner = embedded_ipv4(address)
+        if inner is not None and inner.is_link_local:
+            return True
+    return is_metadata(address)
 
 
 def refusal(address: IpAddress) -> str | None:
@@ -128,7 +155,7 @@ def refusal(address: IpAddress) -> str | None:
             reason = refusal(inner)
             if reason is not None:
                 return f"{reason} inside an IPv6 address"
-    if address in METADATA_ADDRESSES:
+    if is_metadata(address):
         return "a cloud metadata address"
     if address.is_unspecified:
         return "the unspecified address"
@@ -159,10 +186,14 @@ def refused_text(
 
 
 def parse_address(value: str) -> IpAddress | None:
+    """The address in value without a zone id, or None when it is a name."""
     try:
-        return ipaddress.ip_address(value)
+        address = ipaddress.ip_address(value)
     except ValueError:
         return None
+    if isinstance(address, ipaddress.IPv6Address) and address.scope_id:
+        return ipaddress.IPv6Address(int(address))
+    return address
 
 
 async def check_target(
@@ -188,6 +219,10 @@ async def check_target(
     host = (parts.hostname or "").rstrip(".")
     if not host:
         raise TargetRefused("The URL has no host.")
+    if "%" in host:
+        # An IPv6 zone ([fd00:ec2::254%1]) names an interface, never a
+        # webhook receiver, and would slip past the exact address checks.
+        raise TargetRefused("A URL may not name an IPv6 zone.")
     port = port or DEFAULT_PORTS[scheme]
     literal = parse_address(host)
     if literal is not None:
@@ -199,10 +234,11 @@ async def check_target(
         for address in addresses
         if (reason := refusal(address)) is not None
     ]
-    # A metadata address is never allowed, whatever the settings say.
-    metadata = [item for item in refused if is_metadata(item[0])]
-    if metadata:
-        address, reason = metadata[0]
+    # A link-local or metadata address is never allowed, whatever the
+    # settings say.
+    never = [item for item in refused if is_never(item[0])]
+    if never:
+        address, reason = never[0]
         raise TargetRefused(refused_text(host, literal, address, reason, NEVER))
     if not refused:
         allowed_by = "public"

@@ -154,6 +154,8 @@ class EmailKind:
     secret_targets: Collection[str] = frozenset(
         {"host", "port", "starttls", "username"}
     )
+    # The secret is sent as the secret (the relay password), not as a URL.
+    url_key: str | None = None
 
     def check_config(
         self, config: Mapping[str, Any], *, has_secret: bool

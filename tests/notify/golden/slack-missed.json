@@ -1,0 +1,26 @@
+{
+  "text": "Fictional Dental Clinic / Nightly server backup missed its run. State: ok to missed at 2027-01-05 07:30 (Europe/Lisbon) Why: The run was due at 23:00 and nothing reported by 01:00. Run due: 2027-01-04 23:00 Open the job: https://ce-dev-checkorca.theriark.dev/jobs/22222222-2222-4222-8222-222222222222 Sent by Checkorca-CE.",
+  "blocks": [
+    {
+      "type": "header",
+      "text": {
+        "type": "plain_text",
+        "text": "Checkorca-CE: Fictional Dental Clinic / Nightly server backup missed its run"
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "State: ok to missed at 2027-01-05T07:30:00Z\nWhy: The run was due at 23:00 and nothing reported by 01:00.\nRun due: 2027-01-04T23:00:00Z"
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "<https://ce-dev-checkorca.theriark.dev/jobs/22222222-2222-4222-8222-222222222222|Open the job>"
+      }
+    }
+  ]
+}

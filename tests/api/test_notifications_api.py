@@ -32,14 +32,18 @@ from helpers import (
     CSRF_HEADER,
     TECHNICIAN_EMAIL,
     TECHNICIAN_PASSWORD,
+    URL_CANARY,
     FakeClock,
+    HttpCapture,
     RelayCapture,
     another_browser,
+    http_answer,
     make_client,
     make_job,
     running,
     sign_in,
     smtp_relay,
+    validate_webhook_payload,
 )
 
 DENTAL, FREIGHT, _ = CLIENT_NAMES
@@ -172,7 +176,7 @@ async def test_channels_keep_the_secret_write_only(
 @pytest.mark.parametrize(
     ("body", "field"),
     [
-        ({"kind": "slack"}, "body.kind"),
+        ({"kind": "slack", "config": {}}, "body.config.url"),
         ({"config": EMAIL_CONFIG | {"port": "25"}}, "body.config.port"),
         ({"config": EMAIL_CONFIG | {"bcc": "x@example.com"}}, "body.config.bcc"),
         ({"config": EMAIL_CONFIG | {"username": RELAY_USER}}, "body.secret"),
@@ -541,3 +545,235 @@ async def test_jobs_say_who_acknowledged(
     async with another_browser(app) as script:
         seen = await script.get(f"/api/v1/jobs/{job['id']}", headers=bearer)
     assert seen.json()["acknowledged_by"] == {"id": str(admin.id), "email": None}
+
+
+async def make_url_channel(
+    client: httpx.AsyncClient, csrf: str, kind: str, url: str, **fields: Any
+) -> httpx.Response:
+    """POST a channel of one of the URL kinds; the URL goes in config.url."""
+    body: dict[str, Any] = {"kind": kind, "label": "Ops hook", "config": {"url": url}}
+    return await client.post(
+        "/api/v1/channels", json=body | fields, headers=headers(csrf)
+    )
+
+
+async def test_http_channels_take_the_url_in_config_and_store_it_as_the_secret(
+    db_engine: AsyncEngine,
+    clock: FakeClock,
+    admin: AppUser,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The URL of a slack, teams or webhook channel is its secret: write-only
+    (D-6), answered as url_set and url_host only, checked by the SSRF guard
+    before it is stored, and never in a log, an export, the digest or the
+    audit trail."""
+    caplog.set_level(logging.DEBUG, logger="app")
+    application = create_app(
+        load_settings(allow_private_targets=True), static_dir=None, clock=clock
+    )
+    capture = HttpCapture([http_answer(200)])
+    await capture.start()
+    try:
+        async with running(application) as api:
+            csrf = await sign_in(api, ADMIN_EMAIL, ADMIN_PASSWORD)
+            created = await make_url_channel(api, csrf, "webhook", capture.url)
+            assert created.status_code == 201, created.text
+            channel = created.json()
+            assert channel["config"] == {"url_set": True, "url_host": "127.0.0.1"}
+            assert channel["secret_label"] == "Webhook URL"
+            assert channel["secret_set"] is True and channel["secret_hint"] == MASK
+            assert URL_CANARY not in created.text
+            # Nor in the exports, the digest, the activity or the history.
+            for shown in (
+                "/api/v1/channels",
+                "/api/v1/exports/day.csv",
+                "/api/v1/exports/history.csv",
+                "/api/v1/digest/preview",
+                "/api/v1/activity",
+                "/api/v1/notifications",
+            ):
+                answer = await api.get(shown)
+                assert answer.status_code == 200 and URL_CANARY not in answer.text
+            async with db_engine.connect() as connection:
+                stored = (
+                    await connection.execute(select(Channel.secret_enc))
+                ).scalar_one()
+                audit = (
+                    (await connection.execute(select(AuditEvent.details)))
+                    .scalars()
+                    .all()
+                )
+            assert stored is not None and URL_CANARY not in stored
+            assert all(URL_CANARY not in str(details) for details in audit)
+
+            # The test send reaches the capture with the test payload, and
+            # does not change last_status (a test is not a delivery).
+            path = f"/api/v1/channels/{channel['id']}"
+            tested = await api.post(f"{path}/test", headers=headers(csrf))
+            assert tested.json() == {
+                "ok": True,
+                "detail": "The test message was delivered.",
+            }
+            (request,) = capture.requests
+            assert request.body["event"] == "test"
+            assert request.body["schema_version"] == 1
+            validate_webhook_payload(request.body)
+            assert (await api.get(path)).json()["last_status"] is None
+
+            # The label changes; the URL stays.
+            renamed = await api.patch(
+                path, json={"label": "Night hooks"}, headers=headers(csrf)
+            )
+            assert renamed.status_code == 200
+            assert renamed.json()["config"] == {
+                "url_set": True,
+                "url_host": "127.0.0.1",
+            }
+            assert renamed.json()["secret_set"] is True
+            # url_set and url_host are answers, never input: a sent value is
+            # ignored, so the host shown is always the stored URL's.
+            for config in (
+                {"url_host": "hooks.slack.com"},
+                {"url_host": None, "url_set": False},
+            ):
+                kept = await api.patch(
+                    path, json={"config": config}, headers=headers(csrf)
+                )
+                assert kept.status_code == 200, kept.text
+                assert kept.json()["config"] == {
+                    "url_set": True,
+                    "url_host": "127.0.0.1",
+                }
+            # Removing the URL is refused, as an e-mail channel without its
+            # relay host; so is an empty one, and a separate secret.
+            for body, field in (
+                ({"config": {"url": None}}, "body.config.url"),
+                ({"config": {"url": " "}}, "body.config.url"),
+                ({"secret": "https://hooks.example.com/x"}, "body.secret"),
+            ):
+                refused = await api.patch(path, json=body, headers=headers(csrf))
+                assert refused.status_code == 422, body
+                assert refused.json()["errors"][0]["field"] == field
+            # A metadata target stays refused even with private targets
+            # allowed, with the guard's sentence.
+            refused = await api.patch(
+                path,
+                json={"config": {"url": "http://169.254.169.254/latest"}},
+                headers=headers(csrf),
+            )
+            assert refused.status_code == 422
+            assert refused.json()["title"] == "Target refused"
+            assert refused.json()["errors"][0]["field"] == "body.config.url"
+
+            # A new URL replaces the stored one and is checked first.
+            moved = HttpCapture([http_answer(200)])
+            await moved.start()
+            changed = await api.patch(
+                path, json={"config": {"url": moved.url}}, headers=headers(csrf)
+            )
+            assert changed.status_code == 200, changed.text
+            assert changed.json()["config"] == {
+                "url_set": True,
+                "url_host": "127.0.0.1",
+            }
+            async with db_engine.connect() as connection:
+                again = (
+                    await connection.execute(select(Channel.secret_enc))
+                ).scalar_one()
+            assert again != stored and URL_CANARY not in again
+            tested_again = await api.post(f"{path}/test", headers=headers(csrf))
+            assert tested_again.json()["ok"] is True
+            assert len(capture.requests) == 1 and len(moved.requests) == 1
+            await moved.stop()
+            deleted = await api.delete(path, headers=headers(csrf))
+            assert deleted.status_code == 204
+    finally:
+        await capture.stop()
+    assert URL_CANARY not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("url", "title", "words"),
+    [
+        ("http://10.0.0.5/", "Target refused", "10.0.0.5 is a private address"),
+        ("http://127.0.0.1/", "Target refused", "127.0.0.1 is a loopback address"),
+        ("http://169.254.169.254/latest", "Target refused", "never called"),
+        ("http://[::1]/", "Target refused", "::1 is a loopback address"),
+        ("https://[fd00::]/", "Target refused", "fd00:: is a private address"),
+        ("ftp://hooks.example.com/x", "Invalid channel settings", "http:// or https"),
+        (
+            "https://user:pass@hooks.example.com/",
+            "Invalid channel settings",
+            "user name or password",
+        ),
+    ],
+)
+async def test_creating_a_channel_refuses_what_the_guard_refuses(
+    client: httpx.AsyncClient, csrf: str, url: str, title: str, words: str
+) -> None:
+    """A target the guard refuses is never stored, whatever the kind."""
+    for kind in ("webhook", "slack", "teams"):
+        refused = await make_url_channel(client, csrf, kind, url)
+        assert refused.status_code == 422, (kind, url)
+        assert refused.json()["title"] == title
+        assert words in refused.json()["detail"]
+        assert refused.json()["errors"][0]["field"] == "body.config.url"
+    none_left = await client.get("/api/v1/channels")
+    assert none_left.json()["items"] == []
+
+
+async def test_a_public_target_and_an_allowed_host_can_be_stored(
+    db_engine: AsyncEngine, clock: FakeClock, admin: AppUser
+) -> None:
+    """A public literal address stores (never sent to); OUTBOUND_ALLOWED_HOSTS
+    is the narrow way to a private one."""
+    application = create_app(
+        load_settings(outbound_allowed_hosts="10.0.0.5"), static_dir=None, clock=clock
+    )
+    async with running(application) as api:
+        csrf = await sign_in(api, ADMIN_EMAIL, ADMIN_PASSWORD)
+        for kind, url in (
+            ("webhook", "http://93.184.215.14/hook"),
+            ("slack", "http://10.0.0.5/hook"),
+        ):
+            created = await make_url_channel(api, csrf, kind, url)
+            assert created.status_code == 201, created.text
+            assert created.json()["config"]["url_host"] in ("93.184.215.14", "10.0.0.5")
+            deleted = await api.delete(
+                f"/api/v1/channels/{created.json()['id']}", headers=headers(csrf)
+            )
+            assert deleted.status_code == 204
+
+
+async def test_a_stored_target_the_guard_now_refuses_fails_the_test_readably(
+    db_engine: AsyncEngine, clock: FakeClock, admin: AppUser
+) -> None:
+    """A URL stored while private targets were allowed, tested after the
+    operator turned that off: 422 Target refused with the guard's sentence,
+    recorded as a failed test, nothing sent and no part of the path shown."""
+    allowed = create_app(
+        load_settings(allow_private_targets=True), static_dir=None, clock=clock
+    )
+    async with running(allowed) as api:
+        csrf = await sign_in(api, ADMIN_EMAIL, ADMIN_PASSWORD)
+        created = await make_url_channel(
+            api, csrf, "webhook", "http://10.0.0.5/hook-canary-path"
+        )
+        assert created.status_code == 201, created.text
+    path = f"/api/v1/channels/{created.json()['id']}"
+    strict = create_app(load_settings(), static_dir=None, clock=clock)
+    async with running(strict) as api:
+        csrf = await sign_in(api, ADMIN_EMAIL, ADMIN_PASSWORD)
+        tested = await api.post(f"{path}/test", headers=headers(csrf))
+        assert (await api.get(path)).json()["last_status"] is None
+    assert tested.status_code == 422
+    problem = tested.json()
+    assert problem["title"] == "Target refused"
+    assert "10.0.0.5 is a private address" in problem["detail"]
+    assert problem["errors"] == [{"field": "config.url", "message": problem["detail"]}]
+    assert "hook-canary-path" not in tested.text
+    async with db_engine.connect() as connection:
+        query = select(AuditEvent.details).where(AuditEvent.action == "channel.test")
+        tests = (await connection.execute(query)).scalars().all()
+    assert [item["ok"] for item in tests] == [False]
+    assert all("hook-canary-path" not in str(item) for item in tests)

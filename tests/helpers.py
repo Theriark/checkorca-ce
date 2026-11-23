@@ -2,13 +2,17 @@
 
 import asyncio
 import base64
+import json
 import os
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import httpx
+import jsonschema
 from aiosmtpd.smtp import SMTP, AuthResult, Envelope, LoginPassword, Session
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
@@ -344,3 +348,100 @@ async def smtp_relay(
     finally:
         server.close()
         await server.wait_closed()
+
+
+def http_answer(status: int = 200) -> bytes:
+    """The bytes of a minimal HTTP answer with the given status."""
+    text = {302: "Found", 404: "Not Found", 500: "Internal Server Error"}.get(
+        status, "OK"
+    )
+    return (
+        f"HTTP/1.1 {status} {text}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+    ).encode()
+
+
+# The secret part of a webhook URL: its path. url_host (the host) is shown,
+# so a leak check looks for this path, never for the whole URL.
+URL_CANARY = "/services/T000/B000/secret-secret"
+WEBHOOK_SCHEMA = Path(__file__).parents[1] / "docs" / "webhook-payload.schema.json"
+
+
+def validate_webhook_payload(body: dict[str, Any]) -> None:
+    """A webhook body as sent follows the published contract (payload v1)."""
+    schema = json.loads(WEBHOOK_SCHEMA.read_text())
+    jsonschema.Draft202012Validator(schema).validate(body)
+
+
+@dataclass(slots=True)
+class HttpRequest:
+    """One request the HTTP capture server saw."""
+
+    line: str
+    headers: list[str]
+    body: dict[str, Any]
+
+
+class HttpCapture:
+    """A scripted HTTP server on 127.0.0.1 for the webhook channel kinds: it
+    answers the given responses in order (the last repeats), keeps every
+    request it saw, and talks to nothing else. With hang it answers nothing
+    at all, until the client gives up and closes."""
+
+    def __init__(self, responses: Sequence[bytes], *, hang: bool = False) -> None:
+        self.responses = tuple(responses)
+        self.hang = hang
+        self.requests: list[HttpRequest] = []
+        self.port = 0
+        self._server: asyncio.Server | None = None
+
+    async def start(self) -> None:
+        self._server = await asyncio.start_server(self._handle, "127.0.0.1", 0)
+        self.port = self._server.sockets[0].getsockname()[1]
+
+    async def stop(self) -> None:
+        assert self._server is not None
+        self._server.close()
+        await self._server.wait_closed()
+
+    @property
+    def url(self) -> str:
+        """A URL with a secret-looking path, as a webhook channel stores it."""
+        return f"http://127.0.0.1:{self.port}{URL_CANARY}"
+
+    async def _handle(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        try:
+            line = await asyncio.wait_for(reader.readline(), timeout=5)
+            head: list[str] = []
+            length = 0
+            while True:
+                header = await asyncio.wait_for(reader.readline(), timeout=5)
+                if header in (b"\r\n", b""):
+                    break
+                head.append(header.decode("ascii", "replace").rstrip("\r\n"))
+                if header.lower().startswith(b"content-length:"):
+                    length = int(header.split(b":", 1)[1])
+            body = await asyncio.wait_for(reader.readexactly(length), timeout=5)
+            if self.hang:
+                await reader.read()
+                return
+            # Recorded before the answer, so a client that read the status
+            # line already sees its request in self.requests.
+            self.requests.append(
+                HttpRequest(
+                    line=line.decode("ascii", "replace").rstrip("\r\n"),
+                    headers=head,
+                    body=json.loads(body) if body else {},
+                )
+            )
+            index = min(len(self.requests) - 1, len(self.responses) - 1)
+            writer.write(self.responses[index])
+            await writer.drain()
+        except (TimeoutError, ConnectionError, asyncio.IncompleteReadError):
+            pass
+        finally:
+            try:
+                writer.close()
+            except OSError:
+                pass

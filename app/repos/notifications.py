@@ -38,6 +38,7 @@ from app.db.models import (
     Flip,
     Job,
     Notification,
+    Occurrence,
 )
 from app.repos.base import Repository, guarded
 
@@ -252,11 +253,14 @@ class NotificationRow:
 
 @dataclass(frozen=True, slots=True)
 class FlipRow:
-    """A flip with the names of its job and client."""
+    """A flip with the names of its job and client, the job's kind and the
+    deadline of the occurrence that caused it (the webhook payload of C9-I)."""
 
     flip: Flip
     job_name: str
+    job_kind: str
     client_name: str
+    deadline: datetime | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -395,18 +399,33 @@ class NotificationRepository(Repository):
 
     @guarded("read")
     async def flip(self, principal: Principal, flip_id: uuid.UUID) -> FlipRow | None:
-        """The flip with the names of its job and client."""
+        """The flip with the names of its job and client, the job's kind and
+        the deadline of the occurrence that caused it (None when the flip has
+        no occurrence or it is gone)."""
         query = (
-            select(Flip, Job.name, Client.name)
+            select(Flip, Job.name, Job.kind, Client.name, Occurrence.deadline)
             .join(Job, Job.id == Flip.job_id)
             .join(Client, Client.id == Flip.client_id)
+            .outerjoin(
+                Occurrence,
+                and_(
+                    Occurrence.job_id == Flip.job_id,
+                    Occurrence.scheduled_for == Flip.scheduled_for,
+                ),
+            )
             .where(Flip.id == flip_id)
         )
         query = self.policy.scope(principal, self.resource, query)
         row = (await self.db.execute(query)).one_or_none()
         if row is None:
             return None
-        return FlipRow(flip=row[0], job_name=row[1], client_name=row[2])
+        return FlipRow(
+            flip=row[0],
+            job_name=row[1],
+            job_kind=row[2],
+            client_name=row[3],
+            deadline=row[4],
+        )
 
     @guarded("list")
     async def digest_channels(

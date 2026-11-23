@@ -51,7 +51,14 @@ from app.security.crypto import MASK
 from app.security.tokens import new_ping_token
 from app.settings import load_settings
 from app.worker.loop import WorkerContext, build_context
-from helpers import CLIENT_NAMES, FakeClock
+from helpers import (
+    CLIENT_NAMES,
+    URL_CANARY,
+    FakeClock,
+    HttpCapture,
+    http_answer,
+    validate_webhook_payload,
+)
 
 DENTAL, FREIGHT, _ = CLIENT_NAMES
 NIGHTLY = "Nightly server backup"
@@ -654,3 +661,149 @@ async def test_no_reminder_for_an_acknowledged_or_recovered_job(
     await tick(context)
     events = sorted(message.event for message in kind.sent)
     assert events == ["missed", "missed", "recovered"]
+
+
+@pytest.fixture
+async def http_context(
+    db_engine: AsyncEngine, clock: FakeClock
+) -> AsyncIterator[WorkerContext]:
+    """The worker with the real channel kinds (default_kinds), private
+    targets allowed so the kinds deliver to the capture server on 127.0.0.1
+    and to nothing beyond it."""
+    built = build_context(load_settings(allow_private_targets=True), clock)
+    yield built
+    await built.engine.dispose()
+
+
+async def add_http_channel(
+    context: WorkerContext, kind_name: str, url: str, label: str = "Ops hook"
+) -> Channel:
+    """A channel of one of the HTTP kinds at url, the url its stored secret
+    and the stored config the API would keep (url_set and url_host only)."""
+    async with context.sessionmaker() as db:
+        channel = await ChannelRepository(db, context.policy).create(
+            SYSTEM,
+            kind=kind_name,
+            label=label,
+            now=context.clock.now(),
+            config={"url_set": True, "url_host": "127.0.0.1"},
+            secret_enc=context.secret_box.encrypt(url),
+        )
+        await db.commit()
+    return channel
+
+
+async def test_the_http_kinds_deliver_one_notification_each(
+    http_context: WorkerContext,
+    db_engine: AsyncEngine,
+    clock: FakeClock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The C9-B dispatcher works unchanged for slack, teams and webhook: one
+    notification per flip per channel, delivered through the SSRF guard, and
+    NotificationSent after the commit."""
+    caplog.set_level(logging.DEBUG, logger="app")
+    recorder = Recorder(db_engine)
+    context = dataclasses.replace(
+        http_context, subscribers=(*http_context.subscribers, recorder)
+    )
+    capture = HttpCapture([http_answer(200)])
+    await capture.start()
+    try:
+        dental = await add_client(context)
+        job = await add_job(context, dental)
+        channels = [
+            await add_http_channel(context, name, capture.url, f"Ops {name}")
+            for name in ("webhook", "slack", "teams")
+        ]
+        for channel in channels:
+            await add_rule(context, channel, ["missed"])
+        at(clock, MISSED_AT)
+        await tick(context)
+        rows = await notifications(db_engine)
+        assert {row.channel_id for row in rows} == {c.id for c in channels}
+        assert {(row.status, row.attempts, row.event) for row in rows} == {
+            ("sent", 1, "missed")
+        }
+        # A second tick queues and sends nothing new.
+        await tick(context)
+        assert len(await notifications(db_engine)) == 3
+        # The wire: one request per kind, and the webhook payload is v1.
+        assert len(capture.requests) == 3
+        payloads = [request.body for request in capture.requests]
+        (webhook,) = [body for body in payloads if "schema_version" in body]
+        (slack,) = [body for body in payloads if "blocks" in body]
+        (teams,) = [body for body in payloads if "@type" in body]
+        assert webhook["event"] == "missed" and webhook["schema_version"] == 1
+        validate_webhook_payload(webhook)
+        assert webhook["product"] == "Checkorca-CE"
+        assert webhook["state"] == "missed" and webhook["previous_state"] == "unknown"
+        assert webhook["job"] == {
+            "id": str(job.id),
+            "name": NIGHTLY,
+            "kind": "backup",
+        }
+        assert webhook["client"] == {"id": str(dental.id), "name": DENTAL}
+        # The deadline of the occurrence that caused the flip (the new field).
+        assert webhook["occurrence"]["scheduled_for"] is not None
+        assert webhook["occurrence"]["deadline"] is not None
+        assert webhook["url"] == f"http://localhost:8080/jobs/{job.id}"
+        assert slack["blocks"][0]["type"] == "header"
+        assert teams["@type"] == "MessageCard"
+        # NotificationSent once per channel, after the commit.
+        assert {event.status for event, _ in recorder.sent} == {"sent"}
+        assert {event.channel_id for event, _ in recorder.sent} == {
+            c.id for c in channels
+        }
+        async with context.sessionmaker() as db:
+            pending, failed = await NotificationRepository(
+                db, context.policy
+            ).queue_counts(SYSTEM, failed_since=clock.now())
+        assert (pending, failed) == (0, 0)
+        stored = await stored_channel(db_engine, channels[0])
+        assert stored.last_status == "sent" and stored.last_error is None
+        # The stored secret is the ciphertext of the URL, and neither the
+        # worker's log nor a stored sentence carries its path (D-6).
+        assert URL_CANARY not in (stored.secret_enc or "")
+        assert URL_CANARY not in caplog.text
+    finally:
+        await capture.stop()
+
+
+async def test_a_failing_webhook_retries_on_the_ladder(
+    http_context: WorkerContext, db_engine: AsyncEngine, clock: FakeClock
+) -> None:
+    """A webhook that answers 500 retries after 1, 5 and 30 minutes like any
+    channel, and delivers when the receiver mends."""
+    context = http_context
+    capture = HttpCapture([http_answer(500)])
+    await capture.start()
+    try:
+        await add_job(context, await add_client(context))
+        channel = await add_http_channel(context, "webhook", capture.url)
+        await add_rule(context, channel, ["missed"])
+        at(clock, MISSED_AT)
+        await tick(context)
+        (row,) = await notifications(db_engine)
+        assert (row.status, row.attempts) == ("retrying", 1)
+        assert row.error == "The target answered 500."
+        assert row.next_attempt_at == MISSED_AT + timedelta(minutes=1)
+        # One second early: nothing happens.
+        clock.advance(seconds=59)
+        await tick(context)
+        assert len(capture.requests) == 1
+        clock.advance(seconds=1)
+        await tick(context)
+        (row,) = await notifications(db_engine)
+        assert (row.status, row.attempts) == ("retrying", 2)
+        assert row.next_attempt_at == clock.now() + timedelta(minutes=5)
+        # The receiver mends: the third attempt delivers.
+        capture.responses = (http_answer(200),)
+        clock.advance(minutes=5)
+        await tick(context)
+        (row,) = await notifications(db_engine)
+        assert (row.status, row.attempts, row.sent_at) == ("sent", 3, clock.now())
+        assert len(capture.requests) == 3
+        assert (await stored_channel(db_engine, channel)).last_status == "sent"
+    finally:
+        await capture.stop()

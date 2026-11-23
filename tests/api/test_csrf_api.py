@@ -116,6 +116,14 @@ def test_the_route_list_is_complete() -> None:
         ("POST", "/api/v1/packs/{pack_id}/disable"),
         ("POST", "/api/v1/unmatched/{result_id}/assign"),
         ("POST", "/api/v1/unmatched/{result_id}/create-job"),
+        ("POST", "/api/v1/channels"),
+        ("POST", "/api/v1/channels/check-url"),
+        ("PATCH", "/api/v1/channels/{channel_id}"),
+        ("DELETE", "/api/v1/channels/{channel_id}"),
+        ("POST", "/api/v1/channels/{channel_id}/test"),
+        ("POST", "/api/v1/channel-rules"),
+        ("PATCH", "/api/v1/channel-rules/{rule_id}"),
+        ("DELETE", "/api/v1/channel-rules/{rule_id}"),
     }
 
 

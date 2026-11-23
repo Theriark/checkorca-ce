@@ -1,7 +1,9 @@
 """The SSRF guard (app/security/ssrf.py): http and https only; private,
-loopback, link-local and metadata addresses refused after DNS resolution,
-unless ALLOW_PRIVATE_TARGETS or an exact OUTBOUND_ALLOWED_HOSTS entry allows
-them. DNS answers come from a fake resolver; no request leaves the test."""
+loopback and metadata addresses refused after DNS resolution, unless
+ALLOW_PRIVATE_TARGETS or an exact OUTBOUND_ALLOWED_HOSTS entry allows them.
+Link-local and metadata addresses are never allowed (phase C9-I decided the
+C9-B security review note). DNS answers come from a fake resolver; no request
+leaves the test."""
 
 import ipaddress
 from collections.abc import Mapping, Sequence
@@ -149,19 +151,49 @@ async def test_allow_private_targets_allows_every_address() -> None:
         await check("ftp://10.0.0.5/", allow_private=True)
 
 
-async def test_metadata_addresses_are_never_allowed() -> None:
-    """Neither setting opens a cloud metadata service to a webhook URL."""
-    allowed = frozenset({"169.254.169.254", "metadata.example.com"})
+async def test_link_local_and_metadata_are_never_allowed() -> None:
+    """Neither setting opens a cloud metadata service, or anything else on
+    link-local, to a webhook URL (phase C9-I)."""
+    allowed = frozenset({"169.254.169.254", "metadata.example.com", "169.254.0.1"})
     for url in (
         "http://169.254.169.254/latest/meta-data/",
         "http://100.100.100.200/",
         "http://[::ffff:169.254.169.254]/",
+        "http://169.254.0.1/hook",
+        "http://[fe80::1]/",
+        # Link-local inside an IPv6 address (mapped, NAT64) too.
+        "http://[::ffff:169.254.0.1]/",
+        "http://[64:ff9b::a9fe:1]/",
     ):
         with pytest.raises(TargetRefused, match="never called") as refused:
             await check(url, allow_private=True, allowed=allowed)
         assert "meta-data" not in str(refused.value)
     with pytest.raises(TargetRefused, match="resolves to 169.254.169.254"):
         await check("http://metadata.example.com/", allow_private=True, allowed=allowed)
+
+
+async def test_the_azure_and_aws_v6_metadata_services_are_never_allowed() -> None:
+    """The Azure WireServer is a public address and fd00:ec2::/32 a private
+    range; both stay refused under either setting."""
+    allowed = frozenset({"168.63.129.16"})
+    for url in (
+        "http://168.63.129.16/machine",
+        "http://[::ffff:168.63.129.16]/",
+        "http://[fd00:ec2::254]/",
+        "http://[fd00:ec2::23]/",
+    ):
+        with pytest.raises(TargetRefused, match="never called"):
+            await check(url, allow_private=True, allowed=allowed)
+
+
+async def test_an_ipv6_zone_is_refused() -> None:
+    """IPv6Address equality includes the zone, so fd00:ec2::254%1 would not
+    match the metadata set; a URL naming a zone is refused outright."""
+    for url in ("http://[fd00:ec2::254%1]/", "http://[fd00:ec2::254%251]/"):
+        with pytest.raises(TargetRefused, match="may not name an IPv6 zone"):
+            await check(url, allow_private=True, allowed=frozenset())
+    zoned = ipaddress.ip_address("fd00:ec2::254%1")
+    assert refusal(zoned) == "a cloud metadata address"
 
 
 async def test_a_slow_or_empty_resolver_is_a_refusal() -> None:
