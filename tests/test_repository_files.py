@@ -25,6 +25,7 @@ RUNTIME = [
     ("BASE_URL", "base_url", None),
     ("ROLE", "literal", "all"),
     ("METRICS_TOKEN", "token24", None),
+    ("EXTERNAL_HEARTBEAT_URL", "literal", ""),
     ("ALLOW_PRIVATE_TARGETS", "literal", "false"),
     ("FORWARDED_ALLOW_IPS", "literal", FORWARDED_ALLOW_IPS),
     ("DEV_SEED", "literal", "1"),

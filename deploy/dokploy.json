@@ -8,6 +8,7 @@
     {"name": "BASE_URL", "kind": "base_url"},
     {"name": "ROLE", "kind": "literal", "value": "all"},
     {"name": "METRICS_TOKEN", "kind": "token24"},
+    {"name": "EXTERNAL_HEARTBEAT_URL", "kind": "literal", "value": ""},
     {"name": "ALLOW_PRIVATE_TARGETS", "kind": "literal", "value": "false"},
     {"name": "FORWARDED_ALLOW_IPS", "kind": "literal", "value": "172.31.1.0/24,172.17.0.1"},
     {"name": "DEV_SEED", "kind": "literal", "value": "1"},

@@ -43,6 +43,8 @@ from app.ingest.smtp import SmtpReceiver
 from app.notify.digest import DigestRenderer
 from app.notify.dispatcher import NotificationQueue, dispatch_notifications
 from app.notify.registry import default_kinds
+from app.ops.heartbeat import external_heartbeat
+from app.ops.retention import RetentionPurge
 from app.repos.heartbeat import HeartbeatRepository
 from app.security.crypto import SecretBox
 from app.seed.demo import seed_demo_data
@@ -105,12 +107,16 @@ type ReceiverFactory = Callable[[WorkerContext], Receiver]
 # before anything else (DEV_DEMO_DATA=1 only); C5-B: parse pending messages;
 # C7-B: evaluate the jobs (after the parse, so new results count at once);
 # C9-B: queue the digest and reminders and send what is due (after the
-# evaluator, so a flip of this tick is sent in this tick).
+# evaluator, so a flip of this tick is sent in this tick); C10-B: the
+# retention purge, once a day, after everything that reads the rows it
+# keeps, and the external heartbeat, last, on every tick.
 TICK_HOOKS: tuple[TickHook, ...] = (
     seed_demo_data,
     parse_messages,
     evaluate_jobs,
     dispatch_notifications,
+    RetentionPurge(),
+    external_heartbeat,
 )
 # C4-I: the SMTP listener on SMTP_PORT and the IMAP poller.
 RECEIVERS: tuple[ReceiverFactory, ...] = (SmtpReceiver, ImapPoller)
@@ -132,7 +138,7 @@ def build_context(settings: Settings, clock: Clock | None = None) -> WorkerConte
         sessionmaker=sessionmaker,
         clock=clock,
         policy=policy,
-        secret_box=SecretBox(settings.fernet_key.get_secret_value()),
+        secret_box=SecretBox(*settings.fernet_keys),
         subscribers=(NotificationQueue(sessionmaker, policy, clock),),
     )
 

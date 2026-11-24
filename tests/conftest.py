@@ -49,6 +49,8 @@ OPTIONAL_VARIABLES = (
     "DEV_DEMO_DATA",
     "ALLOW_PRIVATE_TARGETS",
     "OUTBOUND_ALLOWED_HOSTS",
+    "METRICS_TOKEN",
+    "EXTERNAL_HEARTBEAT_URL",
 )
 # Emptied before each database test; settings keeps its single row.
 TABLES = (
@@ -106,7 +108,9 @@ async def db_engine(migrated: None) -> AsyncIterator[AsyncEngine]:
             text(
                 "UPDATE settings SET external_heartbeat_url_enc = NULL, "
                 "demo_seeded = false, digest_timezone = 'Europe/Lisbon', "
-                "digest_time_local = '07:30', reminder_24h = false"
+                "digest_time_local = '07:30', reminder_24h = false, "
+                "retention_raw_days = 30, retention_results_days = 90, "
+                "retention_audit_days = 365"
             )
         )
     yield engine

@@ -28,6 +28,7 @@ from app.access import AccessPolicy, Principal
 from app.db.models import NAME_LENGTH
 from app.ingest import mime
 from app.ingest.results import RESULT_STATUSES, ParsedResult
+from app.ops.metrics import MESSAGES_RECEIVED, RESULTS
 from app.repos.inboxes import InboxRepository
 from app.repos.messages import RawMessageRepository
 from app.repos.results import JobResultRepository
@@ -70,6 +71,7 @@ async def store_raw(
     """
     if len(raw) > MAX_MESSAGE_BYTES:
         raise MessageTooLarge(f"a message may have at most {MAX_MESSAGE_BYTES} bytes")
+    MESSAGES_RECEIVED.inc()
     headers = mime.parse_headers(raw)
     message_id = mime.message_id(headers)
     body_sha256 = mime.content_hash(raw, headers)
@@ -192,4 +194,5 @@ async def record_result(
         run_id=_text(result.run_id, "run_id"),
         details=_details(dict(result.details)),
     )
+    RESULTS.labels(status=result.status).inc()
     return row.id

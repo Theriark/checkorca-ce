@@ -989,6 +989,26 @@ export interface paths {
         };
       };
     };
+    delete: {
+      /** Delete Message */
+      parameters: {
+        query: never;
+        path: {
+          message_id: string;
+        };
+      };
+      requestBody?: never;
+      responses: {
+        "204": {
+          content: never;
+        };
+        "4XX": {
+          content: {
+            "application/problem+json": components["schemas"]["Problem"];
+          };
+        };
+      };
+    };
   };
   "/api/v1/results": {
     get: {
@@ -2166,6 +2186,23 @@ export interface paths {
       };
     };
   };
+  "/metrics": {
+    get: {
+      /** Metrics */
+      parameters: {
+        query: never;
+        path: never;
+      };
+      requestBody?: never;
+      responses: {
+        "200": {
+          content: {
+            "application/json": Record<string, unknown>;
+          };
+        };
+      };
+    };
+  };
 }
 
 export interface components {
@@ -3088,6 +3125,7 @@ export type operations = {
   rotate_inbox_token_api_v1_inboxes__inbox_id__token_post: paths["/api/v1/inboxes/{inbox_id}/token"]["post"];
   list_messages_api_v1_messages_get: paths["/api/v1/messages"]["get"];
   get_message_api_v1_messages__message_id__get: paths["/api/v1/messages/{message_id}"]["get"];
+  delete_message_api_v1_messages__message_id__delete: paths["/api/v1/messages/{message_id}"]["delete"];
   list_results_api_v1_results_get: paths["/api/v1/results"]["get"];
   create_result_api_v1_results_post: paths["/api/v1/results"]["post"];
   list_job_results_api_v1_jobs__job_id__results_get: paths["/api/v1/jobs/{job_id}/results"]["get"];
@@ -3135,4 +3173,5 @@ export type operations = {
   list_notifications_api_v1_notifications_get: paths["/api/v1/notifications"]["get"];
   get_settings_api_v1_settings_get: paths["/api/v1/settings"]["get"];
   update_settings_api_v1_settings_patch: paths["/api/v1/settings"]["patch"];
+  metrics_metrics_get: paths["/metrics"]["get"];
 };

@@ -44,7 +44,11 @@ A job's ping URL holds its ping token, which alone lets a script report results 
 
 ## Stored credentials
 
-Columns ending in `_enc` hold Fernet ciphertext made with `FERNET_KEY` (`app/security/crypto.py`). The API never returns a stored credential, at most a masked hint (`****` and the last four characters). The first is `settings.external_heartbeat_url_enc` (used from phase C10).
+Columns ending in `_enc` hold Fernet ciphertext made with `FERNET_KEY` (`app/security/crypto.py`). The API never returns a stored credential, at most a masked hint (`****` and the last four characters). The first is `settings.external_heartbeat_url_enc`, the stored form of an admin-set dead-man URL of a later phase; the phase C10 watcher reads the `EXTERNAL_HEARTBEAT_URL` deployment setting instead (docs/ci-cd.md).
+
+### FERNET_KEY rotation (C10-B)
+
+`FERNET_KEY` may name several keys, comma-separated: every key decrypts, the first encrypts. To rotate: generate a new key, put `FERNET_KEY` as `new,old` (the new one first), deploy or restart with it, run `python -m app rotate-fernet`, and once it answers `rotated N stored credential(s)` set `FERNET_KEY` to the new key alone and restart. The command re-encrypts every `_enc` column in one transaction and prints only counts, never a key or a secret value; a row no named key can read refuses it with exit code 2 and changes nothing (an old key is still missing). While both keys are named, the server reads old and new rows alike, so the swap is never visible.
 
 ## Access layer
 

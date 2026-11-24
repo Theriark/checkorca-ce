@@ -1,8 +1,16 @@
 """Settings: required variables, validation, and no values in errors."""
 
+import base64
+
 import pytest
 
-from app.settings import Settings, SettingsError, get_settings, load_settings
+from app.settings import (
+    Settings,
+    SettingsError,
+    get_settings,
+    known_secrets,
+    load_settings,
+)
 
 
 def test_missing_secret_key_fails(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -112,3 +120,55 @@ def test_invalid_mail_domain_fails(monkeypatch: pytest.MonkeyPatch, value: str) 
     monkeypatch.setenv("MAIL_DOMAIN", value)
     with pytest.raises(SettingsError, match="MAIL_DOMAIN"):
         load_settings()
+
+
+def test_fernet_key_accepts_rotation_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FERNET_KEY may hold the new key and the old ones it still reads
+    (phase C10 rotation): the first encrypts, comma-separated."""
+    new = base64.urlsafe_b64encode(bytes(32)).decode()
+    old = base64.urlsafe_b64encode(b"\x01" * 32).decode()
+    monkeypatch.setenv("FERNET_KEY", f" {new} , {old} ")
+    settings = load_settings()
+    assert settings.fernet_keys == (new, old)
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["new-key-only,not-base64!", "one-valid,one-short"],
+)
+def test_invalid_rotation_fernet_key_fails(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv("FERNET_KEY", value)
+    with pytest.raises(SettingsError, match="FERNET_KEY"):
+        load_settings()
+
+
+def test_operations_settings_default_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    """METRICS_TOKEN and EXTERNAL_HEARTBEAT_URL are optional secrets: empty
+    by default (no metrics access, no heartbeat watcher), never in repr."""
+    settings = load_settings()
+    assert settings.metrics_token.get_secret_value() == ""
+    assert settings.external_heartbeat_url.get_secret_value() == ""
+    monkeypatch.setenv("METRICS_TOKEN", "ci-metrics-token")
+    monkeypatch.setenv("EXTERNAL_HEARTBEAT_URL", "https://dead-man.example.com/ping")
+    settings = load_settings()
+    assert settings.metrics_token.get_secret_value() == "ci-metrics-token"
+    assert (
+        settings.external_heartbeat_url.get_secret_value()
+        == "https://dead-man.example.com/ping"
+    )
+    text = repr(settings) + str(settings)
+    assert "ci-metrics-token" not in text
+    assert "dead-man" not in text
+
+
+def test_known_secrets_cover_the_operations_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The log redaction knows both operations secrets (D-6)."""
+    monkeypatch.setenv("METRICS_TOKEN", "ci-metrics-token")
+    monkeypatch.setenv("EXTERNAL_HEARTBEAT_URL", "https://dead-man.example.com/ping")
+    values = known_secrets(load_settings())
+    assert "ci-metrics-token" in values
+    assert "https://dead-man.example.com/ping" in values

@@ -51,7 +51,7 @@ Licence allow-list for runtime dependencies (rnd-report-2 5.1): MIT, BSD-2-Claus
 - Frontend in `frontend/` with `package-lock.json` and the npm scripts `lint`, `typecheck`, `test`, `e2e`, `licence:audit`.
 - The image takes the build argument `REVISION`, runs as a non-root user, serves `/healthz` and `/readyz` on port 8080 and reports `revision` in the `/healthz` JSON.
 - `docker-compose.yml` (web on 8080, worker on 2525, PostgreSQL 16 with the volume `pgdata`) reads `POSTGRES_PASSWORD`, `SECRET_KEY`, `FERNET_KEY` and `BASE_URL` from `.env`; the compose smoke test generates throwaway values for each run.
-- Runtime settings as declared in `deploy/dokploy.json`: `SECRET_KEY`, `FERNET_KEY`, `DATABASE_URL` (asyncpg), `BASE_URL`, `ROLE` (`all` runs web and worker in one container), `METRICS_TOKEN`, `ALLOW_PRIVATE_TARGETS` (`false`), `FORWARDED_ALLOW_IPS` (`172.31.1.0/24,172.17.0.1`: dokploy-network, which Traefik connects from, and the Docker bridge gateway Traefik records for the cloudflared tunnel; a per-client address also needs Traefik to trust the tunnel hop, a host setting outside this repository; see `docs/auth.md`), the Development seed `DEV_SEED`, `DEV_SEED_ACCOUNTS`, `DEV_SEED_PASSWORD_ADMIN`, `DEV_SEED_PASSWORD_TECHNICIAN`, and `DEV_DEMO_DATA`. Code defaults, not declared: `PORT` 8080, `SMTP_PORT` 2525, `LOG_LEVEL` info.
+- Runtime settings as declared in `deploy/dokploy.json`: `SECRET_KEY`, `FERNET_KEY`, `DATABASE_URL` (asyncpg), `BASE_URL`, `ROLE` (`all` runs web and worker in one container), `METRICS_TOKEN` (the bearer token `/metrics` answers; empty refuses every scrape), `EXTERNAL_HEARTBEAT_URL` (the dead-man URL the worker GETs every minute through the SSRF guard; empty, the default, keeps the watcher off), `ALLOW_PRIVATE_TARGETS` (`false`), `FORWARDED_ALLOW_IPS` (`172.31.1.0/24,172.17.0.1`: dokploy-network, which Traefik connects from, and the Docker bridge gateway Traefik records for the cloudflared tunnel; a per-client address also needs Traefik to trust the tunnel hop, a host setting outside this repository; see `docs/auth.md`), the Development seed `DEV_SEED`, `DEV_SEED_ACCOUNTS`, `DEV_SEED_PASSWORD_ADMIN`, `DEV_SEED_PASSWORD_TECHNICIAN`, and `DEV_DEMO_DATA`. Code defaults, not declared: `PORT` 8080, `SMTP_PORT` 2525, `LOG_LEVEL` info.
 
 ## Deployment wiring
 
@@ -74,6 +74,14 @@ Licence allow-list for runtime dependencies (rnd-report-2 5.1): MIT, BSD-2-Claus
 | `GITHUB_TOKEN` | built in | every run | GitHub |
 
 CI on pull requests needs no secret.
+
+## Metrics (C10-B)
+
+`GET /metrics` (Prometheus text format, `app/ops/metrics.py`) answers six `checkorca_` metrics: `checkorca_messages_received_total` (accepted messages on every channel, duplicates included), `checkorca_results_total{status}`, `checkorca_unmatched`, `checkorca_evaluator_lag_seconds`, `checkorca_notification_failures_total` (final failures after the retry ladder) and `checkorca_heartbeat_age_seconds` (`NaN` before the first tick). The gauges are read from the database on every scrape; the counters live in the process that does the work, so `ROLE=all` (the Dokploy default) shows them all, while the Docker Compose install runs web and worker in two containers and its scrapes see the web side only. Scrape with `Authorization: Bearer <METRICS_TOKEN>`: a missing or wrong token answers 401, and so does every scrape while `METRICS_TOKEN` is empty (the safe default). The token is a secret and never appears in a log line.
+
+## External heartbeat (C10-B)
+
+With `EXTERNAL_HEARTBEAT_URL` set, the worker GETs that URL once every tick (about every minute) while it holds the lock, through the same SSRF guard as the webhook channels (`app/security/ssrf.py`): only public targets unless `ALLOW_PRIVATE_TARGETS` or `OUTBOUND_ALLOWED_HOSTS` allows the host. Point it at a dead-man service (healthchecks.io and the like): the service alerts when Checkorca's pings stop. An empty URL (the default) keeps the watcher off. The URL usually carries its own token in its query, so it is a secret: it never appears in a log line, and a refused target or a failed GET is logged as one readable sentence that names no part of the URL after the host (`app/ops/heartbeat.py`).
 
 ## Rollback
 

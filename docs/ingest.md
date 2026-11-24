@@ -119,6 +119,10 @@ RECEIVERS: tuple[ReceiverFactory, ...] = (SmtpReceiver, ImapPoller)
 
 IMAP: decrypt with `context.secret_box.decrypt(inbox.imap_password_enc)` only inside the poller, build `app.ext.ingest.MailboxAccount` (its repr hides the password), and acknowledge (Seen) only after `store_raw` committed. `MailboxConnector` and `ResultSource` (`app/ext/ingest.py`) are the seams EE implements later.
 
+## Retention purge (C10-B)
+
+`app/ops/retention.py`, a `TICK_HOOKS` entry that runs once a UTC day. The `RetentionPolicy` seam (`app/ext/retention.py`) turns the settings row into the cutoffs (`retention_raw_days` 30, `retention_results_days` 90, `retention_audit_days` 365): raw messages whose `purge_after` has passed, results, occurrences, flips and notifications older than the results cutoff, and audit events older than the audit cutoff. Occurrences, flips and notifications follow the results cutoff; every open occurrence stays, and per job the purge keeps the newest closed occurrence and the newest `consecutive_failures_to_alert` closed ones that are not maintenance, which the job state still reads (`docs/evaluator.md`). Results of a purged message go with it; `occurrence.result_id` becomes NULL where a kept occurrence named a purged result. The purge touches only this database, never the backups or job results of the MSP's own clients (legal D-5), and a restored backup is simply purged again by the next run.
+
 ## Receivers (C4-I)
 
 Every channel calls `accept_message` (`app/ingest/receive.py`): the 5 MB cap with at most 256 KB of headers, the inbox's sender rules, then `store_raw`. Its callers commit and only then answer 250, mark the mail Seen or answer 202. A duplicate (same Message-ID or content hash in the same inbox) counts as success and stores nothing.
@@ -170,6 +174,7 @@ A failed login or a lost connection is logged with the inbox id and the error cl
 | `POST /api/v1/results` | ingest-scope API token | `NewResult`: `status`, `job_id` or `ping_token` (404 when no job has it; not both), else `client_hint` and `job_name` (not blank); `started_at` and `finished_at` with a time zone; `run_id`; `details` (JSON object, at most 16 KiB); 422 for anything else; 202 `{result_id, job_id}`; a named result is bound at once when the matcher (C5-B) is sure of the job, else `job_id` is null and the result waits in Unmatched |
 | `GET` or `POST /api/v1/ping/{ping_token}`, `/ping/{ping_token}/start`, `/ping/{ping_token}/fail` | the ping token in the URL | records `success`, `started` or `failed` for the job with `details` `{"source": "ping"}`; 200 `text/plain` `OK`; 404 for an unknown token, 422 for a malformed one |
 | `POST /api/v1/messages/upload` | session with `X-CSRF-Token`, admin or technician | multipart `file` (the .eml, read up to 5 MiB) and `inbox_id` (any kind); 404 for an unknown inbox; the same 413 and 422 rules; audit event `message.upload`; 202 `{message_id, duplicate}` |
+| `DELETE /api/v1/messages/{message_id}` | session with `X-CSRF-Token`, admin only | deletes the message and the results it produced, bound or not (the way out of the Unmatched queue for a mail no pack should ever claim); 404 for an unknown message; audit event `message.delete` with only the id and the result count; any occurrence that named one of the results is decided again by the next evaluation (`docs/evaluator.md`); 204 |
 
 Rate limits: 120 requests a minute per API token (all its routes), per webhook inbox token and per ping URL, then 429 with `Retry-After`. Only a known credential spends a bucket, so unknown tokens cannot push real ones out of the limiter. Request bodies are capped by the middleware (`BODY_LIMITS`): 5 MiB for raw mail, 5 MiB plus 16 KiB of multipart framing for the upload, 64 KiB elsewhere.
 

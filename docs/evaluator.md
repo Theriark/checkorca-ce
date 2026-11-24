@@ -67,4 +67,4 @@ A batch that fails (a conflicting change, a SuppressionProvider error) is rolled
 
 ## Data
 
-Tables `occurrence` (key job_id and scheduled_for), `job_state` (one row per job) and `flip` (revision `c7_eval`). All three are in the client delete map, which locks the client's jobs before its steps; deleting a result sets `occurrence.result_id` to null and the next evaluation decides again. Closed occurrences stay as history; a retention purge (phase C10) must keep each job's newest closed occurrence and its newest `consecutive_failures_to_alert` closed ones that are not maintenance, which the job state still reads.
+Tables `occurrence` (key job_id and scheduled_for), `job_state` (one row per job) and `flip` (revision `c7_eval`). All three are in the client delete map, which locks the client's jobs before its steps; deleting a result sets `occurrence.result_id` to null and the next evaluation decides again. Closed occurrences stay as history; a retention purge (phase C10, `app/ops/retention.py`) must keep each job's newest closed occurrence and its newest `consecutive_failures_to_alert` closed ones that are not maintenance, which the job state still reads.

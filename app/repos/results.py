@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select, tuple_, update
+from sqlalchemy import func, select, tuple_, update
 
 from app.access import Principal
 from app.db.models import JobResult
@@ -64,6 +64,15 @@ class JobResultRepository(Repository):
             query = query.with_for_update()
         query = self.policy.scope(principal, self.resource, query)
         return (await self.db.scalars(query)).one_or_none()
+
+    @guarded("list")
+    async def unmatched_count(self, principal: Principal) -> int:
+        """How many results no job is bound to (the Unmatched queue)."""
+        query = select(func.count()).select_from(JobResult).where(
+            JobResult.job_id.is_(None)
+        )
+        query = self.policy.scope(principal, self.resource, query)
+        return int((await self.db.execute(query)).scalar_one())
 
     @guarded("list")
     async def named(

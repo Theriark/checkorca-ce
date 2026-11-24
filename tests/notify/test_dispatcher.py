@@ -333,6 +333,9 @@ async def test_the_retry_ladder_then_failed(
     clock: FakeClock,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    from app.ops.metrics import registry
+
+    before = registry.get_sample_value("checkorca_notification_failures_total")
     caplog.set_level(logging.DEBUG, logger="app")
     recorder = Recorder(db_engine)
     context = dataclasses.replace(context, subscribers=(*context.subscribers, recorder))
@@ -381,6 +384,9 @@ async def test_the_retry_ladder_then_failed(
     # The worker's log never holds the relay password either (D-6).
     assert "failed after 4 attempts" in caplog.text
     assert SECRET not in caplog.text
+    # The failure counter moved by exactly this one final failure (C10-B).
+    after = registry.get_sample_value("checkorca_notification_failures_total")
+    assert after == (before or 0.0) + 1.0
 
 
 async def test_an_unexpected_kind_error_is_stored_and_logged_without_the_secret(
