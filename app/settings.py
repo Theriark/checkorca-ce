@@ -73,6 +73,13 @@ class Settings(BaseSettings):
     # comma-separated OUTBOUND_ALLOWED_HOSTS.
     allow_private_targets: bool = False
     outbound_allowed_hosts: str = Field(default="", max_length=2000)
+    # Operations (phase C10): the bearer token /metrics answers (empty: /metrics
+    # always refuses), and the dead-man URL the worker GETs every minute
+    # through the SSRF guard (empty: the watcher is off). Both are secrets:
+    # the heartbeat URL usually carries its own, and neither may ever reach a
+    # log line (they are in known_secrets for the redaction).
+    metrics_token: SecretStr = SecretStr("")
+    external_heartbeat_url: SecretStr = SecretStr("")
 
     @field_validator("secret_key")
     @classmethod
@@ -84,12 +91,17 @@ class Settings(BaseSettings):
     @field_validator("fernet_key")
     @classmethod
     def _fernet_key_shape(cls, value: SecretStr) -> SecretStr:
-        try:
-            raw = base64.urlsafe_b64decode(value.get_secret_value().encode())
-        except (binascii.Error, ValueError):
-            raw = b""
-        if len(raw) != 32:
-            raise ValueError("must be a URL-safe base64 encoded 32-byte Fernet key")
+        keys = [key.strip() for key in value.get_secret_value().split(",")]
+        for key in keys:
+            try:
+                raw = base64.urlsafe_b64decode(key.encode())
+            except (binascii.Error, ValueError):
+                raw = b""
+            if len(raw) != 32:
+                raise ValueError(
+                    "must be one or more comma-separated URL-safe base64 encoded "
+                    "32-byte Fernet keys (the new key first, phase C10 rotation)"
+                )
         return value
 
     @field_validator("database_url")
@@ -142,13 +154,29 @@ class Settings(BaseSettings):
         names = (name.strip().lower().rstrip(".") for name in listed)
         return frozenset(name for name in names if name)
 
+    @property
+    def fernet_keys(self) -> tuple[str, ...]:
+        """FERNET_KEY as its comma-separated keys: the first encrypts, every
+        one decrypts (the rotation of phase C10, D-6; python -m app
+        rotate-fernet re-encrypts the stored secrets with the first)."""
+        text = self.fernet_key.get_secret_value()
+        return tuple(key.strip() for key in text.split(","))
+
 
 def known_secrets(settings: Settings) -> list[str]:
     """Every secret value of the settings, for the log redaction (D-6)."""
     values = [
         settings.secret_key.get_secret_value(),
         settings.fernet_key.get_secret_value(),
+        # A rotation names several keys; each is a secret of its own.
+        *settings.fernet_keys,
     ]
+    for secret in (
+        settings.metrics_token,
+        settings.external_heartbeat_url,
+    ):
+        if secret.get_secret_value():
+            values.append(secret.get_secret_value())
     try:
         password = make_url(settings.database_url.get_secret_value()).password
     except (ArgumentError, ValueError):
