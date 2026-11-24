@@ -113,3 +113,89 @@ async def test_serve_starts_and_stops_the_worker(
     await cli.serve(settings, with_worker=True)
     await cli.serve(settings, with_worker=False)
     assert ports == [18080, 18080]
+
+
+async def test_rotate_fernet_re_encrypts_and_prints_only_counts(
+    db_engine, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The command moves the stored secrets to the new key and says only how
+    many; no key or secret value reaches the output."""
+    import base64
+    from datetime import UTC, datetime
+
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app.access import AllowAllPolicy, SYSTEM
+    from app.db.models import Channel, Inbox
+    from app.repos.inboxes import InboxRepository
+    from app.repos.notifications import ChannelRepository
+    from app.security.crypto import SecretBox
+    from helpers import TEST_FERNET_KEY
+
+    old = SecretBox(TEST_FERNET_KEY)
+    new_key = base64.urlsafe_b64encode(b"\x05" * 32).decode()
+    secret = "relay-password-cli-test"
+    now = datetime(2027, 1, 4, 9, tzinfo=UTC)
+    policy = AllowAllPolicy()
+    async with async_sessionmaker(db_engine, expire_on_commit=False)() as db:
+        await InboxRepository(db, policy).create(
+            SYSTEM,
+            kind="imap",
+            label="Vendor mailbox",
+            now=now,
+            imap_host="imap.example.com",
+            imap_password_enc=old.encrypt(secret),
+        )
+        await ChannelRepository(db, policy).create(
+            SYSTEM, kind="email", label="Ops mail", now=now, config={}
+        )
+        await db.commit()
+    monkeypatch.setenv("FERNET_KEY", f"{new_key},{TEST_FERNET_KEY}")
+    assert cli.main(["rotate-fernet"]) == 0
+    out = capsys.readouterr().out
+    assert "rotated 1 stored credential(s)" in out
+    assert secret not in out
+    async with async_sessionmaker(db_engine, expire_on_commit=False)() as db:
+        inbox = (await db.scalars(select(Inbox))).one()
+        assert SecretBox(new_key).decrypt(inbox.imap_password_enc) == secret
+        channel = (await db.scalars(select(Channel))).one()
+        assert channel.secret_enc is None
+
+
+async def test_rotate_fernet_refuses_without_the_old_key(
+    db_engine,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A row the new key cannot read refuses the whole command: exit 2, a
+    readable message, nothing changed."""
+    import base64
+    from datetime import UTC, datetime
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app.access import AllowAllPolicy, SYSTEM
+    from app.repos.inboxes import InboxRepository
+    from app.security.crypto import SecretBox
+    from helpers import TEST_FERNET_KEY
+
+    old = SecretBox(TEST_FERNET_KEY)
+    new_key = base64.urlsafe_b64encode(b"\x06" * 32).decode()
+    now = datetime(2027, 1, 4, 9, tzinfo=UTC)
+    policy = AllowAllPolicy()
+    async with async_sessionmaker(db_engine, expire_on_commit=False)() as db:
+        await InboxRepository(db, policy).create(
+            SYSTEM,
+            kind="imap",
+            label="Vendor mailbox",
+            now=now,
+            imap_host="imap.example.com",
+            imap_password_enc=old.encrypt("relay-password-cli-refused"),
+        )
+        await db.commit()
+    monkeypatch.setenv("FERNET_KEY", new_key)
+    assert cli.main(["rotate-fernet"]) == 2
+    err = capsys.readouterr().err
+    assert "cannot be decrypted" in err
+    assert "relay-password-cli-refused" not in err
