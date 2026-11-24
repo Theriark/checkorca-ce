@@ -58,6 +58,7 @@ from app.notify.delivery import outbound_of, send_message
 from app.notify.digest import build_digest
 from app.notify.messages import digest_message, flip_message
 from app.notify.windows import local_date, local_moment
+from app.ops.metrics import NOTIFICATION_FAILURES
 from app.repos.notifications import ChannelRepository, NotificationRepository
 from app.repos.settings import SettingsRepository
 from app.security.crypto import SecretBoxError
@@ -463,6 +464,10 @@ class Dispatcher:
                 error=outcome.error,
             )
             await db.commit()
+            if status == "failed":
+                # After the commit: a failure the transaction did not keep
+                # is not counted.
+                NOTIFICATION_FAILURES.inc()
             if status != "retrying" and notification.flip_id is not None:
                 events.append(
                     NotificationSent(

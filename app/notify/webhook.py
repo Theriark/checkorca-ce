@@ -93,9 +93,10 @@ def status_error(code: int) -> str:
     return f"The target answered {code}."
 
 
-def build_request(target: Target, url: str, body: bytes) -> bytes:
+def build_request(target: Target, url: str, body: bytes, method: str = "POST") -> bytes:
     """The HTTP/1.1 request as bytes: the path and query of the URL, the
-    checked host in Host, no redirect followed, one JSON body."""
+    checked host in Host, no redirect followed, and the JSON content headers
+    only when the request has a body (the C10 heartbeat sends a GET)."""
     parts = urlsplit(url)
     path = parts.path or "/"
     if parts.query:
@@ -106,10 +107,15 @@ def build_request(target: Target, url: str, body: bytes) -> bytes:
     if target.port != default:
         host_header = f"{host_header}:{target.port}"
     head = (
-        f"POST {path} HTTP/1.1\r\n"
+        f"{method} {path} HTTP/1.1\r\n"
         f"Host: {host_header}\r\n"
-        "Content-Type: application/json\r\n"
-        f"Content-Length: {len(body)}\r\n"
+    )
+    if body:
+        head += (
+            "Content-Type: application/json\r\n"
+            f"Content-Length: {len(body)}\r\n"
+        )
+    head += (
         f"User-Agent: {USER_AGENT}\r\n"
         "Accept: application/json\r\n"
         "Connection: close\r\n"
@@ -161,15 +167,21 @@ async def exchange(address: str, target: Target, request: bytes) -> int:
 
 
 async def deliver(
-    target: Target, url: str, body: bytes, *, timeout: float | None = None
+    target: Target,
+    url: str,
+    body: bytes,
+    *,
+    timeout: float | None = None,
+    method: str = "POST",
 ) -> None:
-    """POST the body to the URL at its checked target; DeliveryError when it
-    did not arrive. The addresses are tried in order; a connection that
-    fails moves to the next one, everything else ends the delivery. timeout
-    defaults to REQUEST_TIMEOUT, read at call time (tests shrink it)."""
+    """POST (or GET, with no body: the C10 heartbeat) to the URL at its
+    checked target; DeliveryError when it did not arrive. The addresses are
+    tried in order; a connection that fails moves to the next one,
+    everything else ends the delivery. timeout defaults to REQUEST_TIMEOUT,
+    read at call time (tests shrink it)."""
     seconds = REQUEST_TIMEOUT if timeout is None else timeout
     try:
-        request = build_request(target, url, body)
+        request = build_request(target, url, body, method)
     except UnicodeEncodeError:
         raise DeliveryError("The URL has characters this server cannot call.") from None
     unreachable: str | None = None
