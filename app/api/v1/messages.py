@@ -1,17 +1,19 @@
-"""messages: list received messages and read one.
+"""messages: list received messages, read one, and (admin) delete one with
+its results.
 
 Every message is hostile (rnd-report-2 5.9): the detail gives its headers and
 text as plain strings for the web app to show escaped, never as HTML, and no
-attachment content. Admins and technicians, or an API token of scope read.
+attachment content. Admins and technicians, or an API token of scope read;
+the delete is admin only (session with X-CSRF-Token).
 """
 
 import asyncio
 import uuid
 from typing import Annotated, cast
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 
-from app.api.deps import DbDep, ReaderDep, ServicesDep
+from app.api.deps import AdminDep, DbDep, ReaderDep, ServicesDep, record_audit
 from app.api.pagination import (
     DEFAULT_LIMIT,
     MAX_LIMIT,
@@ -117,3 +119,36 @@ async def get_message(
         text_truncated=truncated,
         results=[ResultOut.model_validate(result) for result in results],
     )
+
+
+@router.delete("/{message_id}", status_code=204)
+async def delete_message(
+    message_id: uuid.UUID,
+    context: AdminDep,
+    request: Request,
+    services: ServicesDep,
+    db: DbDep,
+) -> None:
+    """Delete a message and the results it produced, for good (admin only).
+
+    The unmatched queue is cleared this way; the results of a bound job go
+    with their evidence, and any occurrence that named one of them is decided
+    again by the next evaluation (docs/evaluator.md).
+    """
+    messages = RawMessageRepository(db, services.policy)
+    message = await messages.get(context.principal, message_id)
+    if message is None:
+        raise ProblemError(404, "Message not found")
+    gone = await messages.delete_with_results(context.principal, message)
+    # Only the id and the count: no subject, sender or text of the message.
+    await record_audit(
+        services,
+        db,
+        request,
+        context.principal.actor,
+        "message.delete",
+        target_kind="message",
+        target_id=message_id,
+        results_deleted=gone,
+    )
+    await db.commit()

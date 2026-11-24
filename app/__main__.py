@@ -1,8 +1,11 @@
-"""Command line: python -m app {web,worker,all,migrate,seed}.
+"""Command line: python -m app {web,worker,all,migrate,seed,rotate-fernet}.
 
 Without a command the ROLE setting decides (web, worker or all). The image runs
 "all": web and worker in one process, as Dokploy deploys it. web and all apply
 the migrations and then the development seed before the HTTP port opens.
+rotate-fernet re-encrypts the stored secrets with the first FERNET_KEY
+(app/security/rotation.py); run it after the image that carries the new key
+is deployed, then drop the old keys from the setting.
 """
 
 import argparse
@@ -16,16 +19,20 @@ from pathlib import Path
 import uvicorn
 from alembic import command
 from alembic.config import Config
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.db.engine import make_engine
 from app.logging import configure_logging
 from app.main import create_app
 from app.seed.accounts import SeedError, ensure_seed_accounts
 from app.seed.demo import check_demo_host
+from app.security.crypto import SecretBox
+from app.security.rotation import RotationError, RotationReport, rotate_stored_secrets
 from app.settings import Settings, SettingsError, known_secrets, load_settings
 from app.worker.loop import run_worker
 
 ROOT = Path(__file__).resolve().parent.parent
-COMMANDS = ("web", "worker", "all", "migrate", "seed")
+COMMANDS = ("web", "worker", "all", "migrate", "seed", "rotate-fernet")
 
 logger = logging.getLogger("app")
 
@@ -98,6 +105,20 @@ async def work(settings: Settings) -> None:
     await run_worker(settings, stop)
 
 
+async def rotate(settings: Settings) -> RotationReport:
+    """Re-encrypt every stored secret with the first FERNET_KEY, or nothing:
+    one transaction, rolled back when a row cannot be read (RotationError)."""
+    engine = make_engine(settings.database_url.get_secret_value())
+    box = SecretBox(*settings.fernet_keys)
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+            report = await rotate_stored_secrets(db, box)
+            await db.commit()
+    finally:
+        await engine.dispose()
+    return report
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app", description="Checkorca-CE")
     parser.add_argument(
@@ -121,12 +142,29 @@ def main(argv: Sequence[str] | None = None) -> int:
             seed(settings)
         elif name == "worker":
             asyncio.run(work(settings))
+        elif name == "rotate-fernet":
+            report = asyncio.run(rotate(settings))
+            logger.info(
+                "rotate-fernet: %d inbox, %d channel and %d settings rows "
+                "re-encrypted with the new FERNET_KEY",
+                report.inboxes,
+                report.channels,
+                report.settings,
+            )
+            print(
+                f"checkorca: rotated {report.total} stored credential(s) "
+                "to the new FERNET_KEY"
+            )
         else:
             migrate(settings)
             seed(settings)
             asyncio.run(serve(settings, with_worker=name == "all"))
     except SeedError as error:
         logger.error("seed refused: %s", error)
+        print(f"checkorca: {error}", file=sys.stderr)
+        return 2
+    except RotationError as error:
+        logger.error("rotate-fernet refused: %s", error)
         print(f"checkorca: {error}", file=sys.stderr)
         return 2
     except Exception as error:

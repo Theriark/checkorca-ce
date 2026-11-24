@@ -31,6 +31,7 @@ from app.ext.parsers import ParserPackSource, TablePackSource
 from app.ext.reports import ReportRenderer
 from app.notify.digest import DigestRenderer
 from app.notify.registry import default_kinds
+from app.ops.metrics import router as metrics_router
 from app.security.crypto import SecretBox
 from app.security.passwords import PasswordService
 from app.security.ratelimit import RateLimiter
@@ -80,7 +81,7 @@ def create_app(
         policy=policy or AllowAllPolicy(),
         audit=audit or DatabaseAuditSink(),
         passwords=PasswordService(),
-        secret_box=SecretBox(config.fernet_key.get_secret_value()),
+        secret_box=SecretBox(*config.fernet_keys),
         login_limiter=RateLimiter(*LOGIN_RATE, clock=clock),
         token_limiter=RateLimiter(*TOKEN_RATE, clock=clock),
         bench=bench or BenchRunner(),
@@ -157,6 +158,8 @@ def create_app(
         )
 
     app.include_router(v1.router)
+    # C10-B: /metrics, outside /api/v1 and token-gated (docs/ci-cd.md).
+    app.include_router(metrics_router)
 
     # The router's default: it runs only when no route above matched.
     if static_dir is not None and (static_dir / "index.html").is_file():

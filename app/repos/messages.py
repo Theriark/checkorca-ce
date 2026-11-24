@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func, or_, select, tuple_, update
+from sqlalchemy import delete, func, or_, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import defer
 
@@ -110,6 +110,21 @@ class RawMessageRepository(Repository):
         query = query.where(RawMessage.parse_state == "pending")
         query = self.policy.scope(principal, self.resource, query)
         return int((await self.db.execute(query)).scalar_one())
+
+    @guarded("delete")
+    async def delete_with_results(
+        self, principal: Principal, message: RawMessage
+    ) -> int:
+        """Delete the message and the results it produced (admin DELETE,
+        C10-B); the number of results gone. occurrence.result_id of any
+        kept occurrence becomes NULL where it named one of them, and the
+        next evaluation decides again (docs/evaluator.md)."""
+        gone = await self.db.execute(
+            delete(JobResult).where(JobResult.raw_message_id == message.id)
+        )
+        await self.db.delete(message)
+        await self.db.flush()
+        return gone.rowcount or 0
 
     @guarded("parse")
     async def next_pending(self, principal: Principal) -> RawMessage | None:
