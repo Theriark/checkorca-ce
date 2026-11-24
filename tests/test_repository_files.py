@@ -157,12 +157,13 @@ def test_lock_job_tools_are_hash_checked_and_git_is_isolated() -> None:
         assert "pip-tools==" not in script
     script = steps_script("lock")
     safe_git = (
-        "safe_git=(git -c core.hooksPath=/dev/null -c http.sslVerify=true)"
+        "safe_git=(git -c core.hooksPath=/dev/null -c core.fsmonitor=false\n"
+        "  -c http.proxy= -c http.sslVerify=true)"
     )
     assert safe_git in script
     assert '"${safe_git[@]}" add requirements.txt requirements-dev.txt' in script
     assert 'commit -m "Update hashed requirements lock files"' in script
-    assert '"${safe_git[@]}" \\n' in script
+    assert '"${safe_git[@]}" \\\n' in script
     # No other git call writes, commits or pushes in the lock job.
     for verb in ("add", "commit", "push", "config"):
         assert f"\ngit {verb}" not in script
