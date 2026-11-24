@@ -7,11 +7,12 @@ from typing import Any
 
 import httpx
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.access import SYSTEM, AllowAllPolicy
 from app.api.pagination import encode_cursor
-from app.db.models import AppUser, Inbox
+from app.db.models import AppUser, AuditEvent, Inbox, JobResult
 from app.ingest.results import ParsedResult, ResultStatus
 from app.ingest.store import record_result, store_raw
 from app.repos.heartbeat import HeartbeatRepository
@@ -20,6 +21,7 @@ from helpers import (
     ADMIN_EMAIL,
     ADMIN_PASSWORD,
     CLIENT_NAMES,
+    CSRF_HEADER,
     TECHNICIAN_EMAIL,
     TECHNICIAN_PASSWORD,
     FakeClock,
@@ -196,7 +198,7 @@ async def test_results_list_and_one_jobs_results(
     assert item["details"] == {}
     only_failed = await client.get("/api/v1/results", params={"status": "failed"})
     assert [item["id"] for item in only_failed.json()["items"]] == [str(failed)]
-    first = await client.get(f"/api/v1/jobs/{job['id']}/results", params={"limit": 1})
+    first = await client.get("/api/v1/jobs/{job['id']}/results", params={"limit": 1})
     assert [item["id"] for item in first.json()["items"]] == [str(success)]
     rest = await client.get(
         f"/api/v1/jobs/{job['id']}/results",
@@ -283,3 +285,73 @@ async def test_technicians_and_read_tokens_can_read(
     await sign_in(client, TECHNICIAN_EMAIL, TECHNICIAN_PASSWORD)
     for path in paths:
         assert (await client.get(path)).status_code == 200
+
+
+async def test_an_admin_deletes_a_message_and_its_results(
+    client: httpx.AsyncClient,
+    csrf: str,
+    sessions: async_sessionmaker[AsyncSession],
+    db_engine: AsyncEngine,
+) -> None:
+    """The admin delete takes the message and the results it produced,
+    bound or not; another message and its results stay; the audit row keeps
+    only the id and the count."""
+    inbox = await add_inbox(sessions, "Vendor mail")
+    clock = FakeClock()
+    first, second = (await add_messages(sessions, inbox, clock))[:2]
+    dental = await make_client(client, csrf, DENTAL)
+    nightly = await make_job(client, csrf, dental["id"], "Nightly server backup")
+    clock.advance(seconds=30)
+    await add_result(sessions, clock, "failed", raw_message_id=first)
+    await add_result(
+        sessions, clock, "failed", job_id=uuid.UUID(nightly["id"]), raw_message_id=first
+    )
+    await add_result(sessions, clock, "success", raw_message_id=second)
+
+    gone = await client.delete(
+        f"/api/v1/messages/{first}", headers={CSRF_HEADER: csrf}
+    )
+    assert gone.status_code == 204
+    assert (await client.get(f"/api/v1/messages/{first}")).status_code == 404
+    detail = await client.get(f"/api/v1/messages/{second}")
+    assert detail.status_code == 200
+    assert [item["status"] for item in detail.json()["results"]] == ["success"]
+
+    async with db_engine.connect() as connection:
+        query = select(JobResult.raw_message_id)
+        left = set((await connection.execute(query)).scalars())
+        assert left == {second}
+        audit = (
+            await connection.execute(
+                select(AuditEvent).where(AuditEvent.action == "message.delete")
+            )
+        ).one()
+    assert audit.target_kind == "message"
+    assert audit.target_id == str(first)
+    assert audit.details == {"results_deleted": 2}
+
+    again = await client.delete(
+        f"/api/v1/messages/{first}", headers={CSRF_HEADER: csrf}
+    )
+    assert again.status_code == 404
+
+
+async def test_message_delete_is_admin_only(
+    client: httpx.AsyncClient,
+    sessions: async_sessionmaker[AsyncSession],
+    technician: AppUser,
+) -> None:
+    """A technician is refused with 403, and a delete without a session with
+    401 (the CSRF token is part of the session check)."""
+    inbox = await add_inbox(sessions, "Vendor mail")
+    found = (await add_messages(sessions, inbox, FakeClock()))[0]
+
+    tech = await sign_in(client, TECHNICIAN_EMAIL, TECHNICIAN_PASSWORD)
+    refused = await client.delete(
+        f"/api/v1/messages/{found}", headers={CSRF_HEADER: tech}
+    )
+    assert refused.status_code == 403
+    assert (await client.get(f"/api/v1/messages/{found}")).status_code == 200
+
+    unsigned = await client.delete(f"/api/v1/messages/{found}")
+    assert unsigned.status_code == 401
