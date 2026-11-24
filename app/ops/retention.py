@@ -53,7 +53,7 @@ from app.db.models import (
     RawMessage,
 )
 from app.evaluator.model import CLOSED_STATES
-from app.ext.retention import Retention, RetainBySettings, RetentionPolicy
+from app.ext.retention import RetainBySettings, Retention, RetentionPolicy
 from app.repos.settings import SettingsRepository
 
 if TYPE_CHECKING:
