@@ -107,7 +107,7 @@ class FakeKind:
 
 class Recorder:
     """A subscriber that keeps the NotificationSent events and the status the
-    database shows when each arrives."""
+database shows when each arrives."""
 
     name = "recorder"
 
@@ -333,6 +333,9 @@ async def test_the_retry_ladder_then_failed(
     clock: FakeClock,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    from app.ops.metrics import registry
+
+    before = registry.get_sample_value("checkorca_notification_failures_total")
     caplog.set_level(logging.DEBUG, logger="app")
     recorder = Recorder(db_engine)
     context = dataclasses.replace(context, subscribers=(*context.subscribers, recorder))
@@ -381,6 +384,9 @@ async def test_the_retry_ladder_then_failed(
     # The worker's log never holds the relay password either (D-6).
     assert "failed after 4 attempts" in caplog.text
     assert SECRET not in caplog.text
+    # The failure counter moved by exactly this one final failure (C10-B).
+    after = registry.get_sample_value("checkorca_notification_failures_total")
+    assert after == (before or 0.0) + 1.0
 
 
 async def test_an_unexpected_kind_error_is_stored_and_logged_without_the_secret(
@@ -414,8 +420,8 @@ async def test_one_broken_notification_does_not_stop_the_others(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A notification whose message cannot be made (a renderer, the
-    database) fails on its own retry ladder; the ones due after it are still
-    sent in the same tick."""
+database) fails on its own retry ladder; the ones due after it are still
+sent in the same tick."""
     caplog.set_level(logging.DEBUG, logger="app")
     await add_job(context, await add_client(context))
     first = await add_channel(context, "Ops mail")
@@ -458,7 +464,7 @@ async def test_a_failing_channel_gets_one_attempt_per_tick(
     context: WorkerContext, kind: FakeKind, db_engine: AsyncEngine, clock: FakeClock
 ) -> None:
     """A relay that fails (or hangs) does not take the tick's budget: the
-    channel's other notifications wait for the next tick."""
+channel's other notifications wait for the next tick."""
     dental = await add_client(context)
     await add_job(context, dental)
     await add_job(context, dental, "Database dump")
@@ -477,8 +483,8 @@ async def test_a_flip_the_queue_missed_is_caught_up(
     context: WorkerContext, kind: FakeKind, db_engine: AsyncEngine, clock: FakeClock
 ) -> None:
     """The worker stopped after the evaluator's commit and before the
-    NotificationQueue ran: the next dispatcher tick queues the flip once,
-    for the channels that existed at the flip."""
+NotificationQueue ran: the next dispatcher tick queues the flip once,
+for the channels that existed at the flip."""
     await add_job(context, await add_client(context))
     channel = await add_channel(context)
     await add_rule(context, channel, ["missed"])
@@ -620,7 +626,7 @@ async def test_turning_reminders_on_late_reminds_of_no_old_outage(
     context: WorkerContext, kind: FakeKind, db_engine: AsyncEngine, clock: FakeClock
 ) -> None:
     """A flip older than 24 hours plus REMINDER_WINDOW gets no reminder when
-    the setting is turned on later."""
+the setting is turned on later."""
     await add_job(context, await add_client(context))
     await add_rule(context, await add_channel(context), ["missed"])
     at(clock, MISSED_AT)
@@ -668,8 +674,8 @@ async def http_context(
     db_engine: AsyncEngine, clock: FakeClock
 ) -> AsyncIterator[WorkerContext]:
     """The worker with the real channel kinds (default_kinds), private
-    targets allowed so the kinds deliver to the capture server on 127.0.0.1
-    and to nothing beyond it."""
+targets allowed so the kinds deliver to the capture server on 127.0.0.1
+and to nothing beyond it."""
     built = build_context(load_settings(allow_private_targets=True), clock)
     yield built
     await built.engine.dispose()
@@ -679,7 +685,7 @@ async def add_http_channel(
     context: WorkerContext, kind_name: str, url: str, label: str = "Ops hook"
 ) -> Channel:
     """A channel of one of the HTTP kinds at url, the url its stored secret
-    and the stored config the API would keep (url_set and url_host only)."""
+and the stored config the API would keep (url_set and url_host only)."""
     async with context.sessionmaker() as db:
         channel = await ChannelRepository(db, context.policy).create(
             SYSTEM,
@@ -700,8 +706,8 @@ async def test_the_http_kinds_deliver_one_notification_each(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """The C9-B dispatcher works unchanged for slack, teams and webhook: one
-    notification per flip per channel, delivered through the SSRF guard, and
-    NotificationSent after the commit."""
+notification per flip per channel, delivered through the SSRF guard, and
+NotificationSent after the commit."""
     caplog.set_level(logging.DEBUG, logger="app")
     recorder = Recorder(db_engine)
     context = dataclasses.replace(
@@ -763,7 +769,7 @@ async def test_the_http_kinds_deliver_one_notification_each(
         stored = await stored_channel(db_engine, channels[0])
         assert stored.last_status == "sent" and stored.last_error is None
         # The stored secret is the ciphertext of the URL, and neither the
-        # worker's log nor a stored sentence carries its path (D-6).
+        worker's log nor a stored sentence carries its path (D-6).
         assert URL_CANARY not in (stored.secret_enc or "")
         assert URL_CANARY not in caplog.text
     finally:
@@ -774,7 +780,7 @@ async def test_a_failing_webhook_retries_on_the_ladder(
     http_context: WorkerContext, db_engine: AsyncEngine, clock: FakeClock
 ) -> None:
     """A webhook that answers 500 retries after 1, 5 and 30 minutes like any
-    channel, and delivers when the receiver mends."""
+channel, and delivers when the receiver mends."""
     context = http_context
     capture = HttpCapture([http_answer(500)])
     await capture.start()

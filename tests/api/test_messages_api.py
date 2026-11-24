@@ -198,7 +198,7 @@ async def test_results_list_and_one_jobs_results(
     assert item["details"] == {}
     only_failed = await client.get("/api/v1/results", params={"status": "failed"})
     assert [item["id"] for item in only_failed.json()["items"]] == [str(failed)]
-    first = await client.get("/api/v1/jobs/{job['id']}/results", params={"limit": 1})
+    first = await client.get(f"/api/v1/jobs/{job['id']}/results", params={"limit": 1})
     assert [item["id"] for item in first.json()["items"]] == [str(success)]
     rest = await client.get(
         f"/api/v1/jobs/{job['id']}/results",
